@@ -176,7 +176,15 @@ export function generateWorkflow(idea: string, options: { format?: WorkflowForma
       ],
       gate: 'Every payoff moment in the spine has a shot that shows it.',
       run: command('shots.md', 'plan', 'shots', slug, '--format', format),
-      check: { kind: 'file-exists', path: 'shots.md' },
+      // The shot list is only evidence when the spine has payoffs to shoot: an empty ladder
+      // produces a shots.md whose payoff section says so, which is not a shoot plan.
+      check: {
+        kind: 'all-of',
+        checks: [
+          { kind: 'file-exists', path: 'shots.md' },
+          { kind: 'json-path-min', path: 'story.json', jsonPath: 'payoffLadder.length', min: 1 },
+        ],
+      },
     },
     {
       id: 'production',

@@ -214,7 +214,7 @@
           </div>
           <p class="muted" id="scan-summary"></p>
         </div>
-        <div class="card"><h3>Ranked by multiplier</h3><div class="tablewrap"><table id="scan-table"><thead><tr><th class="num">#</th><th class="num">Mult</th><th>Tier</th><th class="num">Views</th><th class="num">Vel.</th><th>Title</th><th>Formats</th><th></th></tr></thead><tbody></tbody></table></div></div>
+        <div class="card"><h3>Ranked by demand (velocity while a video is fresh, multiplier after)</h3><div class="tablewrap"><table id="scan-table"><thead><tr><th class="num">#</th><th class="num">Mult</th><th>Tier</th><th class="num">Views</th><th class="num">Vel.</th><th>Title</th><th>Formats</th><th></th></tr></thead><tbody></tbody></table></div></div>
         <div class="grid2">
           <div class="card"><h3>Topic demand</h3><div class="tablewrap"><table id="scan-topics"><thead><tr><th>Topic</th><th class="num">Videos</th><th class="num">Best</th><th>Channels</th><th>Best title</th></tr></thead><tbody></tbody></table></div></div>
           <div class="card"><h3>Format lift among winners</h3><div class="lift-list" id="scan-lift"></div></div>
@@ -287,6 +287,7 @@
           <div class="card">
             <h3>QA a concept</h3>
             <div class="row">
+              <div class="field sm"><label for="tq-name">Concept name</label><input id="tq-name" placeholder="stakes"></div>
               <div class="field"><label for="tq-subject">Focal subject</label><input id="tq-subject" placeholder="my face lit by a headlamp"></div>
               <div class="field sm"><label for="tq-emotion">Emotion</label><input id="tq-emotion" placeholder="worried"></div>
             </div>
@@ -616,6 +617,7 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     const ranked = B.computeOutliers(rows, { threshold, minAgeDays: 7, sinceDays: numv('scan-since') || 90 })
     state.lastScan = { scannedAt: nowIso(), sinceDays: numv('scan-since') || 90, ranked }
     local.write('lastScan', state.lastScan)
+    local.write('scanInput', { csv: $('scan-csv').value, threshold: $('scan-threshold').value, since: $('scan-since').value })
     const channels = [...new Set(rows.map((r) => r.channel || 'default'))]
     $('scan-summary').textContent = `${rows.length} videos · ` + channels.map((c) => `${c}: median ${fmt(B.median(rows.filter((r) => (r.channel || 'default') === c).map((r) => r.views)))}`).join(' · ')
     const tb = $('scan-table').querySelector('tbody')
@@ -663,8 +665,13 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     const idea = $('idea-text').value.trim(); if (!idea) { toast('Write the idea first.'); return }
     const scores = readAxes(); const v = B.scoreIdea(scores)
     const existing = ideas().find((i) => i.id === state.currentId)
-    const doc = existing ? { ...existing, idea, source: $('idea-source').value.trim() || existing.source, scores } : { id: B.stableId('idea', idea), idea, topicKey: B.topicKey(idea), sources: $('idea-source').value.trim() ? [{ title: $('idea-source').value.trim() }] : [], scores, status: v.verdict === 'green' ? 'green' : 'banked', createdAt: nowIso() }
+    // The outlier is evidence, so it belongs in sources[]; doc.source is provenance and store.put stamps it 'desk'.
+    const src = $('idea-source').value.trim()
+    const doc = existing ? { ...existing, idea, sources: src ? [{ title: src }] : (existing.sources || []), scores } : { id: B.stableId('idea', idea), idea, topicKey: B.topicKey(idea), sources: src ? [{ title: src }] : [], scores, status: v.verdict === 'green' ? 'green' : 'banked', createdAt: nowIso() }
     doc.weakestAxis = weakest(scores)
+    // A row an older Desk wrote carries the outlier in `source`, which schema.ts rejects on bank import:
+    // move it to the evidence it always was and let store.put stamp the provenance again.
+    if (doc.source && !/^(desk|cli|agent:[a-z0-9_-]+)$/i.test(doc.source)) { if (!doc.sources?.length) doc.sources = [{ title: doc.source }]; delete doc.source }
     await store.put('ideas', doc); state.currentId = doc.id; local.write('currentId', doc.id)
     toast('Saved.')
   })
@@ -686,7 +693,7 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   function loadIdea(id) {
     const i = ideas().find((x) => x.id === id); if (!i) return
     state.currentId = id; local.write('currentId', id)
-    $('idea-text').value = i.idea; $('idea-source').value = i.sources?.[0]?.title || i.source || ''
+    $('idea-text').value = i.idea; $('idea-source').value = i.sources?.[0]?.title || ''
     AXES.forEach((a) => { $('ax-' + a).value = i.scores?.[a] ?? 3; $('axv-' + a).textContent = $('ax-' + a).value })
     scoreCurrentIdea()
     $('tl-topic').value = i.idea.replace(/^Remix:\s*/i, ''); $('wf-idea').value = i.idea
@@ -752,7 +759,13 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   // ---------- 4 THUMBNAIL ----------
   function specFromForm() { return { focalSubject: $('tq-subject').value.trim(), emotion: $('tq-emotion').value.trim() || undefined, elements: list($('tq-elements').value), text: $('tq-text').value.trim() || undefined, background: $('tq-bg').value.trim() || undefined, colors: list($('tq-colors').value), title: $('tq-title').value.trim() || undefined } }
   function qaHtml(qa) { return `<div class="verdict ${verdictKind(qa.grade)}"><span class="big">${qa.score}</span><div><b>${qa.grade.toUpperCase()}</b><p class="muted">${qa.passes.length} pass · ${qa.failures.length} fail</p></div></div><ul class="list">${qa.passes.map((p) => `<li class="muted">✓ ${esc(p)}</li>`).join('')}${qa.failures.map((f) => `<li><b>✕ ${esc(f)}</b></li>`).join('')}${qa.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` }
-  $('tq-run').addEventListener('click', () => { const spec = specFromForm(); if (!spec.focalSubject) { toast('Name the focal subject.'); return } $('tq-out').innerHTML = qaHtml(B.qaThumbnail(spec, signature())) })
+  // The publish gate reads these grades back by concept name, the way the CLI keys them off
+  // the names in package.json; a concept nobody QA'd is rethink, as cli/commands/publish.ts does.
+  const gradeKey = (name) => (name || '').trim().toLowerCase()
+  const conceptGrades = new Map(Object.entries(local.read('thumbGrades') || {}))
+  function recordGrade(name, grade) { const k = gradeKey(name); if (!k) return; conceptGrades.set(k, grade); local.write('thumbGrades', Object.fromEntries(conceptGrades)) }
+  function gradeFor(name) { return conceptGrades.get(gradeKey(name)) || 'rethink' }
+  $('tq-run').addEventListener('click', () => { const spec = specFromForm(); if (!spec.focalSubject) { toast('Name the focal subject.'); return } const qa = B.qaThumbnail(spec, signature()); recordGrade($('tq-name').value, qa.grade); $('tq-out').innerHTML = qaHtml(qa) })
   $('tq-ai').addEventListener('click', async () => {
     const title = $('tq-title').value.trim() || $('pr-title').value.trim(); if (!title || !state.sample) { toast('Give the title first.'); return }
     $('tq-ai').disabled = true; $('tq-ai').textContent = 'Thinking…'
@@ -760,7 +773,7 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
       const sig = signature()
       const out = await state.sample.json(`Design 5 YouTube thumbnail concepts as specs for the title "${title}" (promise: ${$('pk-promise').value || 'see title'}). Rules: one focal subject; at most three elements; three words of text or fewer that do NOT repeat the title; a specific emotion if a face is present; a high-contrast colour pair; a clean background.${sig ? ' Channel signature: ' + B.describeSignature(sig) : ''} Return JSON only: {"concepts":[{"name":"","angle":"result|stakes|curiosity|contrast|identity","focalSubject":"","emotion":"","elements":["",""],"text":"","background":"","colors":["",""],"composition":""}]}`, { modelTier: 'default' })
       const concepts = out?.concepts || []
-      $('tq-out').innerHTML = concepts.map((c) => { const qa = B.qaThumbnail({ ...c, title }, sig); return `<div class="concept"><h4>${esc(c.name)} <span class="pill ${verdictKind(qa.grade)}">${qa.score} ${qa.grade}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)} (${esc(c.emotion || 'no face')})</dd><dt>Elements</dt><dd>${esc((c.elements || []).join(', '))}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Colours</dt><dd>${esc((c.colors || []).join(' / '))} · ${esc(c.background || '')}</dd><dt>Composition</dt><dd>${esc(c.composition || '')}</dd>${qa.fixes.length ? `<dt>Fix</dt><dd>${esc(qa.fixes.join(' '))}</dd>` : ''}</dl></div>` }).join('')
+      $('tq-out').innerHTML = concepts.map((c) => { const qa = B.qaThumbnail({ ...c, title }, sig); recordGrade(c.name, qa.grade); return `<div class="concept"><h4>${esc(c.name)} <span class="pill ${verdictKind(qa.grade)}">${qa.score} ${qa.grade}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)} (${esc(c.emotion || 'no face')})</dd><dt>Elements</dt><dd>${esc((c.elements || []).join(', '))}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Colours</dt><dd>${esc((c.colors || []).join(' / '))} · ${esc(c.background || '')}</dd><dt>Composition</dt><dd>${esc(c.composition || '')}</dd>${qa.fixes.length ? `<dt>Fix</dt><dd>${esc(qa.fixes.join(' '))}</dd>` : ''}</dl></div>` }).join('')
     } catch (e) { toast(e?.code === 'not_granted' ? 'Claude calls were not allowed on this page.' : 'Claude could not answer: ' + (e?.message || e)) }
     $('tq-ai').disabled = false; $('tq-ai').textContent = 'Ask Claude for 5 concepts'
   })
@@ -809,8 +822,10 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     $('pb-out').innerHTML = `<button class="btn sm" id="pb-copy">Copy</button><pre>${esc(md)}</pre>`
     $('pb-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(md); toast('Publish pack copied.') } catch { toast('Clipboard blocked; select the text instead.') } })
     const thumbText = $('pr-thumb').value.trim()
-    const check = B.checkPublish(lastPack, { titleScore: B.scoreTitle(title).score, thumbGrades: ['ship', 'ship'], overlapOk: B.titleThumbnailOverlap(title, thumbText) < B.thresholds.titleThumbOverlapMax.value, reviewScheduled: true })
-    $('pb-check').innerHTML = `<h3>Checklist · ${check.pass ? '<span class="ok">ready</span>' : '<span class="no">not yet</span>'}</h3><ul class="plain">${check.items.map((it) => `<li>${it.ok ? '<span class="ok">✓</span>' : '<span class="no">✕</span>'} ${esc(it.label)}</li>`).join('')}</ul>`
+    // reviewScheduled is left to its false default: nothing on this page has put the 48-hour
+    // review on a calendar yet, and a gate that asserts its own inputs cannot fail.
+    const check = B.checkPublish(lastPack, { titleScore: B.scoreTitle(title).score, thumbGrades: [gradeFor($('pb-thumb-a').value), gradeFor($('pb-thumb-b').value)], overlapOk: B.titleThumbnailOverlap(title, thumbText) < B.thresholds.titleThumbOverlapMax.value })
+    $('pb-check').innerHTML = `<h3>Checklist · ${check.pass ? '<span class="ok">ready</span>' : '<span class="no">not yet</span>'}</h3><ul class="plain">${check.items.map((it) => `<li>${it.ok ? '<span class="ok">✓</span>' : '<span class="no">✕</span>'} ${esc(it.label)}${it.detail ? `<br><small class="muted">${esc(it.detail)}</small>` : ''}</li>`).join('')}</ul>`
   })
   $('pb-confirm').addEventListener('click', async () => {
     const title = $('pb-title').value.trim() || $('pr-title').value.trim(); if (!title) { toast('Title is required.'); return }
@@ -950,7 +965,12 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     state.profile = local.read('profile') || defaultProfile()
     for (const c of COLS) state.docs[c] = local.read(c) || []
     state.currentId = local.read('currentId'); state.lastScan = local.read('lastScan')
-    $('scan-csv').value = EXAMPLE_CSV
+    // The scan the person pasted is their own data: the example is a fallback for a first visit,
+    // never a replacement for it, and the controls come back with it so the re-scan is the same scan.
+    const scanInput = local.read('scanInput')
+    $('scan-csv').value = scanInput?.csv || EXAMPLE_CSV
+    if (scanInput?.threshold) $('scan-threshold').value = scanInput.threshold
+    if (scanInput?.since) $('scan-since').value = scanInput.since
     runScan(); renderAll(); scoreCurrentIdea()
     const stage = local.read('stage'); if (stage && document.getElementById('stage-' + stage)) show(stage)
     if (state.currentId) loadIdea(state.currentId)

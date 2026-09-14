@@ -19,10 +19,13 @@ import type { WorkflowFormat } from '../../src/types.js'
 import { WORKFLOW_FORMATS } from '../../src/workflow.js'
 import { getProfile, getStore, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_DIRECTION = 'booster direction [--scan data/last-scan.json] [--data dir] [--path channel.json] [--json]'
+const USAGE_DIRECTION = 'booster direction [--scan last-audit.json] [--data dir] [--path channel.json] [--json]'
 const USAGE_SHOTS = `booster plan shots <slug> [--format ${WORKFLOW_FORMATS.join('|')}] [--root dir] [--out packages/<slug>/shots.md] [--json]`
 
 const TIERS: readonly string[] = ['fresh', 'mega', 'outlier', 'normal']
+
+/** The two names a bare `--save` writes: `audit` keeps the channel's own scan apart from the competitor one. */
+const DEFAULT_SCANS = ['last-audit.json', 'last-scan.json']
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -59,8 +62,12 @@ async function runDirection(flags: Flags): Promise<number> {
   const scanArg = str(flags, 'scan')
   let scanFile: string | undefined
   if (scanArg !== undefined) {
-    // A bare `--save` writes <store>/last-scan.json, so "data/last-scan.json" from the repo root means the store copy too.
-    const candidates = [...new Set([path.resolve(scanArg), path.resolve(store.root, scanArg), path.resolve(store.root, path.basename(scanArg))])]
+    // A bare `--save` writes <store>/last-scan.json for outliers and <store>/last-audit.json for
+    // audit, so a path under the repository root means the store copy too, and either default
+    // name finds the other: the direction wants the channel's own uploads, which audit writes.
+    const named = [path.resolve(scanArg), path.resolve(store.root, scanArg), path.resolve(store.root, path.basename(scanArg))]
+    const defaults = DEFAULT_SCANS.includes(path.basename(scanArg)) ? DEFAULT_SCANS.map((f) => path.resolve(store.root, f)) : []
+    const candidates = [...new Set([...named, ...defaults])]
     scanFile = candidates.find((f) => existsSync(f))
     if (!scanFile) throw new Error(`--scan ${scanArg} does not exist (looked at ${candidates.join(', ')}); write one with booster audit <csv> --save. Usage: ${USAGE_DIRECTION}`)
   }

@@ -205,6 +205,7 @@ describe('runStage', () => {
   it('treats a stage without a run as a human stage with only its check', () => {
     const custom: Workflow = { ...wf, stages: wf.stages.map((s) => (s.id === 'plan' ? { ...s, run: undefined } : s)) }
     writeFileSync(path.join(pkg(wf), 'shots.md'), 'x')
+    writeJson(pkg(wf), 'story.json', { payoffLadder: [{ atSec: 45, moment: 'the light comes on' }] })
     const r = runStage(custom, 'plan', { cwd: root, now: clock() })
     expect(r).toMatchObject({ kind: 'human', evidence: undefined, status: 'passed' })
   })

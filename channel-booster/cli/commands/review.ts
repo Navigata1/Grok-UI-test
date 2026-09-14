@@ -163,7 +163,7 @@ function recordedDecision(store: ReturnType<typeof getStore>, slug: string, buck
 }
 
 /**
- * A person approves a recorded decision (human-only gate 3). Prints what it
+ * A person approves a recorded decision (human-only gate 4). Prints what it
  * is about to stamp and needs --yes as well as --by; the decision itself is
  * never changed here, only who stood behind it and when.
  */
@@ -320,7 +320,7 @@ export const reviewModule: CommandModule = {
   help: [
     'postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]   diagnose typed Studio numbers; profile baselines unless --baseline-* is typed',
     'decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]         diagnose a ledger read with leave-one-out baselines and decide; --record stores decisions/<slug>:<bucket>',
-    'decide approve <slug> --bucket 48|168|672 --by <name> --yes            a person stands behind a recorded decision (human-only gate 3)',
+    'decide approve <slug> --bucket 48|168|672 --by <name> --yes            a person stands behind a recorded decision (human-only gate 4)',
     'decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir]  record that it was carried out (REPACKAGE, RE-TEST-TITLE, SEQUEL, EXPAND, PARK; WAIT and HOLD have nothing to apply); stamps repackagedAt on the ledger row for a swap (human-only gate 4)',
     'repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]   the swap plan from the recorded decision and package.json; prepares only, never applies',
   ],

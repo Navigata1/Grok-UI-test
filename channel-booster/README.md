@@ -33,7 +33,7 @@ scan ──> idea bank ──> package ──> thumbnail ──> story ──> p
  + lift     scorecard     + review     + brief     + rehooks                          diagnosis       + rule
 ```
 
-Each arrow is a gate. Demand before packaging, packaging before script, script before shoot. `booster workflow "<idea>"` writes the runbook with owners, due days, checklists and machine gates, and `booster workflow run <slug> --next` drives it one stage at a time: the agent stages run a `booster` command and check its artifact (`package.json` gates pass, `story.json` hook score, `shots.md`, `publish-check.json`, `review-48.json`); the creative stages wait for a person's evidence file. Nothing advances past a failed gate without a recorded, reasoned override.
+Each arrow is a gate. Demand before packaging, packaging before script, script before shoot. `booster workflow "<idea>"` writes the runbook with owners, due days, checklists and machine gates, and `booster workflow run <slug> --next` drives it one stage at a time: the agent stages run a `booster` command and check its artifact (`demand.json` verdict and bank status both green, `package.json` gates pass, `story.json` hook score, `shots.md`, `proof-sheet.html`, `publish-check.json`, `review-48.json`); the creative stages wait for a person's evidence file. Nothing advances past a failed gate without a recorded, reasoned override.
 
 ## Commands
 
@@ -43,7 +43,7 @@ Each arrow is a gate. Demand before packaging, packaging before script, script b
 
 ```
 booster profile init [--positioning ..] [--persona ..] [--colors "yellow,black"] [--competitors "A, B"] [--max-per-week 1] [--publish-day thu] [--solo|--team]
-booster profile show | profile refresh [--window 10] [--min-age-days 7]      the profile and its computed baselines (median + MAD, tier prior/thin/solid)
+booster profile show | profile refresh [--window 10] [--min-age-days 7] [--dry-run] [--yes]   the profile and its computed baselines (median + MAD, tier prior/thin/solid); moving a baseline it already has needs --yes
 booster signature show | signature set --colors "yellow,black" [--face ..] [--max-words 3]
 booster thresholds [<key>]                                                    every gate as "key value [evidence] note"; override any in channel.json
 ```
@@ -51,13 +51,15 @@ booster thresholds [<key>]                                                    ev
 **Find demand and bank ideas**
 
 ```
-booster outliers <csv> [--since 90] [--fresh] [--by topic] [--saturation] [--diff data/last-scan.json] [--save]   competitors: views / channel median
-booster audit <csv> [--threshold 5] [--save]                                  your own uploads: winners, format lift, proven formats
-booster direction [--scan data/last-scan.json]                                positioning, proven formats, series trends, never-again, three bets
-booster idea score "<idea>" --score "demand=auto,packaging=3,..." --outliers <csv>
+booster outliers <csv> [--since 90] [--fresh] [--by topic] [--saturation] [--diff last-scan.json] [--save]   competitors: views / channel median
+booster audit <csv> [--threshold 5] [--diff last-audit.json] [--save]         your own uploads: winners, format lift, proven formats
+booster direction [--scan last-audit.json]                                    positioning, proven formats, series trends, never-again, three bets
+booster idea score "<idea>" --score "demand=auto,packaging=3,..." --outliers <csv> | idea score <slug> [--out demand.json]
 booster bank add "<idea>" --score ".." [--promise ..] [--series ..] | bank list | bank approve <id> --yes | bank park|reject <id> --reason ".."
 booster bank rescore <competitors.csv> | bank sequels | bank import <ideas.json> | bank wip
 ```
+
+A bare `--save` writes the scan into the store: `outliers` to `<data>/last-scan.json`, `audit` to `<data>/last-audit.json`, so the two never overwrite each other. `--diff` and `direction --scan` take a bare file name and look for it in the store, so the examples above work from any directory and under any `--data`.
 
 **Package before you produce**
 
@@ -67,7 +69,9 @@ booster titles "<topic>" | titles score "<title>"
 booster thumbnail brief "<idea>" --title ".." | thumbnail qa --subject ".." --elements "a,b,c" [--text ..]
 booster thumbnail proof <slug> [--images dir] | thumbnail render <slug> | thumbnail check <file.png>
 booster package review --title ".." --thumb-text ".."
-booster hook score --script <file> --slug <slug> [--payoffs retention-map.json]   packages/<slug>/story.json (payoff ladder from the retention map); exit 1 when the hook gate fails
+booster hook score --script <file> --slug <slug> [--payoffs retention-map.json]   packages/<slug>/story.json; exit 1 when the hook gate fails
+   the payoff ladder comes from --payoffs, else from packages/<slug>/payoffs.json if it is there: {"payoffLadder": [{"atSec": 45, "moment": ".."}]}
+   the shoot plan's gate needs at least one payoff, because a shot list with nothing to prove is not a shoot plan
 booster promise check --promise ".." [--title ..] [--script <file>] [--description ..] [--thumb-text ..]
 booster plan shots <slug> [--format ..]                                       the shoot's shot list from package.json + story.json
 ```
@@ -78,7 +82,7 @@ booster plan shots <slug> [--format ..]                                       th
 booster workflow "<idea>" [--promise ".."] [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] --out packages
 booster workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run]   one stage at a time; --override --reason ".." --yes is a person's call
 booster workflow status <slug> | cadence | calendar --ideas "A;B;C" --start YYYY-MM-DD
-booster publish pack <slug> | publish check <slug> | publish confirm <slug> --video-id <id> --at <ISO> --yes
+booster publish pack <slug> | publish check <slug> | publish confirm <slug> --video-id <id> --at <ISO> [--levers "a,b"] [--predicted-ctr 1.3] --yes
 booster test judge --slug <slug> --a "impr,ctr" --b ".." --hours 72 [--record]
 ```
 
@@ -136,7 +140,7 @@ node channel-booster/dashboard/build.mjs
 
 `booster cadence` prints the week: Monday outlier scan and idea bank, Tuesday packaging sprint, Wednesday to Friday production, Friday thumbnail review, a 48-hour review after every publish, Sunday retro. One packaging sprint per publish; fewer, better-packaged uploads beat more uploads.
 
-The unattended half runs on three jobs ([`docs/routines.md`](docs/routines.md) has the schedules and the agent prompt): `booster review run` every six hours (ingest `inbox/`, diagnose every read that is due, record a decision, prepare a swap, write the digest), `booster outliers ... --diff --save && booster bank rescore && booster brief --week` on Monday, and `booster rules compile && booster retro --since 7d` on Sunday. The agent prepares; a person approves ideas, picks the final package, publishes, applies swaps, types the two numbers Studio does not export, writes the 7-day lever and accepts rules.
+The unattended half runs on three jobs ([`docs/routines.md`](docs/routines.md) has the schedules and the agent prompt): `booster review run` every six hours (ingest `inbox/`, diagnose every read that is due, record a decision, prepare a swap, write the digest), `booster outliers <csv> --fresh --diff last-scan.json --save && booster bank rescore <csv> && booster brief --week` on Monday, and `booster rules compile && booster retro --since 7d` on Sunday. The agent prepares; a person approves ideas, picks the final package, publishes, applies swaps, types the two numbers Studio does not export, writes the 7-day lever and accepts rules.
 
 ## Data shape
 
@@ -157,9 +161,9 @@ channel-booster/
   cli/                      booster.ts routes; commands/*.ts per group
   dashboard/                template.html + build.mjs -> index.html
   examples/                 sample exports
-  data/                     the store: ideas, ledger, decisions, experiments, rules, workflows (JSONL, git-ignored)
+  data/                     the store: ideas, ledger, decisions, experiments, rules, workflows (JSONL, git-ignored); last-scan.json and last-audit.json land here too
   inbox/                    drop Studio exports here for booster review run (git-ignored)
-  packages/<slug>/          package.json/.md, story.json, shots.md, publish.md, review-48.json (git-ignored)
+  packages/<slug>/          demand.json, package.json/.md, story.json, shots.md, proof-sheet.html, publish.md, review-48.json (git-ignored)
 ```
 
 ## Honest limits

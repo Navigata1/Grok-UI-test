@@ -4,7 +4,7 @@ For any agent (Claude Code, Grok Build, a scheduled routine) operating the Chann
 
 ## The loop
 
-One video moves through eleven gated stages (see `docs/03-system-architecture.md`, section 3). Drive it one stage at a time:
+One video moves through ten gated stages (see `docs/03-system-architecture.md`, section 3). The 28-day learn is not one of them: `rules compile` runs as the Sunday weekly job, across videos rather than on one. Drive the ten one stage at a time:
 
 ```
 npm run booster -- workflow "<idea>" --format <format> --days 14 --out packages   # once, creates the runbook
@@ -24,7 +24,7 @@ An agent prepares; a person decides. Stop and ask at these points, every time:
 3. Writing and performing the script, shooting, editing.
 4. Clicking publish, starting Test & Compare, applying a repackage swap (public, irreversible).
 5. Typing the numbers Studio does not export (30-second retention, returning vs new, Test & Compare panel).
-6. Writing the lever learned at 7 days, accepting or rewriting a playbook rule, raising `maxPerWeek`, resetting the baseline.
+6. Writing the lever learned at 7 days, accepting or rewriting a playbook rule, raising `maxPerWeek`, moving a baseline the profile already carries (`booster profile refresh --yes`; `--dry-run` shows what would move).
 
 Never simulate a review pass, never invent a lever to unblock a 7-day read, never write to `playbook/*.md` except through `booster retro --accept-rule`, never scrape YouTube. Numbers come from a Studio export in `inbox/`, the Desk, or the official Data API adapter with a key the user supplied.
 
@@ -33,7 +33,7 @@ Never simulate a review pass, never invent a lever to unblock a 7-day read, neve
 - `channel.json`: the channel profile (positioning, persona, series, signature, competitors, cadence, computed baselines). Start from `channel.example.json`.
 - `data/*.jsonl`: ideas, ledger, experiments, decisions, rules, workflows. Schema in `src/schema.ts`. Ignored by git; export with `booster ledger export`.
 - `packages/<slug>/`: package.json, story.json, shots.md, publish.md, thumb-A.png, thumb-B.png, proof-sheet.html.
-- `inbox/`: drop Studio exports here; `booster ingest` reads them.
+- `inbox/`: drop Studio exports here; `booster review run` ingests everything in it, and `booster ingest <file.csv>` takes one by path.
 - `playbook/`: the rules. `playbook/00-learned-rules.md` is compiled from evidence; do not edit by hand.
 
 ## Evidence discipline

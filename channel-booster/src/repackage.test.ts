@@ -5,7 +5,7 @@ import type { DecisionDoc } from './schema.js'
 const pkg: RepackagePackage = {
   titles: [
     { title: 'I Built a Solar Generator From Scrap', score: 82 },
-    { title: 'Scrap to Solar: 300W for $40', score: 78 },
+    { title: 'Scrap to Solar: 300W for Just $40', score: 78 },
     { title: 'Can Junk Power a House?', score: 71 },
   ],
   thumbnails: [
@@ -62,15 +62,20 @@ describe('pickThumbnail', () => {
 
 describe('pickTitle', () => {
   it('returns the next-best title after the live one, comparing case-insensitively', () => {
-    expect(pickTitle(pkg)?.title).toBe('Scrap to Solar: 300W for $40')
+    expect(pickTitle(pkg)?.title).toBe('Scrap to Solar: 300W for Just $40')
     expect(pickTitle({ ...pkg, chosenTitle: '  scrap to solar: 300w for $40 ' })?.title).toBe('I Built a Solar Generator From Scrap')
-    expect(pickTitle({ ...pkg, chosenTitle: undefined })?.title).toBe('Scrap to Solar: 300W for $40')
+    expect(pickTitle({ ...pkg, chosenTitle: undefined })?.title).toBe('Scrap to Solar: 300W for Just $40')
     expect(pickTitle({ ...pkg, titles: [pkg.titles[0]] })).toBeUndefined()
+    // A replacement the publish checklist would reject on length is not a replacement.
+    const tooShort = { ...pkg, titles: [pkg.titles[0], { title: 'Junk to 300W', score: 99 }] }
+    expect(pickTitle(tooShort)).toBeUndefined()
+    const tooLong = { ...pkg, titles: [pkg.titles[0], { title: 'I Built a Solar Generator From Scrap Metal for Under $40 and Ran a Fridge', score: 99 }] }
+    expect(pickTitle(tooLong)).toBeUndefined()
     expect(pickTitle({ ...pkg, titles: [] })).toBeUndefined()
   })
   it('sorts by score rather than trusting package order', () => {
     const shuffled = { ...pkg, titles: [pkg.titles[2], pkg.titles[0], pkg.titles[1]] }
-    expect(pickTitle(shuffled)?.title).toBe('Scrap to Solar: 300W for $40')
+    expect(pickTitle(shuffled)?.title).toBe('Scrap to Solar: 300W for Just $40')
   })
 })
 
@@ -80,10 +85,10 @@ describe('prepareRepackage', () => {
     const plan = prepareRepackage(pkg, decision('REPACKAGE', { ctrLowMark: 3.75, expectedGainViews: 1650 }, 'Expected gain 1,650 views clears the 500 floor.'))
     expect(JSON.stringify(pkg)).toBe(before)
     expect(plan.thumbnail?.name).toBe('curiosity-box')
-    expect(plan.title?.title).toBe('Scrap to Solar: 300W for $40')
+    expect(plan.title?.title).toBe('Scrap to Solar: 300W for Just $40')
     expect(plan.instructions[0]).toBe('Thumbnail first: replace result-panel / stakes-bill with "curiosity-box" (curiosity angle, QA ship) in Studio. Do not change the title in the same swap; one lever per swap.')
     expect(plan.instructions[1]).toMatch(/Record the swap on the ledger row \(repackagedAt\)/)
-    expect(plan.instructions[2]).toBe('Re-read 48 hours after the swap. Only if CTR is still under 3.75%, run Test & Compare on the title: current vs "Scrap to Solar: 300W for $40" (score 78). Never inside 7d [house] of the thumbnail swap.')
+    expect(plan.instructions[2]).toBe('Re-read 48 hours after the swap. Only if CTR is still under 3.75%, run Test & Compare on the title: current vs "Scrap to Solar: 300W for Just $40" (score 78). Never inside 7d [house] of the thumbnail swap.')
     expect(plan.instructions[3]).toBe('Expected gain on record: about 1,650 views (Expected gain 1,650 views clears the 500 floor.).')
     expect(plan.instructions[4]).toMatch(/This plan prepares only; a person applies the swap in Studio and approves decision solar:48/)
     expect(plan.instructions.join('\n')).not.toMatch(/has been applied|swapped automatically/)
@@ -102,8 +107,8 @@ describe('prepareRepackage', () => {
   it('prepares only a title for RE-TEST-TITLE', () => {
     const plan = prepareRepackage(pkg, decision('RE-TEST-TITLE', { ctrHealthyMark: 4.5 }))
     expect(plan.thumbnail).toBeUndefined()
-    expect(plan.title?.title).toBe('Scrap to Solar: 300W for $40')
-    expect(plan.instructions[0]).toBe('Keep the thumbnail. Run Test & Compare on the title: current "I Built a Solar Generator From Scrap" vs "Scrap to Solar: 300W for $40" (score 78).')
+    expect(plan.title?.title).toBe('Scrap to Solar: 300W for Just $40')
+    expect(plan.instructions[0]).toBe('Keep the thumbnail. Run Test & Compare on the title: current "I Built a Solar Generator From Scrap" vs "Scrap to Solar: 300W for Just $40" (score 78).')
     expect(plan.instructions[1]).toMatch(/watch-time share, not CTR/)
     expect(prepareRepackage({ ...pkg, titles: [] }, decision('RE-TEST-TITLE')).instructions[0]).toMatch(/No alternative title is left/)
   })
@@ -121,7 +126,7 @@ describe('prepareRepackage', () => {
     const text = describeRepackage(prepareRepackage(pkg, decision('REPACKAGE')))
     expect(text.split('\n').slice(0, 3)).toEqual([
       'Thumbnail: curiosity-box (curiosity)',
-      'Title: Scrap to Solar: 300W for $40 (score 78)',
+      'Title: Scrap to Solar: 300W for Just $40 (score 78)',
       'One swap per 7 days [house]; thumbnail before title.',
     ])
     expect(text).toMatch(/\n1\. Thumbnail first/)

@@ -59,7 +59,13 @@ describe('generateWorkflow', () => {
     expect(generateWorkflow('Test idea', { format: 'challenge' }).stages.find((s) => s.id === 'plan')!.run!.command!.slice(-1)).toEqual(['challenge'])
     expect(byId.production.run).toEqual({ kind: 'human', artifact: 'footage.txt', evidence: 'footage.txt' })
     expect(byId.edit.run).toEqual({ kind: 'human', artifact: 'cut.txt', evidence: 'cut.txt' })
-    expect(byId.plan.check).toEqual({ kind: 'file-exists', path: 'shots.md' })
+    expect(byId.plan.check).toEqual({
+      kind: 'all-of',
+      checks: [
+        { kind: 'file-exists', path: 'shots.md' },
+        { kind: 'json-path-min', path: 'story.json', jsonPath: 'payoffLadder.length', min: 1 },
+      ],
+    })
   })
 
   it('gates the story on the hook threshold and the promise, and the package on gateReport.pass', () => {

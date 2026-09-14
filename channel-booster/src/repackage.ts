@@ -93,7 +93,11 @@ export function pickTitle(pkg: RepackagePackage): PackagedTitle | undefined {
   const sorted = [...pkg.titles].sort((a, b) => b.score - a.score)
   if (sorted.length === 0) return undefined
   const live = pkg.chosenTitle ?? sorted[0].title
-  return sorted.find((t) => !sameTitle(t.title, live))
+  // A title outside the mobile band is one the publish checklist refuses, so it is not a
+  // replacement: better to say no title is left than to send a person to a swap that fails.
+  const min = thresholds.titleMinChars.value
+  const max = thresholds.titleMaxChars.value
+  return sorted.find((t) => !sameTitle(t.title, live) && t.title.length >= min && t.title.length <= max)
 }
 
 /**

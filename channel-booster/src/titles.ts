@@ -58,6 +58,11 @@ export function scoreTitle(title: string): { score: number; notes: string[] } {
   } else if (len > maxChars + 10) {
     score -= 15
     notes.push(`too long (${len} chars): truncates on mobile and in suggested`)
+  } else if (len > maxChars) {
+    // The band just past the limit used to score +5 silently, so `titles score` reported no
+    // length problem on a title the publish checklist then rejected.
+    score -= 5
+    notes.push(`over ${maxChars} chars (${len}): the end of the promise starts truncating on a phone`)
   } else if (len < 20) {
     score -= 10
     notes.push(`too short (${len} chars): no promise to click on`)

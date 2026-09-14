@@ -60,6 +60,8 @@ function savePathFrom(flags: Flags, cmd: string): string | undefined {
  * what the "no previous scan" warning then names.
  */
 function diffPathFrom(flags: Flags): string | undefined {
+  // `--diff` with no value parses as a boolean and used to print nothing at all.
+  if (flags.diff === true) throw new Error('--diff needs the scan to compare against: --diff last-scan.json (the file a previous --save wrote)')
   const v = str(flags, 'diff')
   if (v === undefined) return undefined
   const root = getStore(flags).root

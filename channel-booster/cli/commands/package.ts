@@ -243,13 +243,17 @@ async function hookScore(flags: Flags): Promise<number> {
   }
   const report = scoreHook(script, { title, promise, thumbnailMoment, wpm: num(flags, 'wpm'), now: nowFrom(flags) })
   const storyFile = path.join(packageDir(flags, slug), 'story.json')
-  const payoffsFile = str(flags, 'payoffs')
-  if (payoffsFile !== undefined && !existsSync(payoffsFile)) throw new Error(`--payoffs ${payoffsFile} does not exist. Usage: ${USAGE_HOOK}`)
+  const explicitPayoffs = str(flags, 'payoffs')
+  if (explicitPayoffs !== undefined && !existsSync(explicitPayoffs)) throw new Error(`--payoffs ${explicitPayoffs} does not exist. Usage: ${USAGE_HOOK}`)
+  // Without --payoffs, the conventional packages/<slug>/payoffs.json is picked up, so the ladder
+  // can be written by hand and the shoot-plan gate is reachable with no API key.
+  const conventionalPayoffs = path.join(packageDir(flags, slug), 'payoffs.json')
+  const payoffsFile = explicitPayoffs ?? (existsSync(conventionalPayoffs) ? conventionalPayoffs : undefined)
   const previous = readJson<{ payoffLadder?: unknown[] }>(storyFile)
   const payoffLadder = payoffsFile ? readPayoffs(payoffsFile) : Array.isArray(previous?.payoffLadder) ? previous.payoffLadder : []
   const story = { slug, ...report, payoffLadder }
   writeFile(storyFile, `${JSON.stringify(story, null, 2)}\n`)
-  if (payoffLadder.length === 0) warn(`story.json has no payoff ladder: run booster ai retention-map --idea ".." --title ".." --script ${scriptFile} --out payoffs.json, then booster hook score --script ${scriptFile} --slug ${slug} --payoffs payoffs.json; plan shots has no payoff shots until then`)
+  if (payoffLadder.length === 0) warn(`story.json has no payoff ladder, so the shoot plan has no payoff shots and its gate stays closed. Write ${conventionalPayoffs} as {"payoffLadder": [{"atSec": 45, "moment": ".."}]}, or run booster ai retention-map --script ${scriptFile} --out ${conventionalPayoffs}, then run this command again.`)
   const gate = report.pass && report.promiseInFirst25Words
   out(story, flags, () => [renderHookReport(report), `Wrote ${storyFile}`, gate ? 'Story gate: PASS' : `Story gate: FAIL (${!report.pass ? `hook score ${report.hookScore} under ${report.gateScore}` : 'promise not in the first 25 words'})`].join('\n'))
   return gate ? 0 : 1
@@ -281,7 +285,9 @@ async function promiseCheck(flags: Flags): Promise<number> {
       const c = report.surfaces[s]!
       return `${s}: ${c.pass ? 'pass' : 'DRIFT'} (${Math.round(c.overlap * 100)}%) ${c.reason}`
     }),
-    `Promise: ${report.pass ? 'PASS' : 'DRIFT'} on ${report.checked.length} surface(s)`,
+    report.pass
+      ? `Promise: PASS on all ${report.checked.length} surface(s) checked`
+      : `Promise: DRIFT on ${report.drift.length} of ${report.checked.length} surface(s) checked`,
     `Thresholds: ${report.thresholdsUsed.join('; ')}`,
   ].join('\n'))
   return report.pass ? 0 : 1

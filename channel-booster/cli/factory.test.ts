@@ -338,7 +338,7 @@ describe('promise check', () => {
     expect(ok.out).toMatch(/scriptHead: pass/)
     expect(ok.out).toMatch(/descriptionLine1: pass/)
     expect(ok.out).toMatch(/thumbnailText: pass/)
-    expect(ok.out).toMatch(/Promise: PASS on 4 surface\(s\)/)
+    expect(ok.out).toMatch(/Promise: PASS on all 4 surface\(s\) checked/)
     expect(ok.out).toMatch(/Thresholds: /)
     const drift = await json(['promise', 'check', '--promise', PROMISE, '--title', 'What Nobody Tells You About Camping Vans'], 1)
     expect(drift.pass).toBe(false)

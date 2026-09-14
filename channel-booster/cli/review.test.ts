@@ -117,7 +117,7 @@ const PACKAGE = {
   chosenTitle: 'I Built a Solar Generator From Scrap',
   titles: [
     { title: 'I Built a Solar Generator From Scrap', score: 82 },
-    { title: 'Scrap to Solar: 300W for $40', score: 78 },
+    { title: 'Scrap to Solar: 300W for Just $40', score: 78 },
     { title: 'Can Junk Power a House?', score: 71 },
   ],
   thumbnails: [
@@ -363,7 +363,7 @@ describe('booster repackage prepare', () => {
     expect(plan).toMatchObject({ slug: 'solar', decisionId: 'solar:48', decision: 'REPACKAGE', bucket: '48', preparedAt: new Date(NOW).toISOString(), applied: false })
     // curiosity is the ship-graded angle farthest from the result/stakes pair that ran; the un-QA'd concept is never picked.
     expect(plan.thumbnail).toEqual({ name: 'curiosity-box', angle: 'curiosity', qa: { grade: 'ship', score: 82 } })
-    expect(plan.title).toEqual({ title: 'Scrap to Solar: 300W for $40', score: 78 })
+    expect(plan.title).toEqual({ title: 'Scrap to Solar: 300W for Just $40', score: 78 })
     expect(plan.instructions[0]).toMatch(/^Thumbnail first: replace result-panel \/ stakes-bill with "curiosity-box"/)
     expect(plan.instructions.some((i: string) => /Only if CTR is still under 3\.75%/.test(i))).toBe(true)
     expect(plan.instructions.at(-1)).toContain('a person applies the swap in Studio and approves decision solar:48')
@@ -381,7 +381,7 @@ describe('booster repackage prepare', () => {
     expect(code).toBe(0)
     expect(out).toContain('Decision solar:48: REPACKAGE')
     expect(out).toContain('Thumbnail: curiosity-box (curiosity)')
-    expect(out).toContain('Title: Scrap to Solar: 300W for $40 (score 78)')
+    expect(out).toContain('Title: Scrap to Solar: 300W for Just $40 (score 78)')
     expect(out).toMatch(/One swap per 7 days \[house\]; thumbnail before title\./)
     expect(out).toContain(`Plan written to ${file}. Nothing applied`)
   })

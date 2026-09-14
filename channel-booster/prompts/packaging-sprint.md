@@ -15,13 +15,13 @@ The human ritual behind `booster package build`. Sixty minutes, once per publish
 6. Sketch the A and B concepts on paper at phone size (about 6 cm wide). Ask the only question: next to the three strongest competing videos, would you click yours? Open `proof-sheet.html` if it exists and answer again on the light feed and the dark feed.
 7. Name the thumbnail moment: the second of the video where the thumbnail happens on screen. Put it on the shot list. It is shot as its own setup, not grabbed from a frame.
 8. Pick the final title and the final A/B pair. Solo: do this the next morning, not now; the 12-hour gap is the second reviewer.
-9. Record the review: `npm run booster -- package review --title "<final title>" --thumb-text "<A text>" --record --reviewer <name>`. Pass proceeds to the story spine; revise fixes the one issue in the room and re-checks; fail sends the idea back to step 3 with the promise rewritten. Never "fix it in the edit".
+9. Run the review: `npm run booster -- package review --title "<final title>" --thumb-text "<A text>"`. The command prints the verdict and records nothing, so write the verdict, your name and the time on the sheet yourself. Pass proceeds to the story spine; revise fixes the one issue in the room and re-checks; fail sends the idea back to step 3 with the promise rewritten. Never "fix it in the edit".
 
 ## After the room
 
 10. Register the hypothesis on the sheet: which lever you expect to win (result, stakes, curiosity, contrast, identity) and the CTR multiple you predict against your baseline. The 7-day read will judge it.
 11. Fill the thumbnail brief for the designer from the package's designer section: focal subject, expression, elements, text, colour pair, background, composition, signature to keep.
-12. Move the idea to packaging in the bank: `npm run booster -- bank status <id> packaging`. Do not start the script until the recorded review says pass.
+12. Move the idea to packaging in the bank: `npm run booster -- bank status <id> packaging`. Do not start the script until the review in step 9 says pass.
 
 ## What the gates refuse
 

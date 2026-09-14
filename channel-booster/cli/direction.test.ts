@@ -204,6 +204,12 @@ describe('booster plan shots', () => {
     const wf = JSON.parse(readFileSync(path.join(tmp, 'packages', `${slug}.json`), 'utf8'))
     const plan = wf.stages.find((s: any) => s.id === 'plan')
     expect(plan.run.command.slice(4)).toEqual(['plan', 'shots', '<slug>', '--format', 'talking-head'])
-    expect(plan.check).toEqual({ kind: 'file-exists', path: 'shots.md' })
+    expect(plan.check).toEqual({
+      kind: 'all-of',
+      checks: [
+        { kind: 'file-exists', path: 'shots.md' },
+        { kind: 'json-path-min', path: 'story.json', jsonPath: 'payoffLadder.length', min: 1 },
+      ],
+    })
   })
 })

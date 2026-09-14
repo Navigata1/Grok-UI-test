@@ -393,10 +393,14 @@ describe('buildPackage (the title band publish check enforces)', () => {
   const IN_BAND = 'A Solar Generator Built From Scrap Today'
   const OVER = 'I Built a Solar Generator From Scrap for Under $100 in 30 Days'
 
-  it('chooses the publishable title over a higher-scoring one outside the band', async () => {
+  it('chooses the publishable title over one outside the band and ranks it first', async () => {
     const doc = await buildPackage({ ...SOLAR, rounds: 1, generate: { titles: async () => [{ title: OVER }, { title: IN_BAND }], concepts } })
     expect(OVER.length).toBeGreaterThan(55)
-    expect(doc.titles.find((t) => t.title === OVER)!.score).toBeGreaterThan(doc.titles.find((t) => t.title === IN_BAND)!.score)
+    // Both rules point the same way now: the ranking is publishable-first, and scoreTitle also
+    // deducts for a title past the mobile limit instead of silently giving it the neutral bonus.
+    expect(doc.titles[0]!.title).toBe(IN_BAND)
+    expect(doc.titles.map((t) => t.title)).toContain(OVER)
+    expect(doc.titles.find((t) => t.title === OVER)!.notes.join(' ')).toContain(`over 55 chars (${OVER.length})`)
     expect(doc.chosenTitle).toBe(IN_BAND)
     expect(doc.gateReport.titleGate.pass).toBe(true)
   })

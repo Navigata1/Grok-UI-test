@@ -345,7 +345,7 @@ export function checkPublish(pack: PublishPack, input: PublishCheckInput): Publi
   const baselineReady = input.baselineReady ?? pack.baselineReady
   const reviewScheduled = input.reviewScheduled ?? false
   const reviewProblems: string[] = []
-  if (!reviewScheduled) reviewProblems.push('put the 48-hour review on the calendar (booster review due)')
+  if (!reviewScheduled) reviewProblems.push('put the 48-hour review on the calendar, then record it: booster publish check <slug> --review-scheduled')
   if (!baselineReady) reviewProblems.push('no baselines in the profile: run booster profile refresh, or note that the cold-start priors apply')
   push('The 48-hour review is on the calendar with the baseline numbers ready.', reviewProblems.length === 0, reviewProblems.join('; '))
 
