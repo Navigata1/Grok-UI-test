@@ -66,7 +66,9 @@ function diffPathFrom(flags: Flags): string | undefined {
   if (v === undefined) return undefined
   const root = getStore(flags).root
   const candidates = [...new Set([path.resolve(v), path.resolve(root, v), path.resolve(root, path.basename(v))])]
-  return candidates.find((f) => existsSync(f)) ?? candidates[0]
+  // Nothing on disk: fall back to where a bare `--save` writes, so the warning never points at
+  // the caller's checkout. A value with a separator is the caller naming a location, so it stands.
+  return candidates.find((f) => existsSync(f)) ?? (/[\\/]/.test(v) ? candidates[0] : path.resolve(root, path.basename(v)))
 }
 
 function velocityCell(r: OutlierRowV2): string {
@@ -156,7 +158,8 @@ export const scanModule: CommandModule = {
       if (prev) diff = diffScans(prev.ranked, ranked)
       else {
         diff = null
-        warn(`booster ${cmd}: no previous scan at ${diffPath}; nothing to diff (add --save ${diffPath} to start one)`)
+        const namedPath = /[\\/]/.test(str(flags, 'diff') ?? '')
+        warn(`booster ${cmd}: no previous scan at ${diffPath}; nothing to diff (${namedPath ? `add --save ${diffPath} to start one` : 'a bare --save writes it'})`)
       }
     }
 

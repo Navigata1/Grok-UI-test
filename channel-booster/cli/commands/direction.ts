@@ -24,9 +24,6 @@ const USAGE_SHOTS = `booster plan shots <slug> [--format ${WORKFLOW_FORMATS.join
 
 const TIERS: readonly string[] = ['fresh', 'mega', 'outlier', 'normal']
 
-/** The two names a bare `--save` writes: `audit` keeps the channel's own scan apart from the competitor one. */
-const DEFAULT_SCANS = ['last-audit.json', 'last-scan.json']
-
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x)
 }
@@ -62,12 +59,11 @@ async function runDirection(flags: Flags): Promise<number> {
   const scanArg = str(flags, 'scan')
   let scanFile: string | undefined
   if (scanArg !== undefined) {
-    // A bare `--save` writes <store>/last-scan.json for outliers and <store>/last-audit.json for
-    // audit, so a path under the repository root means the store copy too, and either default
-    // name finds the other: the direction wants the channel's own uploads, which audit writes.
-    const named = [path.resolve(scanArg), path.resolve(store.root, scanArg), path.resolve(store.root, path.basename(scanArg))]
-    const defaults = DEFAULT_SCANS.includes(path.basename(scanArg)) ? DEFAULT_SCANS.map((f) => path.resolve(store.root, f)) : []
-    const candidates = [...new Set([...named, ...defaults])]
+    // A bare `--save` writes <store>/last-audit.json for audit and <store>/last-scan.json for
+    // outliers, so a bare name means the store copy too. Only the name asked for is ever read:
+    // the direction reads the channel's own uploads, and standing a competitor scan in for them
+    // would print other people's videos under "proven formats".
+    const candidates = [...new Set([path.resolve(scanArg), path.resolve(store.root, scanArg), path.resolve(store.root, path.basename(scanArg))])]
     scanFile = candidates.find((f) => existsSync(f))
     if (!scanFile) throw new Error(`--scan ${scanArg} does not exist (looked at ${candidates.join(', ')}); write one with booster audit <csv> --save. Usage: ${USAGE_DIRECTION}`)
   }
@@ -146,7 +142,7 @@ async function runShots(slug: string | undefined, flags: Flags): Promise<number>
 export const directionModule: CommandModule = {
   verbs: ['direction', 'plan'],
   help: [
-    'direction [--scan data/last-scan.json]                             positioning, proven formats, series trends, never-again, three bets',
+    'direction [--scan last-audit.json]                                 positioning, proven formats, series trends, never-again, three bets (the scan is your own uploads: booster audit <csv> --save)',
     `plan shots <slug> [--format ..] [--root dir] [--out ..]               the shoot's shot list from package.json + story.json; writes packages/<slug>/shots.md`,
   ],
   async run(cmd, sub, rest, flags) {

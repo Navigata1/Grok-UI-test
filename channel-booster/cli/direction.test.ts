@@ -116,6 +116,11 @@ describe('booster direction', () => {
     expect((await json(['direction', '--scan', 'data/last-scan.json'])).scan).toBe(path.join(data, 'last-scan.json'))
     expect((await json(['direction', '--scan', 'last-scan.json'])).scan).toBe(path.join(data, 'last-scan.json'))
     expect(await fails(['direction', '--scan', path.join(tmp, 'nope.json')])).toMatch(/does not exist \(looked at/)
+    // Only the name asked for is read. Standing the competitor scan in for the channel's own
+    // audit would print other channels' videos under "proven formats" with nothing saying so.
+    expect(await fails(['direction', '--scan', 'last-audit.json'])).toMatch(/--scan last-audit.json does not exist/)
+    writeFileSync(path.join(data, 'last-audit.json'), JSON.stringify({ scannedAt: NOW, sinceDays: 90, ranked }))
+    expect((await json(['direction', '--scan', 'last-audit.json'])).scan).toBe(path.join(data, 'last-audit.json'))
     writeFileSync(scan, '{"rows": []}')
     expect(await fails(['direction', '--scan', scan])).toMatch(/not a saved scan/)
     expect(await fails(['direction', 'extra'])).toMatch(/usage: booster direction/)

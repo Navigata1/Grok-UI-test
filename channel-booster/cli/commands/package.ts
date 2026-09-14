@@ -315,7 +315,9 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
   const wf = !doc && !raw.startsWith('idea:') ? store.get('workflows', raw) : undefined
   if (wf) doc = store.get('ideas', ideaId(wf.idea))
   const idea = doc?.idea ?? wf?.idea ?? raw
-  const promise = str(flags, 'promise') ?? doc?.promise ?? wf?.promise
+  // A slug resolved through the status document takes that document's promise: it is what
+  // `booster workflow --promise` wrote, and that already defaults to the banked idea's.
+  const promise = str(flags, 'promise') ?? (wf ? wf.promise ?? doc?.promise : doc?.promise)
   if (!promise) throw new Error(`--promise is required: one sentence the video keeps${doc ? ` (bank ideas carry it: booster bank add "<idea>" --promise "..")` : wf ? ` (the workflow carries it: booster workflow "<idea>" --promise "..")` : ''}. Usage: ${USAGE_BUILD}`)
   const profile = getProfile(flags)
   const signature = bool(flags, 'no-signature') ? undefined : profile.signature

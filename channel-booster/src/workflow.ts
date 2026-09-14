@@ -114,7 +114,10 @@ export function generateWorkflow(idea: string, options: { format?: WorkflowForma
         kind: 'all-of',
         checks: [
           { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'verdict', value: 'green' },
-          { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'status', value: 'green' },
+          // A person approved it: green, or any state past green. Never `== green`: the packaging
+          // stage moves the row on, so an equality check would freeze a finished workflow on a re-run.
+          // banked, parked and retired stay out, so human-only gate 1 still holds.
+          { kind: 'json-path-in', path: 'demand.json', jsonPath: 'status', values: ['green', 'packaging', 'production', 'published'] },
         ],
       },
     },
@@ -315,6 +318,8 @@ export function describeGate(check: GatePredicate | undefined): string {
       return `${check.path}: ${check.jsonPath} >= ${check.min}`
     case 'json-path-eq':
       return `${check.path}: ${check.jsonPath} == ${JSON.stringify(check.value)}`
+    case 'json-path-in':
+      return `${check.path}: ${check.jsonPath} in ${check.values.map((v) => JSON.stringify(v)).join(' | ')}`
     case 'all-of':
       return check.checks.map(describeGate).join(' and ')
   }

@@ -294,7 +294,7 @@ describe('runNext', () => {
     expect(first.done).toBe(false)
     expect(first.result!.stageId).toBe('demand')
     expect(first.result!.status).toBe('failed')
-    expect(first.result!.gate.detail).toBe('FAIL: demand.json: status is "banked", expected "green"; ok: demand.json: verdict is "green"')
+    expect(first.result!.gate.detail).toBe('FAIL: demand.json: status is "banked", expected one of "green", "packaging", "production", "published"; ok: demand.json: verdict is "green"')
     expect(first.status.stages[0].status).toBe('failed')
     const second = runNext(store, wf, { cwd: root, agent: 'claude', now: clock(), spawn })
     expect(second.result!.stageId).toBe('demand')

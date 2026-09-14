@@ -192,15 +192,16 @@ describe('booster profile', () => {
     const gated = await fails(['profile', 'refresh', '--now', NOW])
     expect(gated.message).toContain('resetting the baseline needs --yes')
     expect(gated.out).toContain(`About to reset the baselines in ${path.resolve(profile)}`)
-    expect(gated.out).toContain('was: prior, n=3, CTR 4.4%, AVP 36.8%, views 4100')
-    expect(gated.out).toContain('now: prior, n=4, CTR 5.2%, AVP 38.3%, views 6550')
+    expect(gated.out).toContain('was: 48 h prior, n=3, CTR 4.4%, AVP 36.8%, views 4100')
+    expect(gated.out).toContain('now: 48 h prior, n=4, CTR 5.2%, AVP 38.3%, views 6550')
     expect(gated.out).toContain('resetting the baseline is a human-only gate (AGENTS.md)')
     expect(JSON.parse(readFileSync(profile, 'utf8')).baselines.n).toBe(3)
 
     // --dry-run still previews the move without asking, and still writes nothing.
     const dry = await json(['profile', 'refresh', '--now', NOW, '--dry-run'])
     expect(dry.baselines48.n).toBe(4)
-    expect(dry.moved).toContain('ctr')
+    // Both buckets are gated, so each moved metric says which one it came from.
+    expect(dry.moved).toContain('48 h ctr')
     expect(JSON.parse(readFileSync(profile, 'utf8')).baselines.n).toBe(3)
 
     expect((await run(['profile', 'refresh', '--now', NOW, '--yes'])).code).toBe(0)

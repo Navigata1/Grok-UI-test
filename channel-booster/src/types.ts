@@ -209,6 +209,7 @@ export type GatePredicate =
   | { kind: 'file-exists'; path: string }
   | { kind: 'json-path-min'; path: string; jsonPath: string; min: number }
   | { kind: 'json-path-eq'; path: string; jsonPath: string; value: string | number | boolean }
+  | { kind: 'json-path-in'; path: string; jsonPath: string; values: Array<string | number | boolean> }
   | { kind: 'all-of'; checks: GatePredicate[] }
 
 /** How a stage is executed: a `booster` command the runner spawns, or a human step that leaves an evidence file. */

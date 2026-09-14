@@ -74,9 +74,9 @@ export function need(flags: Flags, key: string, usage: string): string {
   return v
 }
 
-/** `--now ISO` for reproducible runs; defaults to the wall clock. */
+/** `--now ISO` for reproducible runs, or `BOOSTER_NOW` when the workflow runner spawned this command; defaults to the wall clock. */
 export function nowFrom(flags: Flags): Date {
-  const v = str(flags, 'now')
+  const v = str(flags, 'now') ?? process.env.BOOSTER_NOW
   if (!v) return new Date()
   const d = new Date(v)
   if (Number.isNaN(d.getTime())) throw new Error(`--now must be an ISO date, got "${v}"`)
@@ -98,6 +98,19 @@ export function fmt(n: number): string {
 
 export function pct(n: number | undefined, digits = 1): string {
   return n === undefined ? '—' : `${n.toFixed(digits)}%`
+}
+
+/** A YouTube video id: exactly 11 characters of the URL-safe alphabet. */
+export const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/
+
+/**
+ * `--video-id` as an 11-character YouTube id. `ingest` matches a Studio export on this exact
+ * string, so a malformed id writes a ledger row no read can ever find.
+ */
+export function needVideoId(flags: Flags, usage: string): string {
+  const videoId = need(flags, 'video-id', usage)
+  if (!VIDEO_ID.test(videoId)) throw new Error(`--video-id must be the 11-character YouTube id, got "${videoId}"`)
+  return videoId
 }
 
 /** The JSONL store, honouring --data <dir> and BOOSTER_DATA. */

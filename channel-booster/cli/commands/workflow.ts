@@ -119,6 +119,8 @@ function runWorkflow(slug: string | undefined, flags: Flags): number {
   const stageFlag = str(flags, 'stage')
   // Stage commands run as child processes: hand them this run's store and profile through the environment.
   const env: NodeJS.ProcessEnv = { ...process.env, BOOSTER_DATA: path.resolve(store.root), BOOSTER_PROFILE: resolveProfilePath(str(flags, 'path')) }
+  // ...and this run's fixed clock, so a time-sensitive stage reads the same instant its gate is stamped with.
+  if (str(flags, 'now')) env.BOOSTER_NOW = clock().toISOString()
   const options = { cwd: root, agent, dryRun, now: clock, env }
 
   let result: StageResult | undefined

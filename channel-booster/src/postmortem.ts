@@ -318,8 +318,8 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
 
   const ctrRel = hasCtr ? input.ctr! / baselineCtr : undefined
   const avpRel = avp !== undefined ? avp / baselineAvp : undefined
-  if (hasCtr) evidence.push(`CTR ${input.ctr}% vs baseline ${baselineCtr}% (${ctrRel!.toFixed(2)}x)`)
-  if (avp !== undefined) evidence.push(`average percentage viewed ${avp.toFixed(0)}% vs baseline ${baselineAvp}% (${avpRel!.toFixed(2)}x)`)
+  if (hasCtr) evidence.push(`CTR ${input.ctr}% vs baseline ${pct(baselineCtr)} (${ctrRel!.toFixed(2)}x)`)
+  if (avp !== undefined) evidence.push(`average percentage viewed ${avp.toFixed(0)}% vs baseline ${pct(baselineAvp)} (${avpRel!.toFixed(2)}x)`)
   if (input.retention30sPct !== undefined) evidence.push(`30-second retention ${input.retention30sPct}%`)
   if (impressions !== undefined) evidence.push(`impressions ${fmtInt(impressions)}${baselineUsed.impressions !== undefined ? ` vs expected ${fmtInt(baselineUsed.impressions)} at this read (${(impressions / baselineUsed.impressions).toFixed(2)}x)` : ''}`)
 

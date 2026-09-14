@@ -72,6 +72,13 @@ function flatten(check: GatePredicate, cwd: string): GateCheckResult[] {
       const pass = v === check.value
       return [{ pass, detail: `${check.path}: ${check.jsonPath} is ${v === undefined ? 'missing' : JSON.stringify(v)}${pass ? '' : `, expected ${JSON.stringify(check.value)}`}` }]
     }
+    case 'json-path-in': {
+      const read = readJsonArtifact(path.join(cwd, check.path))
+      if (!read.ok) return [{ pass: false, detail: read.detail }]
+      const v = getJsonPath(read.value, check.jsonPath)
+      const pass = check.values.includes(v as string | number | boolean)
+      return [{ pass, detail: `${check.path}: ${check.jsonPath} is ${v === undefined ? 'missing' : JSON.stringify(v)}${pass ? '' : `, expected one of ${check.values.map((x) => JSON.stringify(x)).join(', ')}`}` }]
+    }
   }
 }
 

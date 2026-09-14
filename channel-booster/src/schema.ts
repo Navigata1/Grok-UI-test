@@ -109,6 +109,8 @@ export const ProfileDoc = z.object({
   /** The 7-day baselines (views, returning share) for the sequel gate. */
   baselines168: Baselines.optional(),
   previousBaselines: Baselines.optional(),
+  /** The 7-day baselines before the last refresh, so a moved 168 set is recoverable too. */
+  previousBaselines168: Baselines.optional(),
   neverAgain: z.array(z.string()).default([]).describe('packaging patterns from the bottom quartile'),
   updatedAt: ISO.optional(),
 })

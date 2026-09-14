@@ -174,7 +174,7 @@ describe('booster workflow run', () => {
     expect(banked.code).toBe(1)
     expect(banked.out).toMatch(/Stage demand FAILED \(by tester\): `npm run booster -- idea score empty-sprinter-to-camper-in-90-days --out packages\/empty-sprinter-to-camper-in-90-days\/demand.json`/)
     expect(banked.out).toMatch(/Exit code 0/)
-    expect(banked.out).toMatch(/demand.json: status is "banked", expected "green"/)
+    expect(banked.out).toMatch(/demand.json: status is "banked", expected one of "green", "packaging", "production", "published"/)
     const scorecard = JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'demand.json'), 'utf8'))
     expect(scorecard).toMatchObject({ idea: IDEA, verdict: 'green', status: 'banked' })
 
@@ -249,6 +249,25 @@ describe('booster workflow run', () => {
     const status = await run(['workflow', 'status', SLUG, ...base()])
     expect(status.out).toMatch(/\[x\] production {2}passed/)
     expect(status.out).toMatch(/Next: edit/)
+  })
+
+  it('re-running the demand stage on a workflow that moved on still passes', async () => {
+    // `package build` moves the bank row to packaging, so a gate pinned to status == green
+    // would freeze a finished workflow the moment anyone re-ran its first stage.
+    await run(['bank', 'add', IDEA, '--score', 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4', '--promise', 'a road-ready camper in 90 days', ...base()])
+    await run(['bank', 'approve', IDEA, '--yes', ...base()])
+    await createWorkflow()
+    const first = await run(runFlags(['--stage', 'demand', '--agent', 'sam']))
+    expect(first.code).toBe(0)
+    await run(['bank', 'status', IDEA, 'packaging', ...base()])
+    const again = await run(runFlags(['--stage', 'demand', '--agent', 'sam']))
+    expect(again.code).toBe(0)
+    expect(again.out).toMatch(/demand.json: status is "packaging"/)
+    // A person's approval is still the gate: a retired idea does not open it.
+    await run(['bank', 'status', IDEA, 'retired', '--reason', 'shelved', ...base()])
+    const retired = await run(runFlags(['--stage', 'demand', '--agent', 'sam']))
+    expect(retired.code).toBe(1)
+    expect(retired.out).toMatch(/status is "retired", expected one of/)
   })
 
   it('the plan stage is a booster command whose gate is the shot list it writes', async () => {

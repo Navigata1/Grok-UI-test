@@ -186,6 +186,8 @@ export interface RefreshResult {
   baselines168: Baselines
   /** What `profile.baselines` was before this refresh. */
   previous?: Baselines
+  /** What `profile.baselines168` was before this refresh. */
+  previous168?: Baselines
   /** True when any metric's median moved by more than one MAD since `previous`. */
   shift: boolean
   /** The metrics that moved. */
@@ -230,13 +232,14 @@ export function movedMetrics(next: Baselines, previous: Baselines | undefined): 
  */
 export function refreshBaselines(profile: ProfileDoc, rows: LedgerRow[], options: RefreshOptions): RefreshResult {
   const previous = profile.baselines
+  const previous168 = profile.baselines168
   const common = { now: options.now, window: options.window, minAgeDays: options.minAgeDays }
   const b48 = baselineFrom(rows, { ...common, bucket: '48', previous })
   const baselines168 = baselineFrom(rows, { ...common, bucket: '168' })
   const shifted = shiftedMetrics(b48, previous)
   const baselines48: Baselines = { ...b48, shift: shifted.length > 0 }
-  const next = parseProfile({ ...profile, baselines: baselines48, baselines168, previousBaselines: previous, updatedAt: options.now.toISOString() }, 'profile refresh')
-  return { profile: next, baselines48, baselines168, previous, shift: baselines48.shift, shifted }
+  const next = parseProfile({ ...profile, baselines: baselines48, baselines168, previousBaselines: previous, previousBaselines168: previous168, updatedAt: options.now.toISOString() }, 'profile refresh')
+  return { profile: next, baselines48, baselines168, previous, previous168, shift: baselines48.shift, shifted }
 }
 
 /**

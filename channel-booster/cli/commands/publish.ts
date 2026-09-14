@@ -24,7 +24,7 @@ import { thresholds } from '../../src/thresholds.js'
 import { scoreTitle, titleThumbnailOverlap } from '../../src/titles.js'
 import { qaThumbnail } from '../../src/thumbnails.js'
 import type { ThumbnailQa, ThumbnailSpec } from '../../src/types.js'
-import { bool, getProfile, getStore, list, need, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { bool, getProfile, getStore, list, need, needVideoId, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_PACK = 'booster publish pack <slug> [--title ..] [--promise ..] [--story packages/<slug>/story.json] [--thumb-a <name> --thumb-b <name>] [--sequel-question ..] [--related <title|url>] [--profile channel.json] [--out packages/<slug>/publish.md] [--root dir]'
 const USAGE_CHECK = 'booster publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--thumb-files-ok] [--window-confirmed] [--review-scheduled] [--root dir]'
@@ -197,7 +197,7 @@ function describeHypothesis(h: NonNullable<LedgerRow['hypothesis']>): string {
 }
 
 async function publishConfirm(slug: string, flags: Flags): Promise<number> {
-  const videoId = need(flags, 'video-id', USAGE_CONFIRM)
+  const videoId = needVideoId(flags, USAGE_CONFIRM)
   const at = need(flags, 'at', USAGE_CONFIRM)
   const published = new Date(at)
   if (Number.isNaN(published.getTime())) throw new Error(`--at must be an ISO date, got "${at}"`)

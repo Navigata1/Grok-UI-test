@@ -60,7 +60,8 @@ describe('desk template', () => {
 
   it('keeps the pasted scan across a reload instead of restoring the example', () => {
     expect(template).toMatch(/local\.write\('scanInput'/)
-    expect(template).toContain("$('scan-csv').value = scanInput?.csv || EXAMPLE_CSV")
+    // Presence, not truthiness: a cleared box is a scan of nothing, not "never scanned".
+    expect(template).toContain("$('scan-csv').value = typeof scanInput?.csv === 'string' ? scanInput.csv : EXAMPLE_CSV")
   })
 
   it('writes the outlier into sources[], never into the document provenance field', () => {

@@ -162,14 +162,20 @@ async function runProfile(sub: string | undefined, flags: Flags): Promise<number
     const dryRun = bool(flags, 'dry-run')
     const where = resolveProfilePath(file)
     const prev = result.previous
-    const moved = movedMetrics(result.baselines48, prev)
+    const prev168 = result.previous168
+    // Both sets are gated: a 7-day read is judged against baselines168, so moving it unasked
+    // is the same silent reset as moving the 48-hour one.
+    const moved = [
+      ...movedMetrics(result.baselines48, prev).map((m) => `48 h ${m}`),
+      ...movedMetrics(result.baselines168, prev168).map((m) => `7 d ${m}`),
+    ]
     // Resetting the baseline is human-only (AGENTS.md gate 6), but only a reset is: the first
     // computation on a fresh channel and a recompute that lands on the same medians write freely.
-    if (!dryRun && prev && moved.length > 0) {
-      requireYes(flags, { path: where, moved, previous: prev, baselines48: result.baselines48, baselines168: result.baselines168 }, [
+    if (!dryRun && (prev || prev168) && moved.length > 0) {
+      requireYes(flags, { path: where, moved, previous: prev, previous168: prev168, baselines48: result.baselines48, baselines168: result.baselines168 }, [
         `About to reset the baselines in ${where}: ${moved.join(', ')} ${moved.length === 1 ? 'moves' : 'move'}.`,
-        `  was: ${describeBaselines(prev)}, computed ${prev.computedAt}`,
-        `  now: ${describeBaselines(result.baselines48)}`,
+        `  was: 48 h ${prev ? describeBaselines(prev) : 'not computed yet'} · 7 d ${prev168 ? describeBaselines(prev168) : 'not computed yet'}`,
+        `  now: 48 h ${describeBaselines(result.baselines48)} · 7 d ${describeBaselines(result.baselines168)}`,
         'Every verdict after this is judged against the new medians; booster profile refresh --dry-run shows the whole profile first.',
       ], 'resetting the baseline')
     }

@@ -87,7 +87,7 @@ describe('generateWorkflow', () => {
       kind: 'all-of',
       checks: [
         { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'verdict', value: 'green' },
-        { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'status', value: 'green' },
+        { kind: 'json-path-in', path: 'demand.json', jsonPath: 'status', values: ['green', 'packaging', 'production', 'published'] },
       ],
     })
     expect(demand.checklist.join(' ')).toMatch(/booster bank approve "<idea>" --yes/)
