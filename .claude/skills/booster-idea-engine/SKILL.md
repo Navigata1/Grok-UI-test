@@ -1,0 +1,20 @@
+---
+name: booster-idea-engine
+description: Generate and score YouTube video ideas from proven demand (outliers) for a specific channel. Use when the user asks for video ideas, what to make next, niche research, or "find outliers".
+---
+
+# Idea engine
+
+Ideas are borrowed formats plus your angle. Never brainstorm from a blank page.
+
+## Steps
+
+1. Get demand data. Ask for one or more CSV exports (title, views, published, channel, duration) of adjacent channels, or use `channel-booster/examples/competitors.csv` to demonstrate. Run:
+   `npm run booster -- outliers <csv> --top 25`
+   Read the multipliers and the format lift table.
+2. Get the channel read: who watches, what the last three videos were, what already worked (`npm run booster -- audit <own csv>` if available).
+3. Produce 10 ideas. For each: the outlier it borrows from (multiplier), the format cue, the angle you add, a working title, a one-line thumbnail concept (one subject, three elements, three words), and the six axis scores from `channel-booster/playbook/idea-scorecard.md`.
+4. Score each with `npm run booster -- idea score "<idea>" --score "demand=..,packaging=..,fit=..,angle=..,payoff=..,feasibility=.."` and rank by total. At least two ideas must be yellow or red or the ranking is dishonest.
+5. Deliver a ranked table plus the top three as fully packaged briefs (title, thumbnail concept, promise, first payoff). Bank the yellows with their weakest axis named.
+
+With an API key, `npm run booster -- ai idea-engine --niche ".." --channel ".." --csv <csv>` does steps 3-4 in one call; still show your work.
