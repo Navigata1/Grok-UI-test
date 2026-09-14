@@ -106,7 +106,8 @@ async function reviewRun(flags: Flags): Promise<number> {
   if (slug && bucket) {
     const review = result.reviews.find((r) => r.slug === slug && r.bucket === bucket)
     const decision = store.get('decisions', `${slug}:${bucket}`)
-    const setHint = `booster set ${slug} --bucket ${bucket} --impressions N --ctr X --avp Y${bucket === '48' ? ' --ret30 Z --returning W' : bucket === '168' ? ' --views V --returning W --lever "<sentence>"' : ''}`
+    // The 7-day form carries a lever, and writing a lever needs --yes: print the flag so the blocked stage names a line that runs.
+    const setHint = `booster set ${slug} --bucket ${bucket} --impressions N --ctr X --avp Y${bucket === '48' ? ' --ret30 Z --returning W' : bucket === '168' ? ' --views V --returning W --lever "<sentence>" --yes' : ''}`
     if (!review) {
       // runReviews leaves out a bucket a person already applied: that stage is done.
       if (decision?.appliedAt) {

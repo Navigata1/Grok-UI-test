@@ -7,6 +7,7 @@ import { diagnose } from './postmortem.js'
 import {
   applyProfileThresholds,
   baselineInputFrom,
+  baselinesForBucket,
   defaultProfile,
   describeBaselineInput,
   describeProfile,
@@ -14,6 +15,7 @@ import {
   diagnoseBaseline,
   initProfile,
   loadProfile,
+  movedMetrics,
   parseColors,
   parseProfile,
   profileExists,
@@ -218,6 +220,18 @@ describe('refreshBaselines', () => {
     expect(profile.updatedAt).toBeUndefined()
   })
 
+  it('movedMetrics names the tier and every median that changes at all, for the refresh gate', () => {
+    const stat = (median: number) => ({ median, mad: 1, n: 6 })
+    const base: Baselines = { computedAt: now.toISOString(), bucket: '48', n: 6, tier: 'thin', shift: false }
+    const prev: Baselines = { ...base, ctr: stat(4), avpPct: stat(40), views: stat(1000) }
+    expect(movedMetrics({ ...prev }, prev)).toEqual([])
+    expect(movedMetrics({ ...prev, ctr: stat(4.1) }, prev)).toEqual(['ctr'])
+    expect(movedMetrics({ ...prev, tier: 'solid', views: stat(1100) }, prev)).toEqual(['tier', 'views'])
+    // A metric the ledger did not carry before is a move too, and a first computation is not.
+    expect(movedMetrics({ ...prev, impressions: stat(9000) }, prev)).toEqual(['impressions'])
+    expect(movedMetrics(prev, undefined)).toEqual([])
+  })
+
   it('shiftedMetrics compares every stat and ignores a zero MAD', () => {
     const stat = (median: number, mad: number) => ({ median, mad, n: 6 })
     const base: Baselines = { computedAt: now.toISOString(), bucket: '48', n: 6, tier: 'thin', shift: false }
@@ -244,6 +258,26 @@ describe('applyProfileThresholds', () => {
 })
 
 describe('baselineInputFrom', () => {
+  it('picks the 7-day set for a 168 or 672 h read and the 48-hour set for the rest', () => {
+    const { profile } = refreshBaselines(defaultProfile(), rows(12), { now })
+    expect(profile.baselines168?.bucket).toBe('168')
+    for (const bucket of ['24', '48'] as const) expect(baselinesForBucket(profile, bucket)).toEqual(profile.baselines)
+    for (const bucket of ['168', '672'] as const) expect(baselinesForBucket(profile, bucket)).toEqual(profile.baselines168)
+    expect(baselinesForBucket(profile, undefined)).toEqual(profile.baselines)
+    // views is where the two sets differ most: 7-day views are not 48-hour views.
+    expect(baselineInputFrom(profile, '168').views).toBe(profile.baselines168?.views?.median)
+    expect(baselineInputFrom(profile, '48').views).toBe(profile.baselines?.views?.median)
+    expect(baselineInputFrom(profile, '168').views).not.toBe(baselineInputFrom(profile, '48').views)
+    // These 7-day reads carry views only, so a typed diagnosis borrows the priors for CTR and AVP
+    // and says so, instead of quietly filling them from the 48-hour set.
+    expect(diagnoseBaseline(profile, '168')).toBeUndefined()
+    expect(diagnoseBaseline(profile, '48')).toMatchObject({ views: profile.baselines?.views?.median })
+
+    // A profile written before baselines168 existed borrows the 48-hour set rather than the priors.
+    const older: ProfileDoc = { ...profile, baselines168: undefined }
+    expect(baselinesForBucket(older, '168')).toEqual(older.baselines)
+  })
+
   it('borrows the cold-start priors with source default when there are no baselines', () => {
     const input = baselineInputFrom(defaultProfile())
     expect(input).toMatchObject({ ctr: 4, avpPct: 40, retention30sPct: 60, source: 'default', tier: 'prior', n: 0, shift: false })

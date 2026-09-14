@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { baselineFrom } from './ledger.js'
-import { ProfileDoc, type Baselines, type LedgerRow, type Signature, type Stat } from './schema.js'
+import { ProfileDoc, type Baselines, type Bucket, type LedgerRow, type Signature, type Stat } from './schema.js'
 import { applyOverrides, thresholds, type ThresholdKey } from './thresholds.js'
 import type { PostMortemInput } from './types.js'
 
@@ -182,7 +182,7 @@ export interface RefreshResult {
   /** The profile with `baselines` (48 h), `previousBaselines`, and `updatedAt` set. Not yet saved. */
   profile: ProfileDoc
   baselines48: Baselines
-  /** The 7-day baselines (views, returning share); returned but not stored because the schema has no slot for them yet. */
+  /** The 7-day baselines, also stored on the profile as `baselines168`: what a 168 or 672 h read is judged against. */
   baselines168: Baselines
   /** What `profile.baselines` was before this refresh. */
   previous?: Baselines
@@ -204,6 +204,20 @@ export function shiftedMetrics(next: Baselines, previous: Baselines | undefined)
     const b: Stat | undefined = previous[key]
     if (!a || !b || a.mad <= 0) continue
     if (Math.abs(a.median - b.median) > a.mad) out.push(key)
+  }
+  return out
+}
+
+/**
+ * What a refresh would change about the numbers verdicts are judged against:
+ * the tier, and every metric whose median moves at all. Empty means the rewrite
+ * is a no-op, so `profile refresh` can save it without asking anyone.
+ */
+export function movedMetrics(next: Baselines, previous: Baselines | undefined): string[] {
+  if (!previous) return []
+  const out: string[] = next.tier !== previous.tier ? ['tier'] : []
+  for (const key of STAT_KEYS) {
+    if (next[key]?.median !== previous[key]?.median) out.push(key)
   }
   return out
 }
@@ -265,14 +279,25 @@ export interface BaselineInput {
 }
 
 /**
+ * The baseline set a read at `bucket` is judged against: the 7-day medians for
+ * a 168 or 672 h read, the 48-hour medians otherwise. A profile written before
+ * `baselines168` existed falls back to the 48-hour set rather than to priors.
+ */
+export function baselinesForBucket(profile: ProfileDoc, bucket?: Bucket): Baselines | undefined {
+  if (bucket === '168' || bucket === '672') return profile.baselines168 ?? profile.baselines
+  return profile.baselines
+}
+
+/**
  * The baseline `diagnose()` and the decision engine should use. Computed
  * medians when the tier is `thin` or `solid`; the cold-start priors from
  * `thresholds.ts` (CTR, AVP, 30 s) when the tier is `prior` or the profile has
  * no baselines. A field the ledger never carried falls back to its prior and is
  * listed in `borrowed`, so every verdict can say what it compared against.
+ * `bucket` picks the set: a 7-day read is never judged against 48-hour medians.
  */
-export function baselineInputFrom(profile: ProfileDoc): BaselineInput {
-  const b = profile.baselines
+export function baselineInputFrom(profile: ProfileDoc, bucket?: Bucket): BaselineInput {
+  const b = baselinesForBucket(profile, bucket)
   const usable = b !== undefined && b.tier !== 'prior'
   const borrowed: string[] = []
   const pick = (key: StatKey, prior: number): number => {
@@ -300,11 +325,12 @@ export function baselineInputFrom(profile: ProfileDoc): BaselineInput {
 }
 
 /**
- * The `baseline` argument for `diagnose()`: the computed numbers, or `undefined`
- * when only priors exist so the diagnosis prints its own "baseline is borrowed" line.
+ * The `baseline` argument for `diagnose()`: the computed numbers for the read's
+ * bucket, or `undefined` when only priors exist so the diagnosis prints its own
+ * "baseline is borrowed" line.
  */
-export function diagnoseBaseline(profile: ProfileDoc): PostMortemInput['baseline'] {
-  const input = baselineInputFrom(profile)
+export function diagnoseBaseline(profile: ProfileDoc, bucket?: Bucket): PostMortemInput['baseline'] {
+  const input = baselineInputFrom(profile, bucket)
   if (input.source === 'default') return undefined
   return { ctr: input.ctr, avpPct: input.avpPct, ...(input.views !== undefined ? { views: input.views } : {}) }
 }

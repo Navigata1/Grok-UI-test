@@ -185,7 +185,7 @@ export function renderRetroMarkdown(retro: Retro): string {
   lines.push('## Candidate rule')
   if (retro.candidateRule) {
     lines.push(`- ${retro.candidateRule.rule}`)
-    lines.push('- accept it with `booster retro --accept-rule "..." --into playbook/<file>.md`, or rewrite it first')
+    lines.push('- accept it with `booster retro --accept-rule "..." --into playbook/<file>.md --yes`, or rewrite it first')
   } else {
     lines.push('- none: no lever in this window')
   }
@@ -201,7 +201,8 @@ export function renderRetroMarkdown(retro: Retro): string {
   lines.push('')
 
   lines.push('## Next three')
-  if (retro.nextThree.length === 0) lines.push('- the bank is empty; run the outlier scan and bank ideas')
+  // nextThree holds only green and banked ideas, so an empty list is not an empty bank.
+  if (retro.nextThree.length === 0) lines.push('- no idea is banked or green (ideas in packaging or production do not count); run the outlier scan and bank ideas')
   for (const i of retro.nextThree) lines.push(`- [${i.status}] ${i.idea} (${i.total}/100, weakest ${i.weakestAxis})`)
 
   return lines.join('\n')

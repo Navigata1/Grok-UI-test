@@ -168,7 +168,8 @@ function inWindow(iso: string, from: Date, to: Date): boolean {
 function setHint(slug: string, bucket: Bucket): string {
   const base = `booster set ${slug} --bucket ${bucket} --impressions N --ctr X --avp Y`
   if (bucket === '48') return `${base} --ret30 Z --returning W`
-  if (bucket === '168' || bucket === '672') return `${base} --views V --returning W${bucket === '168' ? ' --lever "<one sentence of learning>"' : ''}`
+  // The 7-day read carries a lever, and writing a lever is a human-only gate: print the --yes the command asks for rather than a line that stops at the gate.
+  if (bucket === '168' || bucket === '672') return `${base} --views V --returning W${bucket === '168' ? ' --lever "<one sentence of learning>" --yes' : ''}`
   return base
 }
 
@@ -194,16 +195,16 @@ function decisionItems(store: Store): DecisionItem[] {
     switch (d.decision) {
       case 'REPACKAGE':
         text = stage === 'approve' ? `${d.id}: REPACKAGE awaits approval (thumbnail first)` : `${d.id}: REPACKAGE approved by ${d.approvedBy ?? 'someone'}, swap not yet applied in Studio`
-        command = stage === 'approve' ? `booster repackage prepare ${d.slug} then booster decide approve ${d.slug} --bucket ${d.bucket} --by <name>` : `apply the swap in Studio, then booster decide apply ${d.slug} --bucket ${d.bucket}`
+        command = stage === 'approve' ? `booster repackage prepare ${d.slug} then booster decide approve ${d.slug} --bucket ${d.bucket} --by <name> --yes` : `apply the swap in Studio, then booster decide apply ${d.slug} --bucket ${d.bucket} --by <name> --yes`
         break
       case 'RE-TEST-TITLE':
         text = stage === 'approve' ? `${d.id}: RE-TEST-TITLE awaits approval (Test & Compare on the title, thumbnail stays)` : `${d.id}: title test approved by ${d.approvedBy ?? 'someone'}, not yet started`
-        command = stage === 'approve' ? `booster decide approve ${d.slug} --bucket ${d.bucket} --by <name>` : `start Test & Compare in Studio, then booster decide apply ${d.slug} --bucket ${d.bucket}`
+        command = stage === 'approve' ? `booster decide approve ${d.slug} --bucket ${d.bucket} --by <name> --yes` : `start Test & Compare in Studio, then booster decide apply ${d.slug} --bucket ${d.bucket} --by <name> --yes`
         break
       case 'SEQUEL': {
         const idea = sequelIdea(d.slug)
         text = `${d.id}: SEQUEL ${stage === 'approve' ? 'awaits approval' : 'approved'}; brief the sequel this week`
-        command = idea ? `booster bank approve ${idea.id}` : 'booster bank rescore (creates the sequel candidate) then booster bank approve <id>'
+        command = idea ? `booster bank approve ${idea.id} --yes` : 'booster bank rescore <competitors.csv> (creates the sequel candidate) then booster bank approve <id> --yes'
         break
       }
       case 'EXPAND':
@@ -212,7 +213,7 @@ function decisionItems(store: Store): DecisionItem[] {
         break
       case 'PARK':
         text = `${d.id}: PARK ${stage === 'approve' ? 'awaits approval' : 'approved'}; park the topic with the weakest axis named`
-        command = `booster bank park <idea-id> --reason "no audience at ${d.bucket} h" then booster decide approve ${d.slug} --bucket ${d.bucket} --by <name>`
+        command = `booster bank park <idea-id> --reason "no audience at ${d.bucket} h" then booster decide approve ${d.slug} --bucket ${d.bucket} --by <name> --yes`
         break
     }
     out.push({ id: d.id, slug: d.slug, bucket: d.bucket, decision: d.decision, stage, flipCondition: d.flipCondition, text, command })
@@ -234,8 +235,9 @@ function experimentItems(store: Store, profile: ProfileDoc, now: Date): Experime
         slug: e.slug,
         hoursRunning,
         ready,
-        text: `${e.id} (${e.kind}, ${e.variants.map((v) => v.name).join(' vs ')}) running ${hoursRunning} h: ${ready ? `past the ${minHours} h floor, judge it` : `under the ${minHours} h floor${coldStart ? ' (cold start)' : ''}, wait`}`,
-        command: ready ? `type the Test & Compare panel, then booster test judge ${e.slug} --hours ${hoursRunning}` : `booster brief --today in ${minHours - hoursRunning} h`,
+        text: `${e.id} (${e.kind}, ${e.variants.map((v) => v.name).join(' vs ')}) running ${hoursRunning} h: ${ready ? `past the ${minHours} h floor, judge it` : `under the ${minHours} h floor${coldStart ? ' (cold start)' : ''}, wait ${minHours - hoursRunning} h`}`,
+        // `test judge` takes --slug and needs both arms; the wait is in the text, so the command stays something a person can paste.
+        command: ready ? `type the Test & Compare panel, then booster test judge --slug ${e.slug} --a "<impressions>,<ctr>,<share>" --b "<impressions>,<ctr>,<share>" --hours ${hoursRunning} --record` : 'booster brief --today',
       }
     })
     .sort((a, b) => Number(b.ready) - Number(a.ready) || b.hoursRunning - a.hoursRunning)
@@ -254,7 +256,7 @@ function ruleItems(store: Store, from: Date, to: Date): RuleItem[] {
       confidence: r.confidence,
       text: `"${r.rule}" is ${r.status} (${r.tests} test${r.tests === 1 ? '' : 's'}, ${r.wins} win${r.wins === 1 ? '' : 's'}, confidence ${r.confidence.toFixed(2)})`,
       command: r.status === 'candidate'
-        ? `booster retro --accept-rule "${r.rule}" --into playbook/<file>.md, or leave it to earn tests`
+        ? `booster retro --accept-rule "${r.rule}" --into playbook/<file>.md --yes, or leave it to earn tests`
         : r.status === 'retired'
           ? 'booster rules compile (drops it from playbook/00-learned-rules.md); pin it only with a reason'
           : 'booster rules compile (refreshes playbook/00-learned-rules.md)',
@@ -270,7 +272,7 @@ function alertItems(store: Store, rows: LedgerRow[], profile: ProfileDoc, now: D
     out.push({
       kind: 'baseline-shift',
       text: `Baseline shifted by more than one MAD since the previous refresh${moved.length ? ` (${moved.join(', ')})` : ''}; every verdict now compares against the new medians`,
-      command: 'booster profile show, then acknowledge with booster profile refresh (or baseline reset --since after a deliberate strategy change)',
+      command: 'booster profile show, then acknowledge with booster profile refresh (after a deliberate strategy change, booster profile refresh --window <n> drops the older rows from the median)',
     })
   }
   const withReturning = rows.filter((r) => r.reads['168']?.returningPct !== undefined)
@@ -322,7 +324,8 @@ function alertItems(store: Store, rows: LedgerRow[], profile: ProfileDoc, now: D
       out.push({
         kind: 'cadence-over-cap',
         text: `${published.length} uploads in the last ${Math.round(windowDays)} days against a cap of ${cap} (maxPerWeek ${perWeek}); fewer, better uploads`,
-        command: 'hold the next publish a week, or raise the cap on purpose: booster profile init --max-per-week N (only with the trailing four rows at 0.9x baseline CTR)',
+        // `profile init` is a create, not an edit: on a channel that has a profile it exits 1, and --force rewrites the file from the init answers alone, dropping positioning, persona, series and the rest. Cadence is raised by hand.
+        command: 'hold the next publish a week, or raise the cap on purpose: edit maxPerWeek in channel.json by hand (raising the cap is a human-only gate, and only with the trailing four rows at 0.9x baseline CTR)',
       })
     }
   }
@@ -340,11 +343,11 @@ function moverCommand(idea: IdeaDoc): string {
     case 'published':
       return 'booster review due'
     case 'parked':
-      return `booster bank rescore reopens it on a fresh outlier; or booster bank list --status parked`
+      return `booster bank rescore <competitors.csv> reopens it on a fresh outlier; or booster bank list --status parked`
     case 'retired':
       return 'booster bank list --status retired'
     case 'banked':
-      return `booster bank approve ${idea.id} (or booster bank park ${idea.id} --reason "<weakest axis>")`
+      return `booster bank approve ${idea.id} --yes (or booster bank park ${idea.id} --reason "<weakest axis>")`
   }
 }
 
@@ -376,7 +379,7 @@ function nextThreeItems(store: Store): NextIdea[] {
       verdict: i.verdict.verdict,
       weakestAxis: i.weakestAxis,
       text: `${i.idea} · ${i.total}/100 ${i.verdict.verdict}, ${i.status}${i.sequelOf ? ` (sequel of ${i.sequelOf})` : ''}; weakest axis ${i.weakestAxis}`,
-      command: i.status === 'green' ? `booster package build ${i.id}` : i.verdict.verdict === 'green' ? `booster bank approve ${i.id}` : `${i.verdict.fixes[0] ?? `raise ${i.weakestAxis}`}; then booster bank approve ${i.id}`,
+      command: i.status === 'green' ? `booster package build ${i.id}` : i.verdict.verdict === 'green' ? `booster bank approve ${i.id} --yes` : `${i.verdict.fixes[0] ?? `raise ${i.weakestAxis}`}; then booster bank approve ${i.id} --yes`,
     }))
 }
 
@@ -423,6 +426,7 @@ export function renderBriefMarkdown(brief: Brief): string {
   lines.push(...section('Rules changed', brief.rulesChanged, 'no rule moved in the window'))
   lines.push(...section('Alerts', brief.alerts, 'none'))
   lines.push(...section('Idea movers', brief.ideaMovers, 'no idea changed status in the window'))
-  lines.push(...section('Next three', brief.nextThree, 'the bank is empty: booster bank add "<idea>" --score "..."'))
+  // Only green and banked ideas feed this list, so an empty list is not an empty bank: say which ideas are missing, not that the store is.
+  lines.push(...section('Next three', brief.nextThree, 'no idea is banked or green (ideas in packaging or production do not count): booster bank add "<idea>" --score "..."'))
   return lines.join('\n').trimEnd() + '\n'
 }

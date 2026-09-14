@@ -162,18 +162,28 @@ describe('runStage', () => {
     expect(r.gate.detail).toBe('FAIL: story.json: hookScore 55 < 70; FAIL: story.json: promiseInFirst25Words is false, expected true')
   })
 
+  it('runs the publish checklist with the confirmation it needs, so the stage passes on the file it just wrote', () => {
+    const dir = pkg(wf)
+    const calls: string[][] = []
+    const spawn = fakeSpawn(calls, { write: () => { writeFileSync(path.join(dir, 'publish.md'), '# publish'); writeJson(dir, 'publish-check.json', { pass: true }) } })
+    const r = runStage(wf, 'publish', { cwd: root, now: clock(), spawn })
+    expect(calls).toEqual([['npm', 'run', 'booster', '--', 'publish', 'check', 'i-tried-30-days-of-cold-showers', '--review-scheduled']])
+    expect(r.status).toBe('passed')
+    expect(r.gate.detail).toBe('ok: publish.md exists; ok: publish-check.json: pass is true')
+  })
+
   it('runs a real process with node:child_process when no spawner is injected', () => {
     const dir = pkg(wf)
     const custom: Workflow = {
       ...wf,
       stages: wf.stages.map((s) => (s.id === 'demand'
-        ? { ...s, run: { kind: 'command', artifact: 'demand.json', command: [process.execPath, '-e', 'require("fs").writeFileSync(process.argv[1], JSON.stringify({verdict:"green"}))', path.join(dir, 'demand.json')] } }
+        ? { ...s, run: { kind: 'command', artifact: 'demand.json', command: [process.execPath, '-e', 'require("fs").writeFileSync(process.argv[1], JSON.stringify({verdict:"green",status:"green"}))', path.join(dir, 'demand.json')] } }
         : s)),
     }
     const r = runStage(custom, 'demand', { cwd: root, now: clock() })
     expect(r.exitCode).toBe(0)
     expect(r.status).toBe('passed')
-    expect(r.gate.detail).toBe('ok: demand.json: verdict is "green"')
+    expect(r.gate.detail).toBe('ok: demand.json: verdict is "green"; ok: demand.json: status is "green"')
     const bad = runStage({ ...custom, stages: custom.stages.map((s) => (s.id === 'demand' ? { ...s, run: { kind: 'command', artifact: 'x', command: [process.execPath, '-e', 'process.exit(3)'] } } : s)) }, 'demand', { cwd: root, now: clock() })
     expect(bad.exitCode).toBe(3)
     expect(bad.status).toBe('failed')
@@ -277,21 +287,23 @@ describe('runNext', () => {
   it('runs the next stage, records it, and stops at the first failure', () => {
     const dir = pkg(wf)
     const calls: string[][] = []
-    const spawn = fakeSpawn(calls, { write: () => writeJson(dir, 'demand.json', { verdict: 'yellow' }) })
+    // A green score the person has not approved: the second half of the demand gate holds it.
+    const spawn = fakeSpawn(calls, { write: () => writeJson(dir, 'demand.json', { verdict: 'green', status: 'banked' }) })
     const first = runNext(store, wf, { cwd: root, agent: 'claude', now: clock(), spawn })
     expect(first.done).toBe(false)
     expect(first.result!.stageId).toBe('demand')
     expect(first.result!.status).toBe('failed')
+    expect(first.result!.gate.detail).toBe('FAIL: demand.json: status is "banked", expected "green"; ok: demand.json: verdict is "green"')
     expect(first.status.stages[0].status).toBe('failed')
     const second = runNext(store, wf, { cwd: root, agent: 'claude', now: clock(), spawn })
     expect(second.result!.stageId).toBe('demand')
     expect(calls).toHaveLength(2)
-    expect(calls[0]).toEqual(['npm', 'run', 'booster', '--', 'idea', 'score', 'test-idea', '--demand', 'auto', '--out', 'packages/test-idea/demand.json'])
+    expect(calls[0]).toEqual(['npm', 'run', 'booster', '--', 'idea', 'score', 'test-idea', '--out', 'packages/test-idea/demand.json'])
   })
 
   it('advances after a pass and reports done when nothing is left', () => {
     const dir = pkg(wf)
-    const spawn = fakeSpawn([], { write: () => writeJson(dir, 'demand.json', { verdict: 'green' }) })
+    const spawn = fakeSpawn([], { write: () => writeJson(dir, 'demand.json', { verdict: 'green', status: 'green' }) })
     expect(runNext(store, wf, { cwd: root, now: clock(), spawn }).result!.status).toBe('passed')
     expect(nextRunnable(store.get('workflows', wf.slug)!)).toBe('packaging')
     const dry = runNext(store, wf, { cwd: root, now: clock(), spawn, dryRun: true })

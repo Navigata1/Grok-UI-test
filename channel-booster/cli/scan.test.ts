@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -219,6 +219,39 @@ describe('booster outliers (v2)', () => {
     expect(JSON.parse(readFileSync(expected, 'utf8')).ranked).toHaveLength(20)
   })
 
+  it('resolves a bare --save name into the store and a path with a separator against the cwd', async () => {
+    const data = path.join(tmp, 'data')
+    const cwd = path.join(tmp, 'run')
+    mkdirSync(cwd, { recursive: true })
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd)
+
+    const named = await json(['outliers', competitors, '--now', NOW, '--data', data, '--save', 'monday.json'])
+    expect(named.savedTo).toBe(path.join(data, 'monday.json'))
+    expect(existsSync(path.join(data, 'monday.json'))).toBe(true)
+
+    const nested = await json(['outliers', competitors, '--now', NOW, '--data', data, '--save', 'scans/monday.json'])
+    expect(nested.savedTo).toBe(path.join(cwd, 'scans', 'monday.json'))
+    expect(existsSync(path.join(cwd, 'scans', 'monday.json'))).toBe(true)
+  })
+
+  it('finds the store copy behind a --diff path written from the repo root, and names the file it read', async () => {
+    const data = path.join(tmp, 'data')
+    const cwd = path.join(tmp, 'run')
+    mkdirSync(cwd, { recursive: true })
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd)
+    await json(['outliers', competitors, '--now', NOW, '--data', data, '--save'])
+
+    const stored = path.join(data, 'last-scan.json')
+    const diffed = await json(['outliers', competitors, '--now', NOW, '--data', data, '--diff', 'data/last-scan.json'])
+    expect(diffed.diffedFrom).toBe(stored)
+    expect(diffed.diff).toEqual({ added: [], removed: [], changed: [] })
+    // Nothing was written into the cwd: the documented spelling reaches the --data store.
+    expect(existsSync(path.join(cwd, 'data', 'last-scan.json'))).toBe(false)
+
+    const { out } = await run(['outliers', competitors, '--now', NOW, '--data', data, '--diff', 'data/last-scan.json'])
+    expect(out).toContain(`  read from ${stored}`)
+  })
+
   it('still requires a csv', async () => {
     await expect(main(['outliers'])).rejects.toThrow(/usage: booster outliers <csv>/)
   })
@@ -239,6 +272,23 @@ describe('booster audit (v2)', () => {
     expect(out).toMatch(/Channel audit · threshold 5x · window 365d · 10 videos \(0 stale, 0 fresh\)/)
     expect(out).toMatch(/default: 10 videos \(10 in window\), median 3\.9K views/)
     expect(out).toMatch(/Your proven formats: .*Brief a sequel to each winner before trying a new topic\./)
+  })
+
+  it('saves to its own default file so a bare --save never overwrites the competitor scan', async () => {
+    const data = path.join(tmp, 'data')
+    const scan = await json(['outliers', competitors, '--now', NOW, '--data', data, '--save'])
+    expect(scan.savedTo).toBe(path.join(data, 'last-scan.json'))
+    const audit = await json(['audit', myChannel, '--now', NOW, '--data', data, '--save'])
+    expect(audit.savedTo).toBe(path.join(data, 'last-audit.json'))
+
+    // The competitor scan is still the competitor scan: 20 ranked rows, not the 10 own uploads.
+    expect(JSON.parse(readFileSync(path.join(data, 'last-scan.json'), 'utf8')).ranked).toHaveLength(20)
+    expect(JSON.parse(readFileSync(path.join(data, 'last-audit.json'), 'utf8')).ranked).toHaveLength(10)
+    const again = await json(['outliers', competitors, '--now', NOW, '--data', data, '--diff', 'last-scan.json'])
+    expect(again.diff).toEqual({ added: [], removed: [], changed: [] })
+
+    const { out } = await run(['audit', myChannel, '--now', NOW, '--data', data, '--save'])
+    expect(out).toContain(`Saved scan to ${path.join(data, 'last-audit.json')}`)
   })
 
   it('names the threshold in the no-winner message', async () => {

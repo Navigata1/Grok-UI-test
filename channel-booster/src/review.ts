@@ -385,11 +385,11 @@ function awaitingFor(review: Pick<Review, 'slug' | 'bucket' | 'decision' | 'repa
     case 'REPACKAGE':
       return [
         review.repackage
-          ? `${id}: approve the swap${review.repackage.thumbnail ? ` to "${review.repackage.thumbnail.name}"` : ''}, apply it in Studio, then stamp it: booster decide approve ${slug} --bucket ${bucket} --by <name>`
+          ? `${id}: approve the swap${review.repackage.thumbnail ? ` to "${review.repackage.thumbnail.name}"` : ''}, apply it in Studio, then stamp it: booster decide approve ${slug} --bucket ${bucket} --by <name> --yes`
           : `${id}: REPACKAGE decided but no package.json was found; build the swap plan: booster repackage prepare ${slug}`,
       ]
     case 'RE-TEST-TITLE':
-      return [`${id}: start Test & Compare on the title${review.repackage?.title ? ` (vs "${review.repackage.title.title}")` : ''} and approve: booster decide approve ${slug} --bucket ${bucket} --by <name>`]
+      return [`${id}: start Test & Compare on the title${review.repackage?.title ? ` (vs "${review.repackage.title.title}")` : ''} and approve: booster decide approve ${slug} --bucket ${bucket} --by <name> --yes`]
     case 'SEQUEL':
       return [`${id}: brief the sequel this week (the bank already holds the candidate): booster bank list --status banked`]
     case 'EXPAND':
@@ -448,10 +448,11 @@ export function renderDigest(result: Pick<RunReviewsResult, 'date' | 'reviews' |
     lines.push(next ? `Nothing to review. Next read: ${next.slug} at ${next.bucket} h in ${Math.ceil(next.inHours)} h.` : 'Nothing to review.', '')
   }
   for (const r of result.reviews) lines.push(...reviewSection(r))
+  // Writing a lever is a human-only gate, so every line that carries --lever carries the --yes the command asks for; the command's own preview stops the run, not a missing flag.
   const awaiting = [
     ...result.reviews.flatMap((r) => r.awaiting),
-    ...(result.ingest?.needsLever ?? []).map((n) => `${n.slug}:168: write the lever learned, then the read records itself on the next run: booster set ${n.slug} --bucket 168 --lever "<one sentence of learning>"`),
-    ...result.awaitingData.map((d) => `${d.slug}:${d.bucket}: no numbers yet (${d.overdueHours} h overdue); drop the Studio export in inbox/ or type them: booster set ${d.slug} --bucket ${d.bucket} --impressions N --ctr X --avp Y${d.bucket === '48' ? ' --ret30 Z --returning W' : d.bucket === '168' ? ' --views V --returning W --lever "<sentence>"' : ''}`),
+    ...(result.ingest?.needsLever ?? []).map((n) => `${n.slug}:168: write the lever learned, then the read records itself on the next run: booster set ${n.slug} --bucket 168 --lever "<one sentence of learning>" --yes`),
+    ...result.awaitingData.map((d) => `${d.slug}:${d.bucket}: no numbers yet (${d.overdueHours} h overdue); drop the Studio export in inbox/ or type them: booster set ${d.slug} --bucket ${d.bucket} --impressions N --ctr X --avp Y${d.bucket === '48' ? ' --ret30 Z --returning W' : d.bucket === '168' ? ' --views V --returning W --lever "<sentence>" --yes' : ''}`),
   ]
   lines.push('## Awaiting a human', '')
   if (awaiting.length === 0) lines.push('- nothing')

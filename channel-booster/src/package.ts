@@ -5,7 +5,9 @@
  * stranger would click next to the best competing videos. This module owns
  * the four gates every package must clear before the story stage may start:
  *
- *   titleGate    scoreTitle(chosenTitle) >= thresholds.titleGateScore
+ *   titleGate    scoreTitle(chosenTitle) >= thresholds.titleGateScore, and the
+ *                title inside thresholds.titleMinChars..titleMaxChars, the same
+ *                band `publish check` applies to the title it receives from here
  *   overlapGate  titleThumbnailOverlap(chosenTitle, text) < thresholds.titleThumbOverlapMax
  *                for both concepts of the A/B pair (the title tells, the thumbnail shows)
  *   thumbGate    qaThumbnail() grade "ship" on the A and B concepts, and their `angle`
@@ -184,6 +186,8 @@ export interface BuildPackageInput {
   generate?: GenerateHooks
   /** Fix rounds when hooks are given; offline generation is deterministic and runs once. */
   rounds?: number
+  /** The CTR multiple this package predicts, pre-registered with the levers. Defaults to 1 (no lift claimed). */
+  predictedCtrMultiple?: number
   now?: Date
 }
 
@@ -269,17 +273,32 @@ function wordCount(text: string | undefined): number {
 function thresholdLines(): string[] {
   return [
     `titleGateScore ${tagged('titleGateScore')}`,
+    `titleMinChars ${tagged('titleMinChars')}`,
+    `titleMaxChars ${tagged('titleMaxChars')}`,
     `titleThumbOverlapMax ${tagged('titleThumbOverlapMax')}`,
     `thumbShipScore ${tagged('thumbShipScore')}`,
   ]
 }
 
-/** Title gate for one title. */
+/** A title the publish checklist would accept: at or above the score gate and inside the mobile length band. */
+function titlePublishable(title: string, score: number): boolean {
+  return score >= thresholds.titleGateScore.value && title.length >= thresholds.titleMinChars.value && title.length <= thresholds.titleMaxChars.value
+}
+
+/**
+ * Title gate for one title: the heuristic score and the mobile length band.
+ * `publish check` (src/publish.ts) rejects a title outside titleMinChars..
+ * titleMaxChars, and it reads the title this gate stamped, so passing one band
+ * here and failing it there would stop the pipeline with nothing to fix.
+ */
 function titleGateFor(title: string, score: number): Gate {
   const gate = thresholds.titleGateScore.value
-  return score >= gate
-    ? { pass: true, reason: `title scores ${score}/100, at or above ${tagged('titleGateScore')}` }
-    : { pass: false, reason: `title scores ${score}/100, below ${tagged('titleGateScore')}: rewrite before testing the thumbnail ("${title}")` }
+  const len = title.length
+  if (score < gate) return { pass: false, reason: `title scores ${score}/100, below ${tagged('titleGateScore')}: rewrite before testing the thumbnail ("${title}")` }
+  if (len < thresholds.titleMinChars.value || len > thresholds.titleMaxChars.value) {
+    return { pass: false, reason: `title is ${len} characters; publish check needs ${tagged('titleMinChars')} to ${tagged('titleMaxChars')}: rewrite it before the story stage ("${title}")` }
+  }
+  return { pass: true, reason: `title scores ${score}/100, at or above ${tagged('titleGateScore')}, and is ${len} characters, inside ${thresholds.titleMinChars.value}-${thresholds.titleMaxChars.value}` }
 }
 
 /** Overlap gate for one title/text pair. */
@@ -390,7 +409,12 @@ function offlineTitles(input: BuildPackageInput): TitleInput[] {
   return generateTitles({ topic: input.idea, number: input.number, subject: input.subject, audience: input.audience }).map((t: TitleCandidate) => ({ title: t.title, formula: t.formula }))
 }
 
-/** Rescore and rank titles; the hook's own score is ignored so the gate is one function. */
+/**
+ * Rescore and rank titles; the hook's own score is ignored so the gate is one
+ * function. A title publish check would reject on length sorts behind every
+ * publishable one however well it scores: the first title here becomes
+ * `chosenTitle`, and that is the title the publish stage receives.
+ */
 function rankTitles(inputs: TitleInput[]): PackageTitle[] {
   const seen = new Set<string>()
   const out: PackageTitle[] = []
@@ -401,7 +425,7 @@ function rankTitles(inputs: TitleInput[]): PackageTitle[] {
     const { score, notes } = scoreTitle(title)
     out.push({ title, score, formula: t.formula, lever: t.lever, notes })
   }
-  return out.sort((a, b) => b.score - a.score)
+  return out.sort((a, b) => Number(titlePublishable(b.title, b.score)) - Number(titlePublishable(a.title, a.score)) || b.score - a.score)
 }
 
 /** A hook concept as a full spec: elements derived when missing. */
@@ -624,13 +648,30 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
     thumbnails: final.thumbs,
     abPick: { a: final.a?.name ?? '', b: final.b?.name ?? '', reason: final.abReason },
     designerBrief: designerBrief(final, input.signature),
-    hypothesis: { levers: [], angle: final.a?.angle, predictedCtrMultiple: 1 },
+    hypothesis: { levers: preRegisteredLevers(final), angle: final.a?.angle, predictedCtrMultiple: input.predictedCtrMultiple ?? 1 },
     gateReport: final.gateReport,
     rounds: history.length,
     history,
     ownTitles,
     createdAt: now.toISOString(),
   }
+}
+
+/**
+ * The levers this package pre-registers: the chosen title's lever (its formula
+ * offline) and the two A/B angles, de-duplicated case-insensitively. `booster
+ * rules compile` counts only ledger rows whose `hypothesis.levers` is non-empty,
+ * so an empty list here keeps every published package out of the flywheel —
+ * and the pair was picked precisely because it pulls two named levers.
+ */
+function preRegisteredLevers(ev: Evaluation): string[] {
+  const seen = new Map<string, string>()
+  for (const raw of [ev.chosen.lever ?? ev.chosen.formula, ev.a?.angle, ev.b?.angle]) {
+    const lever = raw?.trim()
+    // First spelling wins: the title's own lever names the thing, the angle repeats it.
+    if (lever && !seen.has(lever.toLowerCase())) seen.set(lever.toLowerCase(), lever)
+  }
+  return [...seen.values()]
 }
 
 function gateLine(name: string, g: Gate): string {

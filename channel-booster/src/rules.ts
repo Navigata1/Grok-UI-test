@@ -274,7 +274,7 @@ function ruleLine(r: RuleDoc, withSlugs: boolean): string {
  * the retired list. Always under `LEARNED_RULES_MAX_CHARS`; when the lists
  * would overflow, slug refs go first, then the lowest-confidence lines.
  */
-export function renderLearnedRules(rules: RuleDoc[], options: { halfLifeDays?: number; promoteTests?: number; promoteWinRate?: number; retireWinRate?: number } = {}): string {
+export function renderLearnedRules(rules: RuleDoc[], options: { now?: Date; halfLifeDays?: number; promoteTests?: number; promoteWinRate?: number; retireWinRate?: number } = {}): string {
   const halfLife = options.halfLifeDays ?? RULE_DEFAULTS.halfLifeDays
   const minTests = options.promoteTests ?? RULE_DEFAULTS.promoteTests
   const promoteAt = options.promoteWinRate ?? RULE_DEFAULTS.promoteWinRate
@@ -283,7 +283,8 @@ export function renderLearnedRules(rules: RuleDoc[], options: { halfLifeDays?: n
   const promoted = sorted.filter((r) => r.status === 'promoted' || r.status === 'pinned')
   const retired = sorted.filter((r) => r.status === 'retired')
   const candidates = sorted.filter((r) => r.status === 'candidate')
-  const stamp = rules.reduce<string | undefined>((m, r) => (m === undefined || r.updatedAt > m ? r.updatedAt : m), undefined)
+  // The header says when the compile ran. A rule that compileRules() kept verbatim (pinned, or accepted by a person) keeps its old updatedAt, so the newest rule date is not the compile date; fall back to it only when no clock is given.
+  const stamp = options.now?.toISOString() ?? rules.reduce<string | undefined>((m, r) => (m === undefined || r.updatedAt > m ? r.updatedAt : m), undefined)
 
   const header = [
     '# Learned rules (compiled)',

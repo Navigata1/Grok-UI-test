@@ -176,6 +176,37 @@ describe('booster profile', () => {
     expect(narrow.baselines48.ctr.median).toBe(3.9)
   })
 
+  it('needs --yes only when a refresh would move a baseline that already exists', async () => {
+    await run(['profile', 'init', '--positioning', 'Camper builds'])
+    await seedHistory()
+    // The first computation on a fresh channel is frictionless, and so is a recompute that lands
+    // on the same medians: only a reset of numbers already in use is the human-only gate.
+    expect((await run(['profile', 'refresh', '--now', NOW])).code).toBe(0)
+    expect((await run(['profile', 'refresh', '--now', NOW])).code).toBe(0)
+    expect(JSON.parse(readFileSync(profile, 'utf8')).baselines.n).toBe(3)
+
+    // A fourth read moves the medians every verdict is judged against.
+    await addRow('roof-fan', 'Roof fan swap', '2026-06-28T12:00:00Z', 'mN9oPqRs7tU')
+    expect((await run(['set', 'roof-fan', '--bucket', '48', '--impressions', '150000', '--ctr', '6.8', '--avp', '44', '--views', '9000'])).code).toBe(0)
+
+    const gated = await fails(['profile', 'refresh', '--now', NOW])
+    expect(gated.message).toContain('resetting the baseline needs --yes')
+    expect(gated.out).toContain(`About to reset the baselines in ${path.resolve(profile)}`)
+    expect(gated.out).toContain('was: prior, n=3, CTR 4.4%, AVP 36.8%, views 4100')
+    expect(gated.out).toContain('now: prior, n=4, CTR 5.2%, AVP 38.3%, views 6550')
+    expect(gated.out).toContain('resetting the baseline is a human-only gate (AGENTS.md)')
+    expect(JSON.parse(readFileSync(profile, 'utf8')).baselines.n).toBe(3)
+
+    // --dry-run still previews the move without asking, and still writes nothing.
+    const dry = await json(['profile', 'refresh', '--now', NOW, '--dry-run'])
+    expect(dry.baselines48.n).toBe(4)
+    expect(dry.moved).toContain('ctr')
+    expect(JSON.parse(readFileSync(profile, 'utf8')).baselines.n).toBe(3)
+
+    expect((await run(['profile', 'refresh', '--now', NOW, '--yes'])).code).toBe(0)
+    expect(JSON.parse(readFileSync(profile, 'utf8')).baselines.n).toBe(4)
+  })
+
   it('rejects an unknown subcommand with the usage line', async () => {
     expect((await fails(['profile', 'bogus'])).message).toContain('usage: booster profile init|show|refresh')
   })
@@ -205,6 +236,11 @@ describe('booster ledger add / show', () => {
     expect((await fails(['ledger', 'add', '--slug', 'x', '--title', 'x'])).message).toContain('--published-at is required')
     expect((await fails(['ledger', 'add', '--slug', 'x', '--title', 'x', '--published-at', 'yesterday'])).message).toContain('--published-at must be an ISO date')
     expect((await fails(['ledger', 'add', '--slug', 'x', '--title', 'x', '--published-at', NOW, '--video-id', 'short'])).message).toContain('11-character')
+    // The lever belongs to the 7-day read, so add-time is the wrong place to accept it: say so
+    // and name the writer instead of dropping the flag.
+    const lever = await fails(['ledger', 'add', '--slug', 'x', '--title', 'x', '--published-at', NOW, '--lever', 'learned X'])
+    expect(lever.message).toContain('ledger add has no --lever')
+    expect(lever.message).toContain('booster set x --bucket 168 --lever ".." --yes')
     expect(existsSync(path.join(data, 'ledger.jsonl'))).toBe(false)
   })
 

@@ -152,7 +152,7 @@ describe('booster workflow run', () => {
     await createWorkflow()
     const { code, out } = await run(runFlags(['--next', '--dry-run']))
     expect(code).toBe(0)
-    expect(out).toMatch(/DRY RUN demand: would run `npm run booster -- idea score empty-sprinter-to-camper-in-90-days --demand auto --out packages\/empty-sprinter-to-camper-in-90-days\/demand.json`/)
+    expect(out).toMatch(/DRY RUN demand: would run `npm run booster -- idea score empty-sprinter-to-camper-in-90-days --out packages\/empty-sprinter-to-camper-in-90-days\/demand.json`/)
     expect(out).toMatch(/Gate now: FAIL · FAIL: missing demand.json/)
     expect(out).toMatch(/Nothing was run or recorded/)
     expect(openStore(data).get('workflows', SLUG)!.stages[0].status).toBe('pending')
@@ -163,6 +163,29 @@ describe('booster workflow run', () => {
     expect(parsed.result.agent).toBe('bot')
     expect(parsed.status.stages[0].status).toBe('pending')
   })
+
+  it('really runs the demand stage: it spawns booster, and only a person\'s approval opens the gate', async () => {
+    const score = 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4'
+    await run(['bank', 'add', IDEA, '--score', score, '--promise', 'a road-ready camper in 90 days, every cost shown', ...base()])
+    await createWorkflow()
+
+    // The scorecard is green, but the idea is still banked: the human-only gate holds the stage.
+    const banked = await run(runFlags(['--next', '--agent', 'tester']))
+    expect(banked.code).toBe(1)
+    expect(banked.out).toMatch(/Stage demand FAILED \(by tester\): `npm run booster -- idea score empty-sprinter-to-camper-in-90-days --out packages\/empty-sprinter-to-camper-in-90-days\/demand.json`/)
+    expect(banked.out).toMatch(/Exit code 0/)
+    expect(banked.out).toMatch(/demand.json: status is "banked", expected "green"/)
+    const scorecard = JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'demand.json'), 'utf8'))
+    expect(scorecard).toMatchObject({ idea: IDEA, verdict: 'green', status: 'banked' })
+
+    await run(['bank', 'approve', IDEA, '--yes', ...base()])
+    const approved = await run(runFlags(['--next', '--agent', 'tester']))
+    expect(approved.code).toBe(0)
+    expect(approved.out).toMatch(/Stage demand PASSED \(by tester\)/)
+    expect(approved.out).toMatch(/ok: demand.json: verdict is "green"; ok: demand.json: status is "green"/)
+    expect(approved.out).toMatch(/Next: packaging/)
+    expect(openStore(data).get('workflows', SLUG)!.stages[0].status).toBe('passed')
+  }, 60_000)
 
   it('defaults to --next when neither --next nor --stage is given', async () => {
     await createWorkflow()

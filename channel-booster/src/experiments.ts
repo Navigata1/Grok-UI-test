@@ -22,22 +22,26 @@
  * The platform mechanics (three variants, share of watch time, Winner /
  * Preferred / None) are [unverified]; every number here is a house default.
  */
-import type { Evidence } from './thresholds.js'
+import { thresholds, type Threshold, type ThresholdKey } from './thresholds.js'
 import type { ExperimentDoc } from './schema.js'
 
 /**
- * Numeric gates of the Test & Compare judge. House defaults, owned here until
- * the thresholds owner moves them into thresholds.ts (see integration notes).
+ * Numeric gates of the Test & Compare judge, read live from the registry in
+ * thresholds.ts so `booster thresholds` lists them and a channel.json override
+ * reaches the judge. The cold-start pair is `testColdStart*` there because the
+ * funnel diagnosis owns a different `coldStartMinHours` (72 h, not 168): one
+ * key must never hold two numbers, so the name a verdict prints is the name
+ * the table lists.
  */
 export const TEST_RULES = {
-  minImpressions: { value: 1000, evidence: 'house', note: 'impressions each variant needs before the test can be judged' },
-  minHours: { value: 72, evidence: 'house', note: 'hours a test runs before it can be judged; browse traffic arrives over days' },
-  coldStartMinImpressions: { value: 2000, evidence: 'house', note: 'impression floor per variant on a channel with no baseline' },
-  coldStartMinHours: { value: 168, evidence: 'house', note: 'hour floor (7 days) on a channel with no baseline' },
-  overPromiseDropPct: { value: 10, evidence: 'house', note: 'the CTR leader with AVD or watch-time share this much lower (relative) than the other variant over-promised' },
-  noDifferenceSharePts: { value: 3, evidence: 'house', note: 'watch-time shares closer than this many points taught nothing' },
-  noDifferenceRelPct: { value: 3, evidence: 'house', note: 'AVD or CTR closer than this relative percent taught nothing (used only when share is missing)' },
-} as const satisfies Record<string, { value: number; evidence: Evidence; note: string }>
+  get minImpressions(): Threshold { return thresholds.testMinImpressions },
+  get minHours(): Threshold { return thresholds.testMinHours },
+  get coldStartMinImpressions(): Threshold { return thresholds.testColdStartMinImpressions },
+  get coldStartMinHours(): Threshold { return thresholds.testColdStartMinHours },
+  get overPromiseDropPct(): Threshold { return thresholds.overPromiseDropPct },
+  get noDifferenceSharePts(): Threshold { return thresholds.noDifferenceSharePts },
+  get noDifferenceRelPct(): Threshold { return thresholds.noDifferenceRelPct },
+}
 
 /** One Test & Compare variant as Studio reports it. Names are what the creator called the thumbnails (A, B, "stakes"...). */
 export interface TestVariant {
@@ -88,8 +92,9 @@ function pct(x: number): string {
   return `${Math.round(x * 10) / 10}%`
 }
 
-function tag(key: keyof typeof TEST_RULES, value: number, suffix = ''): string {
-  return `${key} ${value}${suffix} [${TEST_RULES[key].evidence}]`
+/** A gate as the verdict prints it: the registry key, the value in force, its evidence tag. */
+function tag(key: ThresholdKey, value: number, suffix = ''): string {
+  return `${key} ${value}${suffix} [${thresholds[key].evidence}]`
 }
 
 /** Relative drop of `a` below `b`, percent; 0 when b is 0 or a >= b. */
@@ -130,8 +135,8 @@ export function judgeTest(variants: TestVariant[], options: JudgeOptions): Judge
   const hoursRunning = options.hoursRunning
   const metric = decisiveMetric(variants)
   const thresholdsUsed = [
-    tag(coldStart ? 'coldStartMinImpressions' : 'minImpressions', minImpressions),
-    tag(coldStart ? 'coldStartMinHours' : 'minHours', minHours, ' h'),
+    tag(coldStart ? 'testColdStartMinImpressions' : 'testMinImpressions', minImpressions),
+    tag(coldStart ? 'testColdStartMinHours' : 'testMinHours', minHours, ' h'),
     tag('overPromiseDropPct', overPromiseDropPct, '%'),
     metric === 'watchTimeShare' ? tag('noDifferenceSharePts', TEST_RULES.noDifferenceSharePts.value, ' pts') : tag('noDifferenceRelPct', TEST_RULES.noDifferenceRelPct.value, '%'),
   ]

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -110,6 +110,29 @@ describe('idea score', () => {
     expect(narrow.demand.windowDays).toBe(30)
     expect(narrow.demand.staleMatches).toBe(1)
     expect(narrow.demand.evidence).toHaveLength(1)
+  })
+
+  it('reads the axes off the bank row for an id or a workflow slug, carries its status, and writes --out', async () => {
+    const IDEA = 'Solar generator that runs a fridge'
+    const slug = 'solar-generator-that-runs-a-fridge'
+    await json(['bank', 'add', IDEA, '--score', MANUAL])
+    // The workflow runner's demand stage passes the slug: it resolves through the status document.
+    openStore(data).upsert('workflows', { id: slug, slug, idea: IDEA, format: 'challenge', stages: [{ id: 'demand', status: 'pending' }], updatedAt: NOW, source: 'cli' })
+    const banked = await json(['idea', 'score', slug])
+    expect(banked).toMatchObject({ idea: IDEA, id: ideaId(IDEA), status: 'banked', verdict: 'green', total: 77 })
+
+    await json(['bank', 'approve', IDEA, '--yes'])
+    const file = path.join(data, 'packages', slug, 'demand.json')
+    const approved = await json(['idea', 'score', ideaId(IDEA), '--out', file])
+    expect(approved.status).toBe('green')
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ idea: IDEA, verdict: 'green', status: 'green' })
+    expect(await text(['idea', 'score', slug])).toMatch(/Bank: idea:\w+ is green\./)
+  })
+
+  it('says how to bank and approve an idea when nothing matches and --score is omitted', async () => {
+    const { error } = await failing(['idea', 'score', 'nothing-banked-yet'])
+    expect(error).toMatch(/Nothing in the bank matches "nothing-banked-yet"/)
+    expect(error).toMatch(/booster bank approve "<idea>" --yes/)
   })
 
   it('refuses demand=auto without a scan and says how to phrase the idea', async () => {

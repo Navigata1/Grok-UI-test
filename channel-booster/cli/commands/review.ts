@@ -2,8 +2,8 @@
  * Commands: postmortem, decide, repackage (prepare).
  *
  * `postmortem` diagnoses typed Studio numbers (architecture 2.14): the read
- * bucket, the mode, the profile's computed baselines (typed --baseline-*
- * flags still win) and the traffic and loyalty reads. `decide` diagnoses a
+ * bucket, the mode, the profile's computed baselines for that bucket (typed
+ * --baseline-* flags still win) and the traffic and loyalty reads. `decide` diagnoses a
  * ledger row at one bucket with leave-one-out baselines from the ledger and
  * turns the verdict into a numbered decision (2.15); --record upserts it by
  * id `<slug>:<bucket>`. `repackage prepare` turns a recorded REPACKAGE or
@@ -18,7 +18,7 @@ import type { Bucket } from '../../src/buckets.js'
 import { decide, describeDecision } from '../../src/decide.js'
 import { ageHours, baselineFrom, readLedger } from '../../src/ledger.js'
 import { diagnose, type DiagnosisMode, type DiagnosisV2, type PostMortemInputV2 } from '../../src/postmortem.js'
-import { baselineInputFrom, describeBaselineInput, diagnoseBaseline } from '../../src/profile.js'
+import { baselineInputFrom, baselinesForBucket, describeBaselineInput, diagnoseBaseline } from '../../src/profile.js'
 import { describeRepackage, prepareRepackage, type PackagedThumbnail, type PackagedTitle, type RepackagePackage } from '../../src/repackage.js'
 import type { LedgerRead, ProfileDoc } from '../../src/schema.js'
 import { bool, getProfile, getStore, need, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
@@ -56,14 +56,15 @@ function rootFrom(flags: Flags): string {
 /**
  * The baseline a typed diagnosis compares against: typed --baseline-* flags
  * win (filled from the profile's flat baseline where a flag is missing);
- * otherwise the profile's computed baselines with their tier, and diagnose()
- * borrows priors itself when the tier is `prior`.
+ * otherwise the profile's computed baselines for the read's bucket with their
+ * tier, and diagnose() borrows priors itself when the tier is `prior`. A 7-day
+ * read is judged against the 7-day medians, never against the 48-hour ones.
  */
-function baselineArgs(flags: Flags, profile: ProfileDoc): Pick<PostMortemInputV2, 'baseline' | 'baselines'> {
+function baselineArgs(flags: Flags, profile: ProfileDoc, bucket: Bucket | undefined): Pick<PostMortemInputV2, 'baseline' | 'baselines'> {
   const typed = { ctr: num(flags, 'baseline-ctr'), avpPct: num(flags, 'baseline-avp'), views: num(flags, 'baseline-views') }
   const anyTyped = typed.ctr !== undefined || typed.avpPct !== undefined || typed.views !== undefined
-  if (!anyTyped) return { baselines: profile.baselines }
-  const fromProfile = diagnoseBaseline(profile)
+  if (!anyTyped) return { baselines: baselinesForBucket(profile, bucket) }
+  const fromProfile = diagnoseBaseline(profile, bucket)
   return { baseline: { ctr: typed.ctr ?? fromProfile?.ctr, avpPct: typed.avpPct ?? fromProfile?.avpPct, views: typed.views ?? fromProfile?.views } }
 }
 
@@ -89,6 +90,7 @@ function renderDiagnosis(d: DiagnosisV2, profileLine?: string): string {
 async function runPostmortem(flags: Flags): Promise<number> {
   const profile = getProfile(flags)
   const prevImpressions = num(flags, 'prev-impressions')
+  const bucket = bucketFrom(flags, ALL_BUCKETS, USAGE_POSTMORTEM)
   const d = diagnose({
     impressions: num(flags, 'impressions'),
     ctr: num(flags, 'ctr'),
@@ -98,15 +100,15 @@ async function runPostmortem(flags: Flags): Promise<number> {
     avpPct: num(flags, 'avp'),
     retention30sPct: num(flags, 'retention30'),
     hoursSincePublish: num(flags, 'hours'),
-    bucket: bucketFrom(flags, ALL_BUCKETS, USAGE_POSTMORTEM),
+    bucket,
     mode: modeFrom(flags),
-    ...baselineArgs(flags, profile),
+    ...baselineArgs(flags, profile, bucket),
     returningViewerPct: num(flags, 'returning'),
     subscriberSharePct: num(flags, 'sub-share'),
     browseSuggestedPct: num(flags, 'browse-suggested'),
     previousRead: prevImpressions !== undefined ? { impressions: prevImpressions } : undefined,
   })
-  out(d, flags, () => renderDiagnosis(d, describeBaselineInput(baselineInputFrom(profile))))
+  out(d, flags, () => renderDiagnosis(d, describeBaselineInput(baselineInputFrom(profile, bucket))))
   return 0
 }
 

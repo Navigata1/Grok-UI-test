@@ -82,6 +82,9 @@ describe('booster package build', () => {
     expect(parsed.thumbnails.every((t: any) => t.qa && t.spec && typeof t.overlap === 'number')).toBe(true)
     expect(parsed.abPick.a).not.toBe('')
     expect(parsed.ownTitles).toEqual(['', '', ''])
+    // The pre-registered hypothesis is what makes the ledger row a test rules compile can count.
+    expect(parsed.hypothesis.levers).toEqual([parsed.titles[0].formula, parsed.thumbnails.find((t: any) => t.name === parsed.abPick.a).angle, parsed.thumbnails.find((t: any) => t.name === parsed.abPick.b).angle])
+    expect(parsed.hypothesis.predictedCtrMultiple).toBe(1)
     expect(parsed.gateReport.thresholdsUsed.length).toBeGreaterThan(0)
     expect(code).toBe(parsed.gateReport.pass ? 0 : 1)
     expect(parsed.bank).toBeNull()
@@ -171,6 +174,7 @@ describe('booster package build', () => {
     expect(await fails(['package', 'build', IDEA, '--offline'])).toMatch(/--promise is required/)
     expect(await fails(['package', 'build', 'idea:nope', '--promise', PROMISE, '--offline'])).toMatch(/no idea "idea:nope" in the bank/)
     expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--rounds', 'many', '--offline'])).toMatch(/--rounds must be a number/)
+    expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--predicted-ctr', 'double', '--offline'])).toMatch(/--predicted-ctr must be a number/)
     expect(await fails(['package', 'build'])).toMatch(/usage: booster package build/)
     expect(await fails(['package', 'nope'])).toMatch(/usage: booster package build/)
   })

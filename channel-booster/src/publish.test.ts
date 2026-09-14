@@ -111,6 +111,22 @@ describe('chapters and Shorts helpers', () => {
     expect(normaliseChapters(undefined)).toEqual([])
   })
 
+  it('spaces chapters at least minChapterGapSec apart, so publish check accepts what publish pack writes', () => {
+    // hook score segments a script per paragraph, so a short paragraph lands 8-9 s after the one before it.
+    const perParagraph = [0, 10, 20, 30, 40, 50, 59, 70, 79, 88].map((atSec, i) => ({ atSec, title: `Beat ${i + 1}` }))
+    const spaced = normaliseChapters(perParagraph)
+    expect(spaced.map((c) => c.atSec)).toEqual([0, 10, 20, 30, 40, 50, 70, 88])
+    expect(spaced.every((c, i) => i === 0 || c.atSec - spaced[i - 1].atSec >= PUBLISH_RULES.minChapterGapSec.value)).toBe(true)
+    const check = checkPublish(assemblePublish({ ...input, chapters: perParagraph }), goodCheck)
+    expect(check.items[3]).toEqual({ label: 'Chapters match the retention map beats.', ok: true })
+    expect(check.pass).toBe(true)
+  })
+
+  it('pulls a first beat inside the gap back to 00:00 instead of inserting an open above it', () => {
+    expect(normaliseChapters([{ atSec: 8, title: 'I tested every power station' }, { atSec: 40, title: 'The cheap one' }]))
+      .toEqual([{ atSec: 0, title: 'I tested every power station' }, { atSec: 40, title: 'The cheap one' }])
+  })
+
   it('ranks payoff moments by explicit strength, then promise words, then lateness', () => {
     const byStrength = pickShortsCuts(promise, [{ atSec: 400, moment: 'the fridge runs on scrap' }, { atSec: 90, moment: 'oops', strength: 1 }, { atSec: 200, moment: 'meh', strength: 0.9 }])
     expect(byStrength.map((s) => s.atSec)).toEqual([90, 200])
@@ -183,8 +199,9 @@ describe('checkPublish', () => {
     const few = checkPublish(assemblePublish({ ...input, chapters: [{ atSec: 0, title: 'Open' }, { atSec: 60, title: 'Mid' }] }), goodCheck)
     expect(few.items[3].ok).toBe(false)
     expect(few.items[3].detail).toContain('2 chapters')
-    const tight = checkPublish(assemblePublish({ ...input, chapters: [{ atSec: 0, title: 'Open' }, { atSec: 5, title: 'Fast' }, { atSec: 60, title: 'Mid' }] }), goodCheck)
-    expect(tight.items[3].detail).toContain('closer than 10 s at 00:05')
+    // A hand-edited publish.json can still put two marks inside the gap; assemblePublish no longer can.
+    const tight = { ...assemblePublish(input), chapters: [{ atSec: 0, title: 'Open' }, { atSec: 5, title: 'Fast' }, { atSec: 60, title: 'Mid' }] }
+    expect(checkPublish(tight, goodCheck).items[3].detail).toContain('closer than 10 s at 00:05')
     const none = checkPublish(assemblePublish({ ...input, chapters: undefined }), goodCheck)
     expect(none.items[3].ok).toBe(false)
     const notZero = { ...assemblePublish(input), chapters: [{ atSec: 5, title: 'A' }, { atSec: 60, title: 'B' }, { atSec: 120, title: 'C' }] }

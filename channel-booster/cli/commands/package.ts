@@ -33,7 +33,7 @@ const USAGE_CHECK = 'booster thumbnail check <file.png|file.jpg>'
 const USAGE_SIG_SET = 'booster signature set --colors "yellow,black" [--face always|never|either] [--max-words 3] [--framing ".."] [--typeface ".."] [--notes ".."]'
 const USAGE_HOOK = 'booster hook score --script <file> --slug <slug> [--title ".."] [--promise ".."] [--thumbnail-moment ".."] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]'
 const USAGE_PROMISE = 'booster promise check --promise ".." [--title ".."] [--script <file>] [--description <file>|".."] [--thumb-text ".."]'
-const USAGE_BUILD = 'booster package build "<idea>"|<idea:id> --promise ".." [--subject ..] [--stake ..] [--result ..] [--number ..] [--audience ..] [--rounds 3] [--offline] [--no-signature] [--root dir] [--out dir]'
+const USAGE_BUILD = 'booster package build "<idea>"|<idea:id> --promise ".." [--subject ..] [--stake ..] [--result ..] [--number ..] [--audience ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--no-signature] [--root dir] [--out dir]'
 
 /** One thumbnail concept as packages/<slug>/package.json stores it (section 2.5). */
 interface PackagedConcept {
@@ -289,8 +289,11 @@ async function promiseCheck(flags: Flags): Promise<number> {
 
 /**
  * Build the package (architecture 2.5): titles, concepts, QA, the A/B pair,
- * the designer brief and the gate report, written to packages/<slug>/
- * package.json and package.md. Offline (no ANTHROPIC_API_KEY, or --offline)
+ * the designer brief, the gate report and the pre-registered hypothesis (the
+ * chosen title's lever, both A/B angles, and --predicted-ctr), written to
+ * packages/<slug>/package.json and package.md. `booster publish confirm`
+ * carries that hypothesis onto the ledger row, which is what makes the row a
+ * test `booster rules compile` can count. Offline (no ANTHROPIC_API_KEY, or --offline)
  * the generators are the deterministic engines and run once; with the model
  * the gate fixes go back to it for up to --rounds rounds. A bank idea
  * (idea:<id>, or its text) supplies the idea and its promise and moves to
@@ -318,6 +321,8 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
   }
   const rounds = num(flags, 'rounds')
   if (rounds === undefined && str(flags, 'rounds') !== undefined) throw new Error(`--rounds must be a number, got "${str(flags, 'rounds')}"`)
+  const predictedCtrMultiple = num(flags, 'predicted-ctr')
+  if (predictedCtrMultiple === undefined && str(flags, 'predicted-ctr') !== undefined) throw new Error(`--predicted-ctr must be a number, got "${str(flags, 'predicted-ctr')}"`)
   const built = await buildPackage({
     idea,
     promise,
@@ -329,6 +334,7 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
     signature,
     generate,
     rounds,
+    predictedCtrMultiple,
     now: nowFrom(flags),
   })
   const packagesDir = path.resolve(str(flags, 'out') ?? path.join(rootFrom(flags), 'packages'))
@@ -347,6 +353,7 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
     `Package · ${built.slug} · ${g.pass ? 'GATES PASS' : 'GATES FAIL'} (${offline ? 'offline generators, one round' : `model, ${built.rounds} round${built.rounds === 1 ? '' : 's'}`})`,
     `Title: ${built.chosenTitle || '(none)'} (${built.titles[0]?.score ?? 0}/100)`,
     `A/B: ${built.abPick.a || '—'} vs ${built.abPick.b || '—'} · ${built.abPick.reason}`,
+    `Hypothesis: levers ${built.hypothesis.levers.join(', ') || '(none)'} · predicted CTR multiple ${built.hypothesis.predictedCtrMultiple}. booster publish confirm registers them on the ledger row.`,
     gateLine('title', g.titleGate.pass, g.titleGate.reason),
     gateLine('thumbnails', g.thumbGate.pass, g.thumbGate.reason),
     gateLine('overlap', g.overlapGate.pass, g.overlapGate.reason),
@@ -402,7 +409,7 @@ export const packageModule: CommandModule = {
     'signature set --colors "yellow,black" [--face ..] [--max-words ..] [--framing ..] [--typeface ..] [--notes ..]',
     'hook score --script <file> --slug <slug> [--title ..] [--promise ..] [--thumbnail-moment ..] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]   writes packages/<slug>/story.json (payoffLadder from --payoffs); exit 1 when the gate fails',
     'promise check --promise ".." [--title ..] [--script <file>] [--description <file>|".."] [--thumb-text ..]   exit 1 on drift',
-    'package build "<idea>"|<idea:id> --promise ".." [--subject ..] [--stake ..] [--result ..] [--rounds 3] [--offline] [--root dir]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md; exit 1 when a gate fails',
+    'package build "<idea>"|<idea:id> --promise ".." [--subject ..] [--stake ..] [--result ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--root dir]   titles, concepts, QA, A/B pair, the pre-registered levers, gates -> packages/<slug>/package.json + .md; exit 1 when a gate fails',
     'package review --title ".." --thumb-text ".." [--elements ..]     title + thumbnail coherence',
   ],
   async run(cmd, sub, rest, flags) {

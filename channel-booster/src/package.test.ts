@@ -210,7 +210,12 @@ describe('buildPackage (offline)', () => {
     expect(doc.history).toEqual([{ round: 1, pass: true, issues: [], fixes: [] }])
     expect(doc.gateReport.pass).toBe(true)
     expect(doc.chosenTitle).toBe(doc.titles[0]!.title)
-    expect(doc.titles.every((t, i) => i === 0 || t.score <= doc.titles[i - 1]!.score)).toBe(true)
+    // Ranked publishable-first (over the gate and inside the mobile band), then by score.
+    const rank = (t: { title: string; score: number }): number => (t.score >= 60 && t.title.length >= 30 && t.title.length <= 55 ? 0 : 1)
+    expect(doc.titles.every((t, i) => {
+      const prev = doc.titles[i - 1]
+      return i === 0 || rank(prev!) < rank(t) || (rank(prev!) === rank(t) && t.score <= prev!.score)
+    })).toBe(true)
     expect(doc.titles[0]!.formula).toBeDefined()
     expect(doc.titles[0]!.score).toBeGreaterThanOrEqual(60)
     expect(doc.thumbnails).toHaveLength(5)
@@ -220,7 +225,7 @@ describe('buildPackage (offline)', () => {
     expect(doc.abPick.a).toBe('The Result')
     expect(doc.abPick.b).toBe('The Identity')
     expect(doc.abPick.reason).toContain('different lever')
-    expect(doc.hypothesis).toEqual({ levers: [], angle: 'result', predictedCtrMultiple: 1 })
+    expect(doc.hypothesis).toEqual({ levers: ['first-person test', 'result', 'identity'], angle: 'result', predictedCtrMultiple: 1 })
     expect(doc.ownTitles).toEqual(['', '', ''])
     expect(doc.promise).toBe(SOLAR.promise)
     expect(doc.designerBrief.length).toBeGreaterThan(10)
@@ -380,6 +385,67 @@ describe('buildPackage (generation hooks and the fix loop)', () => {
     expect(doc.chosenTitle).toBe('')
     expect(doc.gateReport.titleGate).toEqual({ pass: false, reason: 'no title generated' })
     expect(doc.gateReport.pass).toBe(false)
+  })
+})
+
+describe('buildPackage (the title band publish check enforces)', () => {
+  const concepts = async (): Promise<ConceptInput[]> => GOOD_CONCEPTS
+  const IN_BAND = 'A Solar Generator Built From Scrap Today'
+  const OVER = 'I Built a Solar Generator From Scrap for Under $100 in 30 Days'
+
+  it('chooses the publishable title over a higher-scoring one outside the band', async () => {
+    const doc = await buildPackage({ ...SOLAR, rounds: 1, generate: { titles: async () => [{ title: OVER }, { title: IN_BAND }], concepts } })
+    expect(OVER.length).toBeGreaterThan(55)
+    expect(doc.titles.find((t) => t.title === OVER)!.score).toBeGreaterThan(doc.titles.find((t) => t.title === IN_BAND)!.score)
+    expect(doc.chosenTitle).toBe(IN_BAND)
+    expect(doc.gateReport.titleGate.pass).toBe(true)
+  })
+
+  it('fails the title gate, not passes it, when the only title is over titleMaxChars', async () => {
+    const doc = await buildPackage({ ...SOLAR, rounds: 1, generate: { titles: async () => [{ title: OVER }], concepts } })
+    expect(doc.gateReport.titleGate.pass).toBe(false)
+    expect(doc.gateReport.titleGate.reason).toContain(`title is ${OVER.length} characters`)
+    expect(doc.gateReport.titleGate.reason).toContain('publish check needs 30 [house] to 55 [house]')
+    expect(doc.gateReport.pass).toBe(false)
+    expect(doc.history[0]!.issues.some((i) => i.includes('publish check needs'))).toBe(true)
+    expect(doc.gateReport.thresholdsUsed).toEqual(expect.arrayContaining(['titleMinChars 30 [house]', 'titleMaxChars 55 [house]']))
+  })
+
+  it('moves the band with the profile override, so the gate and publish check stay one rule', async () => {
+    applyOverrides({ titleMaxChars: 70 })
+    try {
+      const doc = await buildPackage({ ...SOLAR, rounds: 1, generate: { titles: async () => [{ title: OVER }], concepts } })
+      expect(doc.gateReport.titleGate.pass).toBe(true)
+    } finally {
+      resetThresholds()
+    }
+  })
+})
+
+describe('buildPackage (pre-registered hypothesis)', () => {
+  it('records the chosen title lever and both A/B angles, so rules compile can count the row', async () => {
+    const doc = await buildPackage(SOLAR)
+    expect(doc.hypothesis.levers).toEqual([doc.titles[0]!.formula, 'result', 'identity'])
+    expect(doc.hypothesis.levers.length).toBeGreaterThan(0)
+    expect(doc.hypothesis.angle).toBe('result')
+    expect(doc.hypothesis.predictedCtrMultiple).toBe(1)
+  })
+
+  it('takes the model hook lever over the formula and de-duplicates case-insensitively', async () => {
+    const doc = await buildPackage({
+      ...SOLAR,
+      rounds: 1,
+      generate: {
+        titles: async () => [{ title: 'I Built a Solar Generator From Scrap for $100', formula: 'first-person test', lever: 'Result' }],
+        concepts: async () => GOOD_CONCEPTS,
+      },
+    })
+    expect(doc.hypothesis.levers).toEqual(['Result', 'stakes'])
+  })
+
+  it('carries the predicted CTR multiple a person wrote at package time', async () => {
+    const doc = await buildPackage({ ...SOLAR, predictedCtrMultiple: 1.4 })
+    expect(doc.hypothesis.predictedCtrMultiple).toBe(1.4)
   })
 })
 

@@ -52,6 +52,15 @@ export const DEFAULT_THRESHOLDS = {
   coldStartMinImpressions: { value: 2000, evidence: 'house', note: 'no packaging verdict on a first upload before this many impressions' },
   coldStartMinHours: { value: 72, evidence: 'house', note: 'no packaging verdict on a first upload before this many hours' },
   coldStartGrowthPct: { value: 30, evidence: 'house', note: '24-to-48 hour impression growth above this is healthy on a cold start; there is no median to compare against' },
+  // Test & Compare (src/experiments.ts). The cold-start pair is named apart from the funnel's
+  // coldStartMin*: the judge waits a full week where a packaging verdict waits three days.
+  testMinImpressions: { value: 1000, evidence: 'house', note: 'impressions each Test & Compare variant needs before the test can be judged' },
+  testMinHours: { value: 72, evidence: 'house', note: 'hours a test runs before it can be judged; browse traffic arrives over days' },
+  testColdStartMinImpressions: { value: 2000, evidence: 'house', note: 'Test & Compare impression floor per variant on a channel with no baseline' },
+  testColdStartMinHours: { value: 168, evidence: 'house', note: 'Test & Compare hour floor (7 days) on a channel with no baseline' },
+  overPromiseDropPct: { value: 10, evidence: 'house', note: 'the CTR leader with AVD or watch-time share this much lower (relative) than the other variant over-promised' },
+  noDifferenceSharePts: { value: 3, evidence: 'house', note: 'watch-time shares closer than this many points taught nothing' },
+  noDifferenceRelPct: { value: 3, evidence: 'house', note: 'AVD or CTR closer than this relative percent taught nothing (used only when share is missing)' },
   // Decisions (src/decide.ts)
   repackageMinExpectedGainViews: { value: 500, evidence: 'house', note: 'a repackage must be expected to earn at least this many extra views' },
   repackageMinExpectedGainPctOfBaseline: { value: 5, evidence: 'house', note: 'or this percent of your median views, whichever is larger' },

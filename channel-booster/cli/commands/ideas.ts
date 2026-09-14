@@ -1,5 +1,6 @@
 /** Commands: idea, bank. */
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import {
   addIdea, attachVerdict, canTransition, ideaId, importIdeas, LIFECYCLE, listIdeas, rescore, sequelCandidates, setStatus, wipWarnings,
   type BankSortKey,
@@ -54,6 +55,19 @@ function bankId(raw: string | undefined, usage: string): string {
   return raw.startsWith('idea:') ? raw : ideaId(raw)
 }
 
+/**
+ * The bank row an `idea score` argument names: an `idea:<hash>` id, the idea
+ * text, or the workflow slug the runner's demand stage passes, resolved
+ * through the status document's idea text exactly as `package build <slug>`
+ * resolves it.
+ */
+function bankIdeaFor(store: ReturnType<typeof getStore>, raw: string): IdeaDoc | undefined {
+  const doc = store.get('ideas', raw.startsWith('idea:') ? raw : ideaId(raw))
+  if (doc || raw.startsWith('idea:')) return doc
+  const wf = store.get('workflows', raw)
+  return wf ? store.get('ideas', ideaId(wf.idea)) : undefined
+}
+
 function getIdea(store: ReturnType<typeof getStore>, id: string): IdeaDoc {
   const doc = store.get('ideas', id)
   if (!doc) throw new Error(`no idea with id "${id}" in the bank (booster bank list shows ids; the text form is also accepted)`)
@@ -103,8 +117,14 @@ async function runIdea(sub: string | undefined, rest: string[], flags: Flags): P
   if (sub === 'score') {
     const idea = rest[0] ?? '(untitled idea)'
     const scoreText = str(flags, 'score')
-    if (!scoreText) throw new Error('usage: booster idea score "<idea>" --score "demand=4,packaging=3,fit=4,angle=3,payoff=4,feasibility=5" (demand=auto with --outliers <csv>)')
-    let score: IdeaScore = parseIdeaScore(scoreText)
+    // Without typed axes the six come off the bank row this id, text or
+    // workflow slug names, and the scorecard carries that row's status: the
+    // demand stage of `booster workflow run` scores an approved idea by slug.
+    const banked = scoreText ? undefined : bankIdeaFor(getStore(flags), idea)
+    let score: IdeaScore
+    if (scoreText) score = parseIdeaScore(scoreText)
+    else if (banked) score = banked.scores
+    else throw new Error(`usage: booster idea score "<idea>" --score "demand=4,packaging=3,fit=4,angle=3,payoff=4,feasibility=5" (demand=auto with --outliers <csv>). Nothing in the bank matches "${idea}": booster bank add "<idea>" --score "..", then a person approves it with booster bank approve "<idea>" --yes.`)
     let demand: DemandSuggestion | undefined
     if (score.demand === DEMAND_AUTO) {
       const csv = str(flags, 'outliers')
@@ -113,7 +133,18 @@ async function runIdea(sub: string | undefined, rest: string[], flags: Flags): P
       score = resolveDemand(score, demand)
     }
     const verdict = scoreIdea(score)
-    out({ idea, ...verdict, ...(demand ? { demand: demandJson(demand) } : {}) }, flags, () => renderScorecard(idea, verdict, demand))
+    const scorecard = { idea: banked?.idea ?? idea, ...(banked ? { id: banked.id, status: banked.status } : {}), ...verdict, ...(demand ? { demand: demandJson(demand) } : {}) }
+    const outFlag = str(flags, 'out')
+    const outFile = outFlag === undefined ? undefined : path.resolve(outFlag)
+    if (outFile) {
+      mkdirSync(path.dirname(outFile), { recursive: true })
+      writeFileSync(outFile, `${JSON.stringify(scorecard, null, 2)}\n`)
+    }
+    out(scorecard, flags, () => [
+      renderScorecard(scorecard.idea, verdict, demand),
+      ...(banked ? [`Bank: ${banked.id} is ${banked.status}${banked.status === 'green' ? '' : `; a person approves it with booster bank approve "${banked.idea}" --yes`}.`] : []),
+      ...(outFile ? [`Wrote ${outFile}`] : []),
+    ].join('\n'))
     return 0
   }
   throw new Error('usage: booster idea questions | booster idea score "<idea>" --score ...')
@@ -248,6 +279,7 @@ export const ideasModule: CommandModule = {
     'idea questions                                                     the six scorecard questions',
     'idea score "<idea>" --score "demand=4,packaging=3,fit=..."         verdict + fixes',
     'idea score "<idea>" --score "demand=auto,..." --outliers <csv>     demand read from the scan [--since 90] [--min-age-days 7]; phrase the idea with the topic\'s two key nouns',
+    'idea score <slug>|<idea:id> [--out file.json]                      axes from the bank row when --score is omitted; the scorecard carries its bank status (the workflow demand stage)',
     'bank add "<idea>" --score "..." [--csv competitors.csv]            bank an idea (demand=auto reads --csv) [--series ..] [--promise ..]',
     'bank list [--status banked,green,..] [--sort total|demand|..]      the bank with verdicts, sequels first [--no-sequel-first]',
     'bank approve <id-or-text> --yes                                    banked -> green (human-only gate 1)',

@@ -14,7 +14,7 @@ import { diffScans, saturation, topicDemand, SATURATION_SHARE, SCAN_DIFF_MIN_DEL
 import { thresholds } from '../../src/thresholds.js'
 import { bool, fmt, getStore, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-/** Contract for data/last-scan.json, read by --diff and written by --save. */
+/** Contract for data/last-scan.json (outliers) and data/last-audit.json (audit), read by --diff and written by --save. */
 export interface SavedScan {
   scannedAt: string
   sinceDays: number
@@ -36,12 +36,35 @@ function readSavedScan(file: string): SavedScan | undefined {
   return { scannedAt: String(doc.scannedAt ?? ''), sinceDays: Number(doc.sinceDays ?? 0), ranked: doc.ranked as OutlierRowV2[] }
 }
 
-/** `--save <path>` or bare `--save`, which lands in the store directory so `--data` picks the location. */
-function savePathFrom(flags: Flags): string | undefined {
+/**
+ * `--save <path>`, or bare `--save`, which lands in the store directory so
+ * `--data` picks the location. `outliers` (competitors) and `audit` (your own
+ * uploads) rank different video sets, so each has its own default name: a bare
+ * `audit --save` must never overwrite the competitor scan `--diff`, `direction`
+ * and `bank rescore` read. A bare file name lands in the store too; a path with
+ * a separator in it is the caller naming a directory, so it stays cwd-relative.
+ */
+function savePathFrom(flags: Flags, cmd: string): string | undefined {
   const v = flags.save
   if (v === undefined || v === false) return undefined
-  if (typeof v === 'string' && v !== 'true') return v
-  return path.join(getStore(flags).root, 'last-scan.json')
+  const root = getStore(flags).root
+  if (typeof v === 'string' && v !== 'true') return /[\\/]/.test(v) ? path.resolve(v) : path.join(root, v)
+  return path.join(root, cmd === 'audit' ? 'last-audit.json' : 'last-scan.json')
+}
+
+/**
+ * `--diff <path>`: the path as given, then the store copy, then the bare file
+ * name inside the store — the same order `booster direction --scan` resolves,
+ * so "data/last-scan.json" from the repo root finds the scan a bare `--save`
+ * wrote under `--data`. Nothing on disk gives back the path as given, which is
+ * what the "no previous scan" warning then names.
+ */
+function diffPathFrom(flags: Flags): string | undefined {
+  const v = str(flags, 'diff')
+  if (v === undefined) return undefined
+  const root = getStore(flags).root
+  const candidates = [...new Set([path.resolve(v), path.resolve(root, v), path.resolve(root, path.basename(v))])]
+  return candidates.find((f) => existsSync(f)) ?? candidates[0]
 }
 
 function velocityCell(r: OutlierRowV2): string {
@@ -58,9 +81,12 @@ function rankedLines(rows: OutlierRowV2[]): string[] {
   return lines
 }
 
-function diffLines(diff: ScanDiff<OutlierRowV2>, prev: SavedScan, top: number): string[] {
+function diffLines(diff: ScanDiff<OutlierRowV2>, prev: SavedScan, top: number, file: string): string[] {
   const when = prev.scannedAt ? ` (scanned ${prev.scannedAt}, window ${prev.sinceDays}d)` : ''
-  const lines = [`Since last scan${when}: ${diff.added.length} new, ${diff.removed.length} gone, ${diff.changed.length} moved by >= ${SCAN_DIFF_MIN_DELTA}x [house]`]
+  const lines = [
+    `Since last scan${when}: ${diff.added.length} new, ${diff.removed.length} gone, ${diff.changed.length} moved by >= ${SCAN_DIFF_MIN_DELTA}x [house]`,
+    `  read from ${file}`,
+  ]
   if (diff.added.length) {
     lines.push('  New:')
     for (const r of diff.added.slice(0, top)) lines.push(`    + ${r.multiplier.toFixed(1)}x ${r.tier.padEnd(8)} ${r.channel ?? 'default'} · ${r.title}`)
@@ -85,8 +111,8 @@ export const scanModule: CommandModule = {
   help: [
     'outliers <csv> [--threshold 10] [--min-age-days 7] [--top 20]     rank videos by views / channel median',
     '   [--since 90] [--fresh] [--by topic] [--saturation]                demand window, momentum-only view, topic table, format saturation',
-    '   [--diff <last-scan.json>] [--save [<path>]] [--now ISO]           what moved since the last scan; save this one (default data/last-scan.json)',
-    'audit <csv> [--threshold 5] [--since 90] [--fresh] [--by topic]    audit your own uploads (same flags as outliers)',
+    '   [--diff <last-scan.json>] [--save [<path>]] [--now ISO]           what moved since the last scan; save this one (bare --save writes <data>/last-scan.json)',
+    'audit <csv> [--threshold 5] [--since 90] [--fresh] [--by topic]    audit your own uploads (same flags as outliers; bare --save writes <data>/last-audit.json)',
   ],
   async run(cmd, sub, _rest, flags) {
     const file = sub
@@ -101,8 +127,8 @@ export const scanModule: CommandModule = {
     const freshOnly = bool(flags, 'fresh')
     const byTopic = str(flags, 'by') === 'topic' || bool(flags, 'by-topic')
     const wantSaturation = bool(flags, 'saturation')
-    const diffPath = str(flags, 'diff')
-    const savePath = savePathFrom(flags)
+    const diffPath = diffPathFrom(flags)
+    const savePath = savePathFrom(flags, cmd)
 
     const ranked = computeOutliers(rows, { threshold, minAgeDays, sinceDays, now })
     const fresh = ranked.filter((r) => r.tier === 'fresh')
@@ -152,6 +178,7 @@ export const scanModule: CommandModule = {
     }
     if (topics) result.topics = topics
     if (diff !== undefined) result.diff = diff
+    if (diffPath) result.diffedFrom = diffPath
     if (sat) result.saturation = sat
     if (savePath) result.savedTo = savePath
 
@@ -176,7 +203,7 @@ export const scanModule: CommandModule = {
         }
         if (!topics.length) lines.push('  No topic keys: every title is format words only.')
       }
-      if (diff) lines.push('', ...diffLines(diff, prev as SavedScan, top))
+      if (diff) lines.push('', ...diffLines(diff, prev as SavedScan, top, diffPath as string))
       if (sat) {
         lines.push('', `Format saturation (share of channels carrying a format inside ${sinceDays}d; >= ${Math.round(SATURATION_SHARE * 100)}% is a copy, not a trend [house]):`)
         for (const s of sat) lines.push(`  ${s.format.padEnd(15)} ${String(s.channels).padStart(2)}/${s.totalChannels} channels  ${Math.round(s.share * 100).toString().padStart(3)}%${s.saturated ? '  saturated' : ''}`)

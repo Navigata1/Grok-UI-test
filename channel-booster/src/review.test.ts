@@ -210,7 +210,7 @@ describe('runReviews', () => {
     expect(r.repackage?.thumbnail?.name).toBe('curiosity-1')
     expect(r.repackage?.title?.title).toBe('This scrap-built solar generator runs my workshop')
     expect(r.packageFile).toBe(path.join(root, 'packages', 'solar', 'package.json'))
-    expect(r.awaiting).toEqual(['solar:48: approve the swap to "curiosity-1", apply it in Studio, then stamp it: booster decide approve solar --bucket 48 --by <name>'])
+    expect(r.awaiting).toEqual(['solar:48: approve the swap to "curiosity-1", apply it in Studio, then stamp it: booster decide approve solar --bucket 48 --by <name> --yes'])
 
     expect(store.get('decisions', 'solar:48')?.decision).toBe('REPACKAGE')
     const row = store.get('ledger', 'solar')!
@@ -299,7 +299,7 @@ describe('runReviews', () => {
     expect(first.ingest?.needsLever.map((n) => n.slug)).toEqual(['week-old'])
     expect(first.reviews.map((r) => r.slug)).toEqual(['solar'])
     expect(first.digest).toContain('Inbox: 1 file, 0 reads recorded, 1 waiting for a lever.')
-    expect(first.digest).toContain('- week-old:168: write the lever learned, then the read records itself on the next run: booster set week-old --bucket 168 --lever "<one sentence of learning>"')
+    expect(first.digest).toContain('- week-old:168: write the lever learned, then the read records itself on the next run: booster set week-old --bucket 168 --lever "<one sentence of learning>" --yes')
     expect(first.digest).toMatch(/- week-old:24: no numbers yet/)
 
     recordRead(store, { slug: 'week-old', bucket: '48', read: { impressions: 30_000, ctr: 5, avpPct: 40 }, lever: 'numbers beat adjectives', now })
@@ -320,7 +320,20 @@ describe('renderDigest', () => {
     expect(digest).toBe('# Review digest · 2026-09-14\n\nNothing to review.\n\n## Awaiting a human\n\n- nothing')
     addRow(store, { slug: 'solar', title: 'Solar', publishedAt: hoursAgo(170), now })
     const withDue = renderDigest({ date: '2026-09-14', reviews: [], awaitingData: dueReviews(store, now) }, { rows: readLedger(store), now })
-    expect(withDue).toContain('- solar:168: no numbers yet (2 h overdue); drop the Studio export in inbox/ or type them: booster set solar --bucket 168 --impressions N --ctr X --avp Y --views V --returning W --lever "<sentence>"')
+    expect(withDue).toContain('- solar:168: no numbers yet (2 h overdue); drop the Studio export in inbox/ or type them: booster set solar --bucket 168 --impressions N --ctr X --avp Y --views V --returning W --lever "<sentence>" --yes')
     expect(withDue).toContain('Nothing to review. Next read: solar at 672 h in 502 h.')
+  })
+
+  it('carries the --yes the lever gate asks for on every awaiting line that names it', () => {
+    addRow(store, { slug: 'solar', title: 'Solar', publishedAt: hoursAgo(170), now })
+    const digest = renderDigest({
+      date: '2026-09-14',
+      reviews: [],
+      awaitingData: dueReviews(store, now),
+      ingest: { inboxDir: root, files: ['x.csv'], recorded: [], needsLever: [{ file: 'x.csv', slug: 'solar', bucket: '168', read: { at: hoursAgo(1), views: 4_000 } }], skipped: [], unmatched: [], unknownColumns: {} },
+    })
+    const leverLines = digest.split('\n').filter((l) => l.includes('--lever'))
+    expect(leverLines.length).toBe(2)
+    for (const line of leverLines) expect(line).toContain('--yes')
   })
 })

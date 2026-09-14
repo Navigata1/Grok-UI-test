@@ -119,7 +119,14 @@ function endsWithQuestion(s: string): string {
   return t.endsWith('?') ? t : `${t}?`
 }
 
-/** Chapters sorted, de-duplicated by mark, with a 0:00 open inserted when the story starts later. */
+/**
+ * Chapters sorted, de-duplicated by mark, with a 0:00 open when the story
+ * starts later, and at least PUBLISH_RULES.minChapterGapSec apart: a beat that
+ * lands inside the previous one's gap is dropped. `checkPublish()` enforces the
+ * same gap, and a story segmented per paragraph routinely puts two beats eight
+ * seconds apart, so without this `publish pack` writes a description the very
+ * next command rejects.
+ */
 export function normaliseChapters(chapters: PublishChapter[] | undefined): PublishChapter[] {
   const seen = new Set<number>()
   const out: PublishChapter[] = []
@@ -130,8 +137,19 @@ export function normaliseChapters(chapters: PublishChapter[] | undefined): Publi
     seen.add(at)
     out.push({ atSec: at, title })
   }
-  if (out.length > 0 && out[0].atSec !== 0) out.unshift({ atSec: 0, title: 'Open' })
-  return out
+  const minGap = PUBLISH_RULES.minChapterGapSec.value
+  if (out.length > 0 && out[0].atSec !== 0) {
+    // A first beat inside the minimum gap is the open; pulling it back to 0:00 keeps its title.
+    if (out[0].atSec < minGap) out[0] = { atSec: 0, title: out[0].title }
+    else out.unshift({ atSec: 0, title: 'Open' })
+  }
+  const spaced: PublishChapter[] = []
+  for (const c of out) {
+    const last = spaced[spaced.length - 1]
+    if (last && c.atSec - last.atSec < minGap) continue
+    spaced.push(c)
+  }
+  return spaced
 }
 
 /**

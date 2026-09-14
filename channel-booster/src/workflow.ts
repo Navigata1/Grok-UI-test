@@ -101,12 +101,22 @@ export function generateWorkflow(idea: string, options: { format?: WorkflowForma
       outputs: ['idea scorecard (six axes)', 'three outlier references with multipliers', 'go / no-go'],
       checklist: [
         'Run booster outliers on 2-3 adjacent channels; list every video >= 5x its channel median on this topic.',
-        'Score the idea on demand, packaging, fit, angle, payoff, feasibility.',
+        'Score the idea on the six axes and bank it: booster bank add "<idea>" --score "demand=auto,packaging=..,fit=..,angle=..,payoff=..,feasibility=.." --csv <competitors.csv>.',
+        'A person approves the green: booster bank approve "<idea>" --yes (human-only gate 1).',
         'Write the one-sentence promise a stranger would understand.',
       ],
-      gate: 'Idea scorecard is green, or yellow with a named fix applied.',
-      run: command('demand.json', 'idea', 'score', slug, '--demand', 'auto', '--out', `${dir}/demand.json`),
-      check: { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'verdict', value: 'green' },
+      gate: 'Idea scorecard is green and a person approved the idea; yellow with a named fix needs an override.',
+      // The stage re-scores the banked idea the slug names and writes the
+      // scorecard; `status` is the second half of the gate, so an agent
+      // cannot green-light its own idea by running this (AGENTS.md gate 1).
+      run: command('demand.json', 'idea', 'score', slug, '--out', `${dir}/demand.json`),
+      check: {
+        kind: 'all-of',
+        checks: [
+          { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'verdict', value: 'green' },
+          { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'status', value: 'green' },
+        ],
+      },
     },
     {
       id: 'packaging',
@@ -223,14 +233,19 @@ export function generateWorkflow(idea: string, options: { format?: WorkflowForma
       inputs: ['final cut', 'thumbnail variants', 'chosen title'],
       outputs: ['published video', 'Test & Compare running', 'description, chapters, end screen, pinned comment', 'community post', '2 Shorts cuts'],
       checklist: [
+        'Assemble the package first with booster publish pack, naming the most related proven video (--related) and the question the sequel answers (--sequel-question).',
         'Title final: length 30-55 characters, promise in the first 40.',
         'Test & Compare with A and B thumbnails.',
         'Description first line restates the promise; chapters match the retention map.',
         'End screen points at the most related proven video; pinned comment asks a question.',
         'Schedule a community post and two Shorts within 48 hours.',
+        'Put the 48-hour review on the calendar; set publishDay in channel.json so the publish window is read from the profile.',
       ],
       gate: 'Every line of the publish checklist is ticked.',
-      run: command('publish-check.json', 'publish', 'check', slug),
+      // publish check counts the 48-hour review as scheduled only when it is
+      // told so; without the flag the stage exits 1 every time and overwrites
+      // a person's passing publish-check.json with a failing one.
+      run: command('publish-check.json', 'publish', 'check', slug, '--review-scheduled'),
       check: {
         kind: 'all-of',
         checks: [

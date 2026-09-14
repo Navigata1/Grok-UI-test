@@ -6,7 +6,10 @@
  * package and the story; `publish check` ticks the checklist by machine and
  * writes publish-check.json (the workflow's publish gate reads it);
  * `publish confirm` adds the ledger row once a person has clicked publish,
- * which starts the review clock, so it prints its plan and needs --yes.
+ * which starts the review clock, so it prints its plan and needs --yes; it
+ * carries the package's pre-registered hypothesis (levers and predicted CTR
+ * multiple, overridable with --levers / --predicted-ctr) onto that row, which
+ * is what makes the row a test `booster rules compile` can count.
  * `test judge` reads a Test & Compare panel a person typed and, with
  * --record, stores the experiment and the ledger winner letter.
  */
@@ -15,17 +18,17 @@ import path from 'node:path'
 import { judgeTest, renderJudgement, toExperimentDoc, winnerLetter, type TestVariant } from '../../src/experiments.js'
 import { addRow } from '../../src/ledger.js'
 import { loadProfile } from '../../src/profile.js'
-import { assemblePublish, checkPublish, renderPublishCheck, renderPublishMarkdown, type PayoffMoment, type PublishChapter, type PublishPack } from '../../src/publish.js'
+import { assemblePublish, checkPublish, mmss, PUBLISH_RULES, renderPublishCheck, renderPublishMarkdown, type PayoffMoment, type PublishChapter, type PublishPack } from '../../src/publish.js'
 import { LedgerRow, type ProfileDoc } from '../../src/schema.js'
 import { thresholds } from '../../src/thresholds.js'
 import { scoreTitle, titleThumbnailOverlap } from '../../src/titles.js'
 import { qaThumbnail } from '../../src/thumbnails.js'
 import type { ThumbnailQa, ThumbnailSpec } from '../../src/types.js'
-import { bool, getProfile, getStore, need, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { bool, getProfile, getStore, list, need, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_PACK = 'booster publish pack <slug> [--title ..] [--promise ..] [--story packages/<slug>/story.json] [--thumb-a <name> --thumb-b <name>] [--sequel-question ..] [--related <title|url>] [--profile channel.json] [--out packages/<slug>/publish.md] [--root dir]'
 const USAGE_CHECK = 'booster publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--thumb-files-ok] [--window-confirmed] [--review-scheduled] [--root dir]'
-const USAGE_CONFIRM = 'booster publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a <name> --thumb-b <name>] --yes [--root dir]'
+const USAGE_CONFIRM = 'booster publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a <name> --thumb-b <name>] [--levers "a,b"] [--predicted-ctr 1.3] --yes [--root dir]'
 const USAGE_JUDGE = 'booster test judge --slug <slug> --a "<impressions>,<ctr>[,<sharePct>[,<avdSec>]]" --b ".." [--c ".."] --hours <h> [--cold-start] [--min-impressions <n>] [--min-hours <h>] [--drop-pct <n>] [--n 1] [--record]'
 
 /** The fields of packages/<slug>/package.json this module reads (section 2.5); every field optional. */
@@ -108,6 +111,9 @@ async function publishPack(slug: string, flags: Flags): Promise<number> {
     profile,
     relatedVideo: str(flags, 'related'),
   })
+  const kept = new Set(pack.chapters.map((c) => c.atSec))
+  const dropped = chapters.filter((c) => !kept.has(Math.max(0, Math.round(c.atSec))))
+  if (dropped.length > 0) warn(`${dropped.length} story beat(s) are not chapters: YouTube needs ${PUBLISH_RULES.minChapterGapSec.value} s between marks and a 0:00 open (${dropped.map((c) => `${mmss(c.atSec)} ${c.title}`).join(', ')})`)
   const jsonFile = path.join(packageDir(flags, slug), 'publish.json')
   const mdFile = path.resolve(str(flags, 'out') ?? path.join(packageDir(flags, slug), 'publish.md'))
   writeFile(jsonFile, `${JSON.stringify(pack, null, 2)}\n`)
@@ -155,6 +161,41 @@ async function publishCheck(slug: string, flags: Flags): Promise<number> {
   return check.pass ? 0 : 1
 }
 
+/**
+ * The hypothesis this row pre-registers: `--levers` and `--predicted-ctr` over
+ * what the package recorded, stamped with the publish time (the Desk's publish
+ * panel registers the same three fields). `booster rules compile` counts only
+ * rows that carry levers, so a row confirmed without them never becomes a test.
+ *
+ * A hypothesis already on the row is returned untouched and the flags are
+ * refused: a lever named once the numbers are in is hindsight, not a test, and
+ * the learning it belongs to is the 7-day `--lever` sentence instead.
+ */
+function hypothesisFor(slug: string, pkg: PackageFile | undefined, flags: Flags, existing: LedgerRow | undefined, publishedAt: string): LedgerRow['hypothesis'] {
+  const levers = list(flags, 'levers')
+  const predicted = num(flags, 'predicted-ctr')
+  if (predicted === undefined && str(flags, 'predicted-ctr') !== undefined) throw new Error(`--predicted-ctr must be a number, got "${str(flags, 'predicted-ctr')}". Usage: ${USAGE_CONFIRM}`)
+  if (existing?.hypothesis && existing.hypothesis.levers.length > 0) {
+    const registered = existing.hypothesis
+    if (levers || predicted !== undefined) {
+      throw new Error(`"${slug}" pre-registered its hypothesis at ${registered.registeredAt ?? existing.publishedAt} (levers ${registered.levers.join(', ')}, predicted CTR multiple ${registered.predictedCtrMultiple}) and it is not rewritable: a lever chosen after the numbers are in is hindsight, not a test. Write what you learned with booster set ${slug} --bucket 168 --lever "..".`)
+    }
+    return registered
+  }
+  const fromPackage = pkg?.hypothesis
+  if (!levers && predicted === undefined && !fromPackage) return undefined
+  return {
+    levers: levers ?? fromPackage?.levers ?? [],
+    angle: fromPackage?.angle,
+    predictedCtrMultiple: predicted ?? fromPackage?.predictedCtrMultiple ?? 1,
+    registeredAt: publishedAt,
+  }
+}
+
+function describeHypothesis(h: NonNullable<LedgerRow['hypothesis']>): string {
+  return `levers ${h.levers.join(', ') || '(none)'}${h.angle ? `, angle ${h.angle}` : ''}, predicted CTR multiple ${h.predictedCtrMultiple}`
+}
+
 async function publishConfirm(slug: string, flags: Flags): Promise<number> {
   const videoId = need(flags, 'video-id', USAGE_CONFIRM)
   const at = need(flags, 'at', USAGE_CONFIRM)
@@ -167,7 +208,9 @@ async function publishConfirm(slug: string, flags: Flags): Promise<number> {
   const now = nowFrom(flags)
   const store = getStore(flags)
   const existing = store.get('ledger', slug)
-  const plan = { action: 'confirm', slug, title: pack.title, videoId, publishedAt: published.toISOString(), thumbA, thumbB, hypothesis: pkg?.hypothesis, existingRow: existing !== undefined, applied: false, needs: '--yes' }
+  const hypothesis = hypothesisFor(slug, pkg, flags, existing, published.toISOString())
+  if (!hypothesis || hypothesis.levers.length === 0) warn(`no lever pre-registered for "${slug}": booster rules compile counts only rows that carry one, so this video teaches the channel nothing. Pass --levers "a,b", or build the package with booster package build.`)
+  const plan = { action: 'confirm', slug, title: pack.title, videoId, publishedAt: published.toISOString(), thumbA, thumbB, hypothesis, existingRow: existing !== undefined, applied: false, needs: '--yes' }
   if (!bool(flags, 'yes')) {
     out(plan, flags, () => [
       `About to add the ledger row for "${slug}" (human-only gate 4: this starts the review clock at 24/48/168/672 h):`,
@@ -175,16 +218,17 @@ async function publishConfirm(slug: string, flags: Flags): Promise<number> {
       `  video id:  ${videoId}`,
       `  published: ${published.toISOString()}`,
       `  A / B:     ${thumbA} / ${thumbB}`,
-      ...(pkg?.hypothesis ? [`  hypothesis: ${pkg.hypothesis.angle ?? ''} levers ${pkg.hypothesis.levers?.join(', ') || '(none)'}`] : []),
+      ...(hypothesis ? [`  hypothesis: ${describeHypothesis(hypothesis)}`] : []),
       ...(existing ? [`  (updates the existing row published ${existing.publishedAt})`] : []),
       '',
       'Nothing written. A person who clicked publish re-runs with --yes.',
     ].join('\n'))
     throw new Error(`nothing written. A person re-runs with --yes to confirm the publish of "${slug}".`)
   }
-  const row = addRow(store, { slug, title: pack.title, publishedAt: published.toISOString(), videoId, thumbA, thumbB, hypothesis: pkg?.hypothesis, now })
+  const row = addRow(store, { slug, title: pack.title, publishedAt: published.toISOString(), videoId, thumbA, thumbB, hypothesis, now })
   out({ ...plan, applied: true, row }, flags, () => [
     `Recorded: ${slug} published ${row.publishedAt} as ${videoId}, A/B ${thumbA}/${thumbB}.`,
+    ...(row.hypothesis ? [`Hypothesis pre-registered: ${describeHypothesis(row.hypothesis)}.`] : []),
     'The review clock is running: booster review due lists the 24/48/168/672-hour reads.',
   ].join('\n'))
   return 0
@@ -244,7 +288,7 @@ export const publishModule: CommandModule = {
   help: [
     'publish pack <slug> [--title ..] [--promise ..] [--story file] [--thumb-a ..] [--thumb-b ..] [--sequel-question ..] [--related ..] [--out ..] [--root dir]   description, chapters, pinned comment, Shorts, A/B; writes publish.json + publish.md',
     'publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--thumb-files-ok] [--window-confirmed] [--review-scheduled] [--root dir]   the publish checklist by machine; writes publish-check.json',
-    'publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a ..] [--thumb-b ..] --yes   adds the ledger row after a person clicks publish (human-only gate 4)',
+    'publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a ..] [--thumb-b ..] [--levers "a,b"] [--predicted-ctr 1.3] --yes   adds the ledger row with its pre-registered hypothesis after a person clicks publish (human-only gate 4)',
     'test judge --slug <slug> --a "impr,ctr[,share[,avd]]" --b ".." [--c ".."] --hours <h> [--cold-start] [--min-impressions ..] [--min-hours ..] [--drop-pct ..] [--n 1] [--record]   judge a Test & Compare read',
   ],
   async run(cmd, sub, rest, flags) {

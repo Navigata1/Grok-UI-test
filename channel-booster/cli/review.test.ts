@@ -233,6 +233,26 @@ describe('booster postmortem', () => {
     expect(out).toContain('Algorithmic: not yet')
   })
 
+  it('judges a 7-day read against the 7-day baselines, and falls back to the 48-hour set without them', async () => {
+    const baselines168 = solidBaselines({ bucket: '168', ctr: { median: 4, mad: 0.4, n: 10 }, views: { median: 12000, mad: 2000, n: 10 } })
+    writeFileSync(profile, JSON.stringify({ positioning: 'Van builds', baselines: solidBaselines(), baselines168 }, null, 2))
+
+    const read = ['postmortem', '--impressions', '80000', '--ctr', '4', '--avp', '40', '--views', '11000']
+    const week = await json([...read, '--bucket', '168'])
+    expect(week.baselineUsed).toMatchObject({ bucket: '168', tier: 'solid', n: 10, ctr: 4, views: 12000 })
+    // The same read at 48 h is a different question, judged against the 48 h medians.
+    const day = await json([...read, '--bucket', '48'])
+    expect(day.baselineUsed).toMatchObject({ bucket: '48', ctr: 5, views: 5000 })
+
+    const { out } = await run([...read, '--bucket', '168'])
+    expect(out).toContain('computed (solid tier, n=10, 168 h reads): CTR 4% / AVP 40% / 30 s 65% / views 12,000')
+    expect(out).toContain('Profile baseline CTR 4% / AVP 40% / 30 s 65% / views 12000 [computed, solid, n=10, 168 h]')
+
+    // A profile written before baselines168 existed borrows the 48 h set rather than the priors.
+    writeProfile(solidBaselines())
+    expect((await json([...read, '--bucket', '168'])).baselineUsed).toMatchObject({ bucket: '48', ctr: 5, views: 5000 })
+  })
+
   it('never recommends a swap on a 168-hour read and rejects bad --bucket and --mode', async () => {
     const d = await json(['postmortem', '--impressions', '80000', '--ctr', '2', '--avp', '42', '--bucket', '168', '--baseline-ctr', '5', '--baseline-avp', '40'])
     expect(d.bottleneck).toBe('packaging')

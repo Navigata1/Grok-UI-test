@@ -477,7 +477,8 @@ describe('publish confirm', () => {
     expect(j.applied).toBe(true)
     const row = openStore(data).get('ledger', SLUG)
     expect(row).toMatchObject({ slug: SLUG, title: TITLE, videoId: 'abc123', publishedAt: '2026-09-18T15:00:00.000Z', thumbA: 'stakes', thumbB: 'result-v2', updatedAt: new Date(NOW).toISOString() })
-    expect(row?.hypothesis).toMatchObject({ levers: ['stakes'], angle: 'fear of loss' })
+    // Pre-registered, stamped with the publish time, exactly as the Desk's publish panel writes it.
+    expect(row?.hypothesis).toEqual({ levers: ['stakes'], angle: 'fear of loss', predictedCtrMultiple: 1.3, registeredAt: '2026-09-18T15:00:00.000Z' })
     const text = await run(['publish', 'confirm', SLUG, '--video-id', 'abc123', '--at', '2026-09-18T15:00:00Z', '--yes'])
     expect(text.out).toMatch(/Recorded: scrap-solar published 2026-09-18T15:00:00.000Z as abc123/)
     await expect(main(['publish', 'confirm', SLUG, '--video-id', 'abc123', '--at', 'friday', '--yes', ...common()])).rejects.toThrow(/--at must be an ISO date/)

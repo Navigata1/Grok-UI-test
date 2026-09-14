@@ -286,6 +286,17 @@ describe('rules: render and write', () => {
     expect(md).toContain('on 2026-02-02')
   })
 
+  it('stamps the header with the compile clock, not the newest rule date', () => {
+    // Rules a compile keeps verbatim (pinned, or accepted by a person) carry an older updatedAt than the run that wrote the file.
+    const pinned = RuleDoc.parse({ id: 'rule:p', rule: 'Always X', status: 'pinned', pinned: true, confidence: 1, updatedAt: '2026-02-01T00:00:00Z' })
+    const accepted = RuleDoc.parse({ id: 'rule:h', rule: 'Face on every thumbnail', status: 'promoted', acceptedBy: 'jony', confidence: 0.9, updatedAt: '2026-02-02T00:00:00Z' })
+    const md = renderLearnedRules([accepted, pinned], { now: new Date('2026-09-21T21:00:00Z') })
+    expect(md).toContain('from the packaging ledger on 2026-09-21.')
+    expect(md).not.toContain('on 2026-02-02')
+    // Each rule still reports its own evidence.
+    expect(md).toContain('- Face on every thumbnail [accepted by jony]')
+  })
+
   it('stays under the cap with hundreds of rules, dropping slugs first, then the weakest lines', () => {
     const rules: RuleDoc[] = []
     for (let i = 0; i < 300; i += 1) {

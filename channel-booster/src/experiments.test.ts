@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { ExperimentDoc } from './schema.js'
+import { applyOverrides, resetThresholds, thresholds } from './thresholds.js'
 import { decisiveMetric, judgeTest, renderJudgement, TEST_RULES, toExperimentDoc, winnerLetter, type TestVariant } from './experiments.js'
 
 const now = new Date('2026-09-14T12:00:00Z')
+
+afterEach(() => {
+  resetThresholds()
+})
 
 const A = (extra: Partial<TestVariant> = {}): TestVariant => ({ name: 'A', impressions: 5_000, ctr: 6, watchTimeSharePct: 56, avdSec: 300, ...extra })
 const B = (extra: Partial<TestVariant> = {}): TestVariant => ({ name: 'B', impressions: 5_000, ctr: 4.5, watchTimeSharePct: 44, avdSec: 260, ...extra })
@@ -20,7 +25,7 @@ describe('judgeTest: data floors', () => {
     expect(j.winner).toBeUndefined()
     expect(j.reason).toContain('A has 900 impressions')
     expect(j.reason).toContain('1000')
-    expect(j.thresholdsUsed).toContain('minImpressions 1000 [house]')
+    expect(j.thresholdsUsed).toContain('testMinImpressions 1000 [house]')
   })
 
   it('is too early under the hour floor', () => {
@@ -38,9 +43,24 @@ describe('judgeTest: data floors', () => {
     const coldHours = judgeTest([A(), B()], { hoursRunning: 100, coldStart: true })
     expect(coldHours.outcome).toBe('too-early')
     expect(coldHours.reason).toContain('168 h')
-    expect(coldHours.thresholdsUsed).toContain('coldStartMinHours 168 h [house]')
+    expect(coldHours.thresholdsUsed).toContain('testColdStartMinHours 168 h [house]')
     const explicit = judgeTest([A({ impressions: 1_500 }), B({ impressions: 1_500 })], { hoursRunning: 100, coldStart: true, minImpressions: 500, minHours: 48 })
     expect(explicit.outcome).toBe('clear-winner')
+  })
+
+  it('reads its floors from the threshold registry, and not from the funnel key of the same shape', () => {
+    // coldStartMinHours (72 h) gates a packaging verdict, testColdStartMinHours (168 h) gates a test:
+    // one key, one number, so an override of one never silently moves the other.
+    expect(TEST_RULES.coldStartMinHours.value).toBe(thresholds.testColdStartMinHours.value)
+    expect(thresholds.coldStartMinHours.value).not.toBe(thresholds.testColdStartMinHours.value)
+
+    applyOverrides({ coldStartMinHours: 200 })
+    expect(judgeTest([A(), B()], { hoursRunning: 100, coldStart: true }).reason).toContain('168 h')
+
+    applyOverrides({ testColdStartMinHours: 96 })
+    const overridden = judgeTest([A(), B()], { hoursRunning: 100, coldStart: true })
+    expect(overridden.outcome).toBe('clear-winner')
+    expect(judgeTest([A(), B()], { hoursRunning: 90, coldStart: true }).thresholdsUsed).toContain('testColdStartMinHours 96 h [house]')
   })
 })
 

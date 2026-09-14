@@ -74,6 +74,25 @@ describe('generateWorkflow', () => {
     expect(wf.stages.find((s) => s.id === 'postmortem')!.check).toEqual({ kind: 'json-path-eq', path: 'review-168.json', jsonPath: 'bucket', value: '168' })
   })
 
+  it('scores the banked idea by slug and gates demand on the score and a person\'s approval', () => {
+    const demand = generateWorkflow('Test idea').stages.find((s) => s.id === 'demand')!
+    expect(demand.run).toEqual({ kind: 'command', command: ['npm', 'run', 'booster', '--', 'idea', 'score', '<slug>', '--out', '<dir>/demand.json'], artifact: 'demand.json' })
+    expect(demand.check).toEqual({
+      kind: 'all-of',
+      checks: [
+        { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'verdict', value: 'green' },
+        { kind: 'json-path-eq', path: 'demand.json', jsonPath: 'status', value: 'green' },
+      ],
+    })
+    expect(demand.checklist.join(' ')).toMatch(/booster bank approve "<idea>" --yes/)
+  })
+
+  it('carries the scheduled-review confirmation into the publish command so its gate is reachable', () => {
+    const publish = generateWorkflow('Test idea').stages.find((s) => s.id === 'publish')!
+    expect(publish.run!.command).toEqual(['npm', 'run', 'booster', '--', 'publish', 'check', '<slug>', '--review-scheduled'])
+    expect(publish.checklist.join(' ')).toMatch(/Put the 48-hour review on the calendar/)
+  })
+
   it('renders a runbook with dates when a kickoff is given', () => {
     const md = renderWorkflowMarkdown(generateWorkflow('Test idea', { days: 14 }), new Date('2026-09-14T00:00:00Z'))
     expect(md).toContain('# Workflow: Test idea')
@@ -105,7 +124,7 @@ describe('resolveCommand, describeGate, describeRun, getJsonPath', () => {
   })
   it('describes runs', () => {
     const wf = generateWorkflow('Test idea')
-    expect(describeRun(wf.stages[0], wf.slug)).toBe('npm run booster -- idea score test-idea --demand auto --out packages/test-idea/demand.json')
+    expect(describeRun(wf.stages[0], wf.slug)).toBe('npm run booster -- idea score test-idea --out packages/test-idea/demand.json')
     expect(describeRun({ ...wf.stages[0], run: undefined }, wf.slug)).toMatch(/no run declared/)
   })
   it('reads dotted paths with indices', () => {

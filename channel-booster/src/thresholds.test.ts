@@ -41,6 +41,17 @@ describe('thresholds', () => {
     expect(thresholds.formatLiftMinCount.value).toBe(3)
     expect(thresholds.demandMatchMultiplier.value).toBe(5)
   })
+  it('carries the Test & Compare gates apart from the funnel cold-start gates', () => {
+    // One key, one number: the judge waits a week where a packaging verdict waits three days.
+    expect(tagged('testMinImpressions')).toBe('1000 [house]')
+    expect(tagged('testMinHours', ' h')).toBe('72 h [house]')
+    expect(tagged('testColdStartMinImpressions')).toBe('2000 [house]')
+    expect(tagged('testColdStartMinHours', ' h')).toBe('168 h [house]')
+    expect(tagged('overPromiseDropPct', '%')).toBe('10% [house]')
+    expect(tagged('noDifferenceSharePts', ' pts')).toBe('3 pts [house]')
+    expect(tagged('noDifferenceRelPct', '%')).toBe('3% [house]')
+    expect(thresholds.coldStartMinHours.value).toBe(72)
+  })
   it('rejects unknown keys and non-numbers', () => {
     expect(() => applyOverrides({ nope: 1 } as never)).toThrow(/unknown threshold/)
     expect(() => applyOverrides({ ctrLowAbs: Number.NaN })).toThrow(/must be a number/)

@@ -41,13 +41,14 @@ function scoped(argv: string[]): string[] {
   return [...argv, '--data', data, '--path', profile, '--now', NOW, '--playbook', playbook, '--inbox', inbox, '--root', tmp]
 }
 
-async function run(argv: string[]): Promise<{ code: number; out: string; err: string }> {
+/** `after` lands after scoped()'s own flags, so a later --now wins (the parser keeps the last value). */
+async function run(argv: string[], after: string[] = []): Promise<{ code: number; out: string; err: string }> {
   let out = ''
   let err = ''
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => { out += String(chunk); return true })
   const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => { err += String(chunk); return true })
   try {
-    const code = await main(scoped(argv))
+    const code = await main([...scoped(argv), ...after])
     return { code, out, err }
   } finally {
     spy.mockRestore()
@@ -55,8 +56,8 @@ async function run(argv: string[]): Promise<{ code: number; out: string; err: st
   }
 }
 
-async function json(argv: string[]): Promise<any> {
-  const { code, out } = await run([...argv, '--json'])
+async function json(argv: string[], after: string[] = []): Promise<any> {
+  const { code, out } = await run([...argv, '--json'], after)
   expect(code).toBe(0)
   return JSON.parse(out)
 }
@@ -189,6 +190,14 @@ describe('booster review', () => {
     expect(applied.stageFile).toBe(stageFile)
     expect(JSON.parse(readFileSync(stageFile, 'utf8'))).toMatchObject({ bucket: '48', pass: true, review: null, decision: { decision: 'REPACKAGE', appliedAt: NOW } })
   })
+
+  it('prints the 7-day typing hint with the --yes the lever gate asks for', async () => {
+    writeFileSync(profile, JSON.stringify({ positioning: 'x', baselines: solidBaselines() }))
+    seedRow('noread', 200)
+    const { code, out } = await run(['review', 'run', '--slug', 'noread', '--bucket', '168'])
+    expect(code).toBe(1)
+    expect(out).toContain('booster set noread --bucket 168 --impressions N --ctr X --avp Y --views V --returning W --lever "<sentence>" --yes')
+  })
 })
 
 describe('booster brief', () => {
@@ -294,6 +303,14 @@ describe('booster rules', () => {
     expect(shown.out).toContain(HYPOTHESIS)
     expect(await fails(['rules', 'compile', '--half-life', 'long'])).toMatch(/--half-life must be a number/)
     expect(await fails(['rules', 'nope'])).toMatch(/usage: booster rules compile/)
+  })
+
+  it('stamps the compiled header with the run clock, not the newest rule date', async () => {
+    await json(['retro', '--accept-rule', 'Face-left thumbnails beat text-only', '--into', 'ideation.md', '--by', 'jony', '--yes'])
+    await json(['rules', 'compile'], ['--now', '2026-09-21T21:00:00Z'])
+    const content = readFileSync(path.join(playbook, '00-learned-rules.md'), 'utf8')
+    expect(content).toContain('from the packaging ledger on 2026-09-21.')
+    expect(content).not.toContain('on 2026-09-14')
   })
 
   it('show says what to do on an empty store', async () => {

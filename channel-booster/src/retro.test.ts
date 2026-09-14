@@ -153,7 +153,16 @@ describe('renderRetroMarkdown', () => {
     expect(md).toContain('- none: no lever in this window')
     expect(md).toContain('- no gate was overridden')
     expect(md).toContain('- no baseline shift')
-    expect(md).toContain('- the bank is empty')
+    expect(md).toContain('- no idea is banked or green (ideas in packaging or production do not count); run the outlier scan and bank ideas')
+    expect(md).not.toContain('the bank is empty')
+  })
+
+  it('prints the accept-rule line with the --yes that gate needs', () => {
+    addRow(store, { slug: 'win', title: 'The win', publishedAt: new Date(now.getTime() - 6 * 86_400_000).toISOString(), now })
+    recordRead(store, { slug: 'win', bucket: '168', read: { views: 9_000 }, lever: 'Number-in-title', now })
+    const md = renderRetroMarkdown(buildRetro(store, { since, now }))
+    const line = md.split('\n').find((l) => l.includes('--accept-rule')) as string
+    expect(line).toBe('- accept it with `booster retro --accept-rule "..." --into playbook/<file>.md --yes`, or rewrite it first')
   })
 })
 

@@ -4,8 +4,9 @@
  * The data side of the booster: the channel profile (channel.json), the
  * packaging ledger (data/ledger.jsonl through the store), Studio exports
  * dropped in inbox/, the optional Data API fetch, and the threshold table.
- * Writing a lever is a human-only gate (AGENTS.md, gate 6): `set --lever` and
- * `ingest --lever` print what they are about to write and need --yes.
+ * Gate 6 of AGENTS.md is human-only: `set --lever`, `ingest --lever` and a
+ * `profile refresh` that would move an existing baseline print what they are
+ * about to write and need --yes.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -13,7 +14,7 @@ import { fetchChannelVideos, resolveChannelRef, toCsv, CSV_HEADER } from '../../
 import { BUCKETS, BUCKET_HOURS, type Bucket } from '../../src/buckets.js'
 import { bucketFor, ledgerReadFromRow, readStudioRows } from '../../src/csv.js'
 import { addRow, ageHours, baselineFrom, dueReads, leverTally, ownOutliers, readLedger, recordRead, renderLedgerMarkdown } from '../../src/ledger.js'
-import { initProfile, loadProfile, profileExists, refreshBaselines, renderProfileText, resolveProfilePath, saveProfile } from '../../src/profile.js'
+import { initProfile, loadProfile, movedMetrics, profileExists, refreshBaselines, renderProfileText, resolveProfilePath, saveProfile } from '../../src/profile.js'
 import type { Baselines, LedgerRead, LedgerRow, ProfileDoc, Stat } from '../../src/schema.js'
 import { DEFAULT_THRESHOLDS, thresholds, type ThresholdKey } from '../../src/thresholds.js'
 import { bool, getStore, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
@@ -86,6 +87,11 @@ function statLine(label: string, stat: Stat | undefined, suffix: string): string
   return stat ? `  ${label}: median ${n1(stat.median)}${suffix}, MAD ${n1(stat.mad)}, n=${stat.n}` : `  ${label}: not in the ledger`
 }
 
+/** One baseline set on one line, for the gate that asks before a refresh moves it. */
+function describeBaselines(b: Baselines): string {
+  return `${b.tier}, n=${b.n}, CTR ${b.ctr ? `${n1(b.ctr.median)}%` : '—'}, AVP ${b.avpPct ? `${n1(b.avpPct.median)}%` : '—'}, views ${b.views ? n1(b.views.median) : '—'}`
+}
+
 function renderBaselines(b: Baselines, extra: string[] = []): string {
   return [
     `Baseline at ${b.bucket} h: tier ${b.tier}, n=${b.n}${extra.length ? ` (${extra.join(', ')})` : ''}, computed ${b.computedAt}${b.shift ? ', SHIFTED since previous' : ''}`,
@@ -154,10 +160,22 @@ async function runProfile(sub: string | undefined, flags: Flags): Promise<number
     const store = getStore(flags)
     const result = refreshBaselines(loadProfile(file), readLedger(store), { now, window: num(flags, 'window'), minAgeDays: num(flags, 'min-age-days') })
     const dryRun = bool(flags, 'dry-run')
-    if (!dryRun) saveProfile(result.profile, file, { now })
     const where = resolveProfilePath(file)
+    const prev = result.previous
+    const moved = movedMetrics(result.baselines48, prev)
+    // Resetting the baseline is human-only (AGENTS.md gate 6), but only a reset is: the first
+    // computation on a fresh channel and a recompute that lands on the same medians write freely.
+    if (!dryRun && prev && moved.length > 0) {
+      requireYes(flags, { path: where, moved, previous: prev, baselines48: result.baselines48, baselines168: result.baselines168 }, [
+        `About to reset the baselines in ${where}: ${moved.join(', ')} ${moved.length === 1 ? 'moves' : 'move'}.`,
+        `  was: ${describeBaselines(prev)}, computed ${prev.computedAt}`,
+        `  now: ${describeBaselines(result.baselines48)}`,
+        'Every verdict after this is judged against the new medians; booster profile refresh --dry-run shows the whole profile first.',
+      ], 'resetting the baseline')
+    }
+    if (!dryRun) saveProfile(result.profile, file, { now })
     const b168 = result.baselines168
-    out({ path: where, dryRun, baselines48: result.baselines48, baselines168: b168, previous: result.previous, shift: result.shift, shifted: result.shifted }, flags, () => [
+    out({ path: where, dryRun, moved, baselines48: result.baselines48, baselines168: b168, previous: result.previous, shift: result.shift, shifted: result.shifted }, flags, () => [
       dryRun ? `Dry run: ${where} not written.` : `Wrote ${where}`,
       renderProfileText(result.profile),
       result.shift ? `Baseline SHIFT: ${result.shifted.join(', ')} moved more than one MAD since ${result.previous?.computedAt ?? 'the previous refresh'}` : 'No baseline shift.',
@@ -321,6 +339,9 @@ async function runLedger(sub: string | undefined, flags: Flags): Promise<number>
     if (!publishedAt) throw new Error(`--published-at is required. Usage: ${USAGE_LEDGER_ADD}`)
     const videoId = str(flags, 'video-id')
     if (videoId !== undefined && !VIDEO_ID.test(videoId)) throw new Error(`--video-id must be the 11-character YouTube id, got "${videoId}"`)
+    // The lever is what the 7-day read taught, so there is nothing to learn at add time; refusing
+    // beats accepting a flag that would be dropped, and keeps the human gate on one writer.
+    if (flags.lever !== undefined) throw new Error(`ledger add has no --lever: the lever is the sentence the 7-day read taught. Add the row, then booster set ${slug} --bucket 168 --lever ".." --yes (or booster ingest <studio.csv> --lever ".." --yes).`)
     const existed = store.get('ledger', slug) !== undefined
     const row = addRow(store, { slug, title, publishedAt, videoId, thumbA: str(flags, 'thumb-a'), thumbB: str(flags, 'thumb-b'), sequelOf: str(flags, 'sequel-of'), source: 'cli', now })
     const due = dueReads([row], now)
@@ -429,7 +450,7 @@ export const dataModule: CommandModule = {
   help: [
     'profile init [--positioning ..] [--persona ..] [--colors "yellow,black"] [--face always|never|either] [--max-words 3] [--framing ..] [--typeface ..] [--competitors "A, B"] [--max-per-week 1] [--publish-day thu] [--solo|--team] [--store local|db] [--never-again "a; b"] [--force]',
     'profile show [--path channel.json]                                  the channel profile and its baselines',
-    'profile refresh [--window 10] [--min-age-days 7] [--dry-run]        recompute baselines from the ledger',
+    'profile refresh [--window 10] [--min-age-days 7] [--dry-run] [--yes]  recompute baselines from the ledger; moving an existing baseline needs --yes (human-only gate 6)',
     'ingest <studio-content.csv> [--at ISO] [--bucket 24|48|168|672] [--lever ".." --yes] [--dry-run]   record a Studio export as ledger reads',
     'set <slug> --bucket 48 [--ret30 n] [--returning n] [--sub-share n] [--browse-suggested n] [--impressions n] [--ctr n] [--avp n] [--views n] [--lever ".." --yes]   type the numbers Studio does not export',
     'ledger add --slug <slug> --title ".." --published-at ISO [--video-id id] [--thumb-a ..] [--thumb-b ..] [--sequel-of slug]',
