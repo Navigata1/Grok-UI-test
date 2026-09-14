@@ -16,20 +16,30 @@ import { diagnose } from '../src/postmortem.js'
 import { buildCalendar, generateWorkflow, renderWorkflowMarkdown, weeklyCadence, WORKFLOW_FORMATS } from '../src/workflow.js'
 import type { ThumbnailSpec, WorkflowFormat } from '../src/types.js'
 
-interface Args {
+export interface Args {
   positional: string[]
   flags: Record<string, string | boolean>
 }
 
-function parseArgs(argv: string[]): Args {
+/** Flags that never take a value, so `--json "topic"` keeps "topic" positional. */
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'md', 'offline', 'record', 'dry-run', 'fresh', 'solo', 'next', 'override', 'week', 'today'])
+
+export function parseArgs(argv: string[]): Args {
   const positional: string[] = []
   const flags: Record<string, string | boolean> = {}
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]
     if (a.startsWith('--')) {
+      const eq = a.indexOf('=')
+      if (eq > 2) {
+        flags[a.slice(2, eq)] = a.slice(eq + 1)
+        continue
+      }
       const key = a.slice(2)
       const next = argv[i + 1]
-      if (next !== undefined && !next.startsWith('--')) {
+      if (BOOLEAN_FLAGS.has(key)) {
+        flags[key] = true
+      } else if (next !== undefined && !next.startsWith('--')) {
         flags[key] = next
         i += 1
       } else {
@@ -273,10 +283,15 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
-  (error: unknown) => {
-    process.stderr.write(`booster: ${error instanceof Error ? error.message : String(error)}\n`)
-    process.exit(1)
-  },
-)
+export { main }
+
+const invokedDirectly = process.argv[1] !== undefined && /booster\.(ts|js|mjs)$/.test(process.argv[1])
+if (invokedDirectly) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (error: unknown) => {
+      process.stderr.write(`booster: ${error instanceof Error ? error.message : String(error)}\n`)
+      process.exit(1)
+    },
+  )
+}

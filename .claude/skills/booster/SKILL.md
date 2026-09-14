@@ -29,6 +29,10 @@ A packaging-first operating system for a YouTube channel. The doctrine (from the
 
 Every skill: run the deterministic command first when it applies (it is fast and honest), then reason on top of its output using the playbook rules. Never invent numbers; ask for a CSV export or Studio numbers when you need them. Output is a deliverable the user can act on today, not advice.
 
+## Human-only gates
+
+An agent prepares; a person decides. Stop and ask at these points: approving a green idea; writing three own titles and picking the final title and A/B pair; writing, shooting, editing; clicking publish, starting Test & Compare, applying a repackage swap; typing the numbers Studio does not export; writing the lever learned at 7 days and accepting a playbook rule. Never simulate a review pass, never invent a lever to unblock a 7-day read, never edit `playbook/*.md` except through `booster retro --accept-rule`, never scrape YouTube. The full list is in `channel-booster/AGENTS.md`.
+
 ## Files
 
 - `channel-booster/README.md` - system overview and commands

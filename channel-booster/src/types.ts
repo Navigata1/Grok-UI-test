@@ -15,6 +15,26 @@ export interface VideoRow {
   channel?: string
   durationSec?: number
   url?: string
+  /** YouTube video id, when the export carries one (Studio "Content" column). */
+  videoId?: string
+  thumbnailUrl?: string
+  /** Studio metrics, when the export is your own channel's. */
+  metrics?: VideoMetrics
+}
+
+/** Per-video metrics as YouTube Studio exports them. All optional; absent means "not in this export". */
+export interface VideoMetrics {
+  impressions?: number
+  /** Impressions click-through rate, percent. */
+  ctr?: number
+  avdSec?: number
+  /** Average percentage viewed, percent. */
+  avpPct?: number
+  watchTimeHours?: number
+  subscribers?: number
+  likes?: number
+  comments?: number
+  shares?: number
 }
 
 /** A video row enriched with outlier statistics. */
@@ -155,13 +175,17 @@ export interface PostMortemInput {
 }
 
 export interface Diagnosis {
-  /** The single most likely bottleneck. */
-  bottleneck: 'idea' | 'packaging' | 'hook' | 'retention' | 'none' | 'insufficient-data'
+  /** The single most likely bottleneck. "packaging-soft" is the borderline CTR band: re-test the title, do not swap the thumbnail. */
+  bottleneck: 'idea' | 'packaging' | 'packaging-soft' | 'hook' | 'retention' | 'none' | 'insufficient-data'
   headline: string
   evidence: string[]
   actions: string[]
   /** Is this video worth a packaging swap (new title/thumbnail) right now? */
   repackage: boolean
+  /** Where the comparison baseline came from. "default" means the cold-start priors were used; say so. */
+  baselineSource: 'provided' | 'default'
+  /** Threshold evidence tags used in this verdict, for printing. */
+  thresholdsUsed: string[]
 }
 
 /** A production workflow generated for one video. */

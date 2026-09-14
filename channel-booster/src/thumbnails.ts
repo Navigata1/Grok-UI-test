@@ -80,7 +80,7 @@ export function qaThumbnail(spec: ThumbnailSpec): ThumbnailQa {
     }
   }
 
-  const looksLikePerson = /\b(me|my face|face|person|host|creator|guy|girl|man|woman|kid|him|her|reaction|i\b)/i.test(spec.focalSubject)
+  const looksLikePerson = /\b(me|my face|face|person|host|creator|guy|girl|man|woman|kid|him|her|reaction|i)\b/i.test(spec.focalSubject)
   if (looksLikePerson) {
     if (!spec.emotion || /^(none|neutral|flat|no)/i.test(spec.emotion)) {
       score -= 15

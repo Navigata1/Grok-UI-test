@@ -394,7 +394,9 @@ var Booster = (() => {
     published: ["published", "publishedat", "date", "uploaddate", "upload_date", "publishdate", "publish_date", "videopublishtime"],
     channel: ["channel", "channeltitle", "channel_title", "channelname", "creator", "uploader"],
     durationSec: ["durationsec", "duration_sec", "duration", "length", "seconds"],
-    url: ["url", "link", "videourl", "href"]
+    url: ["url", "link", "videourl", "href"],
+    videoId: ["videoid", "video_id", "content", "id"],
+    thumbnailUrl: ["thumbnail", "thumbnailurl", "thumbnail_url", "thumb"]
   };
   function normalizeHeader(header) {
     return header.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -473,7 +475,9 @@ var Booster = (() => {
       published: index("published"),
       channel: index("channel"),
       durationSec: index("durationSec"),
-      url: index("url")
+      url: index("url"),
+      videoId: index("videoId"),
+      thumbnailUrl: index("thumbnailUrl")
     };
     if (col.title < 0 || col.views < 0) {
       throw new Error(`CSV needs at least a title column and a views column. Found headers: ${rows[0].join(", ")}`);
@@ -490,6 +494,8 @@ var Booster = (() => {
         if (d !== void 0) row.durationSec = d;
       }
       if (col.url >= 0 && r[col.url]) row.url = r[col.url].trim();
+      if (col.videoId >= 0 && r[col.videoId]) row.videoId = r[col.videoId].trim();
+      if (col.thumbnailUrl >= 0 && r[col.thumbnailUrl]) row.thumbnailUrl = r[col.thumbnailUrl].trim();
       out.push(row);
     }
     return out;
@@ -634,6 +640,55 @@ var Booster = (() => {
     feasibility: "Can you ship it at the quality bar inside a normal production cycle? (0 needs a crew and a month, 5 ship this week)"
   };
 
+  // channel-booster/src/thresholds.ts
+  var DEFAULT_THRESHOLDS = {
+    // Outliers and demand
+    outlierMultiplier: { value: 10, evidence: "house", note: "1of10-style outlier: views vs channel median; the concept is sourced, the multiple is a house default" },
+    ownWinnerMultiplier: { value: 5, evidence: "house", note: "your own video at this multiple of your median is a proven format; brief the sequel" },
+    demandWindowDays: { value: 90, evidence: "house", note: "outliers older than this count less as demand" },
+    // Titles
+    titleMinChars: { value: 30, evidence: "house", note: "below this the title makes no promise" },
+    titleMaxChars: { value: 55, evidence: "house", note: "above this the promise truncates on a phone" },
+    titleGateScore: { value: 60, evidence: "house", note: "heuristic score a title must reach before the thumbnail is tested" },
+    titleThumbOverlapMax: { value: 0.67, evidence: "house", note: "share of thumbnail words repeated from the title above which the pair says one thing twice" },
+    // Thumbnails
+    thumbShipScore: { value: 80, evidence: "house", note: "QA score at which a concept ships" },
+    thumbReviseScore: { value: 60, evidence: "house", note: "QA score below which a concept is rethought" },
+    thumbMaxElements: { value: 3, evidence: "house", note: 'one subject, one support, optional text; the "clean" doctrine is sourced, the count is house' },
+    thumbMaxWords: { value: 3, evidence: "house", note: "text reads at 120px wide only this short" },
+    // Funnel diagnosis
+    minImpressionsForVerdict: { value: 1e3, evidence: "house", note: "below this, do not diagnose; a subscriber burst can be the whole sample" },
+    minHoursForVerdict: { value: 24, evidence: "house", note: "the first day is distribution, not judgment" },
+    impressionsHealthyVsMedianViews: { value: 2, evidence: "house", note: "impressions at least this multiple of median views means the system found an audience" },
+    ctrHealthyRel: { value: 0.9, evidence: "house", note: 'CTR at or above this share of your baseline is healthy; "compare against your own history" is the sourced guidance' },
+    ctrLowRel: { value: 0.75, evidence: "house", note: "CTR below this share of baseline is a packaging bottleneck; between low and healthy is packaging-soft" },
+    ctrHealthyAbs: { value: 3, evidence: "unverified", note: 'YouTube Help: half of channels sit between 2% and 10% CTR; 3% is a floor for "healthy" here' },
+    ctrLowAbs: { value: 2.5, evidence: "unverified", note: "below this absolute CTR is treated as low regardless of baseline" },
+    retention30Healthy: { value: 60, evidence: "unverified", note: "share of viewers still watching at 30 seconds; widely cited YouTube intro guidance, not confirmed at source" },
+    avpSoftRel: { value: 0.85, evidence: "house", note: "average percentage viewed below this share of baseline is a retention bottleneck" },
+    repackageWindowHours: { value: 72, evidence: "house", note: "after this a thumbnail swap rarely changes distribution" },
+    // Cold start priors (used when the channel has no baseline yet)
+    priorCtr: { value: 4, evidence: "unverified", note: "midpoint of the 2-10% band" },
+    priorAvp: { value: 40, evidence: "house", note: "mid-length video average percentage viewed prior" },
+    priorRetention30: { value: 60, evidence: "unverified", note: "same figure as retention30Healthy" },
+    coldStartMinImpressions: { value: 2e3, evidence: "house", note: "no packaging verdict on a first upload before this many impressions" },
+    coldStartMinHours: { value: 72, evidence: "house", note: "no packaging verdict on a first upload before this many hours" },
+    // Story
+    hookGateScore: { value: 70, evidence: "house", note: "hook score a script must reach before the shoot" },
+    rehookMaxGapSec: { value: 90, evidence: "house", note: "longest stretch without a new question, reveal, or escalation" },
+    // Cadence
+    wipPackaging: { value: 3, evidence: "house", note: "ideas in packaging at once before the bank warns" },
+    wipProduction: { value: 2, evidence: "house", note: "videos in production at once before the bank warns" },
+    soloReviewGapHours: { value: 12, evidence: "house", note: "time between building a package and picking the pair when there is no second reviewer" }
+  };
+  var thresholds = Object.fromEntries(
+    Object.entries(DEFAULT_THRESHOLDS).map(([k, v]) => [k, { ...v }])
+  );
+  function tagged(key, suffix = "") {
+    const t = thresholds[key];
+    return `${t.value}${suffix} [${t.evidence}]`;
+  }
+
   // channel-booster/src/titles.ts
   var POWER_WORDS = [
     "secret",
@@ -700,10 +755,12 @@ var Booster = (() => {
     const len = title.length;
     const lower = title.toLowerCase();
     const words = lower.split(/\s+/).filter(Boolean);
-    if (len >= 30 && len <= 55) {
+    const minChars = thresholds.titleMinChars.value;
+    const maxChars = thresholds.titleMaxChars.value;
+    if (len >= minChars && len <= maxChars) {
       score += 15;
-      notes.push("length in the mobile sweet spot (30-55 chars)");
-    } else if (len > 65) {
+      notes.push(`length in the mobile sweet spot (${minChars}-${maxChars} chars)`);
+    } else if (len > maxChars + 10) {
       score -= 15;
       notes.push(`too long (${len} chars): truncates on mobile and in suggested`);
     } else if (len < 20) {
@@ -763,10 +820,12 @@ var Booster = (() => {
     }
     return out.sort((a, b) => b.score - a.score);
   }
+  var STOP_WORDS = /* @__PURE__ */ new Set(["the", "a", "an", "of", "to", "in", "on", "for", "and", "is", "it", "my", "i", "you", "this", "that", "with", "was", "are", "but", "not", "your", "our"]);
+  function tokens(s) {
+    return s.toLowerCase().split(/[^a-z0-9$]+/).filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+  }
   function titleThumbnailOverlap(title, thumbnailText) {
     if (!thumbnailText) return 0;
-    const stop = /* @__PURE__ */ new Set(["the", "a", "an", "of", "to", "in", "on", "for", "and", "is", "it", "my", "i", "you", "this", "that", "with"]);
-    const tokens = (s) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !stop.has(w));
     const t = tokens(thumbnailText);
     if (t.length === 0) return 0;
     const titleSet = new Set(tokens(title));
@@ -861,7 +920,7 @@ var Booster = (() => {
         passes.push("thumbnail text complements the title");
       }
     }
-    const looksLikePerson = /\b(me|my face|face|person|host|creator|guy|girl|man|woman|kid|him|her|reaction|i\b)/i.test(spec.focalSubject);
+    const looksLikePerson = /\b(me|my face|face|person|host|creator|guy|girl|man|woman|kid|him|her|reaction|i)\b/i.test(spec.focalSubject);
     if (looksLikePerson) {
       if (!spec.emotion || /^(none|neutral|flat|no)/i.test(spec.emotion)) {
         score -= 15;
@@ -978,7 +1037,11 @@ var Booster = (() => {
   }
 
   // channel-booster/src/postmortem.ts
-  var DEFAULT_BASELINE = { ctr: 4, avpPct: 40 };
+  var DEFAULT_BASELINE = { get ctr() {
+    return thresholds.priorCtr.value;
+  }, get avpPct() {
+    return thresholds.priorAvp.value;
+  } };
   var ACTIONS = {
     "insufficient-data": [
       "Wait until the video has at least 1,000 impressions and 24 hours of data before diagnosing.",
@@ -988,6 +1051,11 @@ var Booster = (() => {
       "YouTube could not find an audience: the topic has no proven demand or the packaging does not match any viewer intent it recognises.",
       "Check the outlier list for this topic. If there are no winners in adjacent channels, bank the learning and move on; do not repackage.",
       "If a related outlier exists, remake the packaging to mirror its promise and test once."
+    ],
+    "packaging-soft": [
+      "CTR is below baseline but not broken. Re-test the title (Test & Compare) before touching the thumbnail; a swap on a borderline read burns the test budget.",
+      "Check whether a subscriber notification burst inflated the early CTR baseline you are comparing against.",
+      "Log it; if the 7-day read is still soft, treat it as packaging."
     ],
     packaging: [
       "Viewers saw it and did not click. Swap the thumbnail first, then the title, using Test & Compare.",
@@ -1012,16 +1080,23 @@ var Booster = (() => {
   };
   function diagnose(input) {
     const evidence = [];
+    const thresholdsUsed = [];
+    const baselineSource = input.baseline?.ctr !== void 0 || input.baseline?.avpPct !== void 0 ? "provided" : "default";
     const baselineCtr = input.baseline?.ctr ?? DEFAULT_BASELINE.ctr;
     const baselineAvp = input.baseline?.avpPct ?? DEFAULT_BASELINE.avpPct;
+    if (baselineSource === "default") evidence.push(`baseline is borrowed: CTR ${tagged("priorCtr", "%")}, AVP ${tagged("priorAvp", "%")} (no channel history given)`);
     const avp = input.avpPct ?? (input.avdSec !== void 0 && input.durationSec ? input.avdSec / input.durationSec * 100 : void 0);
     const hasCtr = input.ctr !== void 0;
     const hasRetention = avp !== void 0 || input.retention30sPct !== void 0;
-    if (!hasCtr && !hasRetention) {
-      return { bottleneck: "insufficient-data", headline: "Not enough data to diagnose yet.", evidence, actions: ACTIONS["insufficient-data"], repackage: false };
-    }
-    if (input.impressions !== void 0 && input.impressions < 1e3 && (input.hoursSincePublish ?? 48) < 24) {
-      return { bottleneck: "insufficient-data", headline: "Fewer than 1,000 impressions in the first day: too early to call.", evidence: [`impressions ${input.impressions}`], actions: ACTIONS["insufficient-data"], repackage: false };
+    const hours = input.hoursSincePublish ?? 48;
+    const minImpr = thresholds.minImpressionsForVerdict.value;
+    const minHours = thresholds.minHoursForVerdict.value;
+    const done = (bottleneck, headline, repackage = false) => ({ bottleneck, headline, evidence, actions: ACTIONS[bottleneck], repackage, baselineSource, thresholdsUsed });
+    if (!hasCtr && !hasRetention) return done("insufficient-data", "Not enough data to diagnose yet.");
+    if (input.impressions !== void 0 && input.impressions < minImpr && hours < minHours) {
+      evidence.push(`impressions ${input.impressions} at ${hours}h`);
+      thresholdsUsed.push(`minImpressionsForVerdict ${tagged("minImpressionsForVerdict")}`, `minHoursForVerdict ${tagged("minHoursForVerdict", "h")}`);
+      return done("insufficient-data", `Fewer than ${minImpr} impressions in the first ${minHours} hours: too early to call.`);
     }
     const ctrRel = hasCtr ? input.ctr / baselineCtr : void 0;
     const avpRel = avp !== void 0 ? avp / baselineAvp : void 0;
@@ -1029,35 +1104,34 @@ var Booster = (() => {
     if (avp !== void 0) evidence.push(`average percentage viewed ${avp.toFixed(0)}% vs baseline ${baselineAvp}% (${avpRel.toFixed(2)}x)`);
     if (input.retention30sPct !== void 0) evidence.push(`30-second retention ${input.retention30sPct}%`);
     if (input.impressions !== void 0) evidence.push(`impressions ${input.impressions}`);
-    const impressionsLow = input.impressions !== void 0 && input.baseline?.views !== void 0 && input.impressions < input.baseline.views * 2;
-    const ctrHealthy = ctrRel !== void 0 && ctrRel >= 0.9 && input.ctr >= 3;
-    const ctrLow = ctrRel !== void 0 && (ctrRel < 0.75 || input.ctr < 2.5);
-    const hookBroken = input.retention30sPct !== void 0 && input.retention30sPct < 60 || avpRel !== void 0 && avpRel < 0.6 && input.retention30sPct === void 0 && avp < 30;
-    const retentionSoft = avpRel !== void 0 && avpRel < 0.85;
-    const hours = input.hoursSincePublish ?? 48;
-    let bottleneck;
-    let headline;
-    if (impressionsLow && !ctrLow) {
-      bottleneck = "idea";
-      headline = "Impressions never took off while CTR held: the system found no audience for this idea.";
-    } else if (ctrLow) {
-      bottleneck = "packaging";
-      headline = "People saw it and did not click: packaging is the bottleneck.";
-    } else if (hookBroken) {
-      bottleneck = "hook";
-      headline = "People clicked and left in the first 30 seconds: the open does not deliver the promise.";
-    } else if (retentionSoft) {
-      bottleneck = "retention";
-      headline = "The open holds but the middle loses them: retention structure is the bottleneck.";
-    } else if (ctrHealthy || avpRel !== void 0) {
-      bottleneck = "none";
-      headline = "Packaging and retention are both at or above baseline. Double down.";
-    } else {
-      bottleneck = "insufficient-data";
-      headline = "Metrics are borderline; collect another day of data.";
+    const impressionsLowVsMedian = input.impressions !== void 0 && input.baseline?.views !== void 0 && input.impressions < input.baseline.views * thresholds.impressionsHealthyVsMedianViews.value;
+    const impressionsLowAbs = input.impressions !== void 0 && input.baseline?.views === void 0 && input.impressions < minImpr && hours >= minHours;
+    const impressionsLow = impressionsLowVsMedian || impressionsLowAbs;
+    if (impressionsLowVsMedian) thresholdsUsed.push(`impressionsHealthyVsMedianViews ${tagged("impressionsHealthyVsMedianViews", "x")}`);
+    if (impressionsLowAbs) thresholdsUsed.push(`minImpressionsForVerdict ${tagged("minImpressionsForVerdict")}`);
+    const ctrLow = ctrRel !== void 0 && (ctrRel < thresholds.ctrLowRel.value || input.ctr < thresholds.ctrLowAbs.value);
+    const ctrHealthy = ctrRel !== void 0 && ctrRel >= thresholds.ctrHealthyRel.value && input.ctr >= thresholds.ctrHealthyAbs.value;
+    const ctrSoft = ctrRel !== void 0 && !ctrLow && !ctrHealthy;
+    if (hasCtr) thresholdsUsed.push(`ctrLowRel ${tagged("ctrLowRel", "x")}`, `ctrHealthyRel ${tagged("ctrHealthyRel", "x")}`, `ctrHealthyAbs ${tagged("ctrHealthyAbs", "%")}`);
+    const hookBroken = input.retention30sPct !== void 0 && input.retention30sPct < thresholds.retention30Healthy.value || avpRel !== void 0 && input.retention30sPct === void 0 && avpRel < 0.6 && avp < 30;
+    if (input.retention30sPct !== void 0) thresholdsUsed.push(`retention30Healthy ${tagged("retention30Healthy", "%")}`);
+    const retentionSoft = avpRel !== void 0 && avpRel < thresholds.avpSoftRel.value;
+    if (avpRel !== void 0) thresholdsUsed.push(`avpSoftRel ${tagged("avpSoftRel", "x")}`);
+    if (impressionsLow && !ctrLow) return done("idea", "Impressions never took off while CTR held: the system found no audience for this idea.");
+    if (ctrLow) {
+      const repackage = hours <= thresholds.repackageWindowHours.value && !impressionsLow;
+      thresholdsUsed.push(`repackageWindowHours ${tagged("repackageWindowHours", "h")}`);
+      return done("packaging", "People saw it and did not click: packaging is the bottleneck.", repackage);
     }
-    const repackage = bottleneck === "packaging" && hours <= 72 && !impressionsLow;
-    return { bottleneck, headline, evidence, actions: ACTIONS[bottleneck], repackage };
+    if (hookBroken) return done("hook", "People clicked and left in the first 30 seconds: the open does not deliver the promise.");
+    if (retentionSoft) return done("retention", "The open holds but the middle loses them: retention structure is the bottleneck.");
+    if (ctrSoft) return done("packaging-soft", "CTR is under baseline but not broken: re-test the title before swapping the thumbnail.");
+    if (input.impressions !== void 0 && input.impressions < minImpr) {
+      evidence.push(`impressions ${input.impressions} are under ${minImpr}: no "healthy" verdict on this sample`);
+      return done("insufficient-data", "Nothing is broken yet, but the sample is too small to call it healthy.");
+    }
+    if (ctrHealthy || avpRel !== void 0) return done("none", "Packaging and retention are both at or above baseline. Double down.");
+    return done("insufficient-data", "Metrics are borderline; collect another day of data.");
   }
 
   // channel-booster/src/workflow.ts

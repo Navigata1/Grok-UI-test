@@ -54,3 +54,14 @@ describe('buildThumbnailBrief', () => {
     expect(brief.testPlan[0]).toMatch(/Test & Compare/)
   })
 })
+
+describe('qaThumbnail: face detection', () => {
+  it('does not treat "here" or "meter" as a face', () => {
+    const qa = qaThumbnail({ focalSubject: 'a power meter reading zero, right here', elements: ['meter', 'text'], text: 'Zero' })
+    expect(qa.failures).not.toContain('a face with no expression')
+  })
+  it('still treats a person as a face', () => {
+    const qa = qaThumbnail({ focalSubject: 'the creator', elements: ['face'] })
+    expect(qa.failures).toContain('a face with no expression')
+  })
+})

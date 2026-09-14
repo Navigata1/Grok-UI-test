@@ -1,3 +1,4 @@
+import { thresholds } from './thresholds.js'
 import type { TitleCandidate, TitleLabInput } from './types.js'
 
 /** Words that signal curiosity, stakes, or specificity. Scored, not required. */
@@ -49,10 +50,12 @@ export function scoreTitle(title: string): { score: number; notes: string[] } {
   const lower = title.toLowerCase()
   const words = lower.split(/\s+/).filter(Boolean)
 
-  if (len >= 30 && len <= 55) {
+  const minChars = thresholds.titleMinChars.value
+  const maxChars = thresholds.titleMaxChars.value
+  if (len >= minChars && len <= maxChars) {
     score += 15
-    notes.push('length in the mobile sweet spot (30-55 chars)')
-  } else if (len > 65) {
+    notes.push(`length in the mobile sweet spot (${minChars}-${maxChars} chars)`)
+  } else if (len > maxChars + 10) {
     score -= 15
     notes.push(`too long (${len} chars): truncates on mobile and in suggested`)
   } else if (len < 20) {
@@ -121,10 +124,15 @@ export function generateTitles(input: TitleLabInput): TitleCandidate[] {
  * the title tells. Returns the share of meaningful title words repeated
  * in the thumbnail text (0 = fully complementary, 1 = pure repetition).
  */
+const STOP_WORDS = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'on', 'for', 'and', 'is', 'it', 'my', 'i', 'you', 'this', 'that', 'with', 'was', 'are', 'but', 'not', 'your', 'our'])
+
+/** Content tokens of a string: lowercase words longer than two letters, stop words removed. */
+export function tokens(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9$]+/).filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+}
+
 export function titleThumbnailOverlap(title: string, thumbnailText: string | undefined): number {
   if (!thumbnailText) return 0
-  const stop = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'on', 'for', 'and', 'is', 'it', 'my', 'i', 'you', 'this', 'that', 'with'])
-  const tokens = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !stop.has(w))
   const t = tokens(thumbnailText)
   if (t.length === 0) return 0
   const titleSet = new Set(tokens(title))
