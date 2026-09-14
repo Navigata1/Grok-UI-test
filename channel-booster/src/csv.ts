@@ -3,7 +3,8 @@
  * Content-tab export. Pure string-to-object mapping; no filesystem, so the
  * same module runs in the Desk's browser bundle.
  */
-import { BUCKET_HOURS, LedgerRead, type Bucket } from './schema.js'
+import { BUCKET_HOURS, type Bucket } from './buckets.js'
+import type { LedgerRead } from './schema.js'
 import type { VideoMetrics, VideoRow } from './types.js'
 
 type CoreField = 'title' | 'views' | 'published' | 'channel' | 'durationSec' | 'url' | 'videoId' | 'thumbnailUrl'
@@ -258,7 +259,7 @@ export function ledgerReadFromRow(row: VideoRow, options: { at: Date | string })
   if (m.ctr !== undefined) read.ctr = m.ctr
   if (m.avdSec !== undefined) read.avdSec = m.avdSec
   if (m.avpPct !== undefined) read.avpPct = m.avpPct
-  return LedgerRead.parse(read)
+  return read
 }
 
 /**

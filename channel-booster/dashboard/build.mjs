@@ -13,7 +13,7 @@ const result = await build({
   globalName: 'Booster',
   platform: 'browser',
   target: 'es2022',
-  minify: false,
+  minify: true,
   write: false,
   legalComments: 'none',
 })

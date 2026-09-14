@@ -109,7 +109,7 @@ export type ProfileDoc = z.infer<typeof ProfileDoc>
 
 export const Bucket = z.enum(['24', '48', '168', '672'])
 export type Bucket = z.infer<typeof Bucket>
-export const BUCKET_HOURS: Record<Bucket, number> = { '24': 24, '48': 48, '168': 168, '672': 672 }
+export { BUCKET_HOURS, BUCKETS } from './buckets.js'
 
 export const LedgerRead = z.object({
   at: ISO,
