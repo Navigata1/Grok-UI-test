@@ -145,8 +145,20 @@
     .baseline { margin-left: 0; }
   }
   @media (prefers-reduced-motion: no-preference) { .btn, nav.rail button { transition: background .12s ease; } }
-</style>
 
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--mono); background: var(--panel-2); color: var(--muted); }
+  .today { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .today .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .today .item:last-child { border-bottom: none; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 13px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+  .score { font-family: var(--display); font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .ok { color: var(--good); } .no { color: var(--bad); }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .copy { position: relative; }
+  .copy button { position: absolute; top: 8px; right: 8px; }
+</style>
 <div class="wrap">
   <header class="top">
     <div class="brand">
@@ -154,49 +166,70 @@
       <div><h1>Channel Booster Desk</h1><small>Packaging first. Ideas from proven demand. Read the funnel in order.</small></div>
     </div>
     <div class="baseline" role="group" aria-label="Channel baseline">
-      <label>Median views <input id="base-views" type="number" min="0" step="1" value="4000"></label>
-      <label>CTR % <input id="base-ctr" type="number" min="0" step="0.1" value="4.5"></label>
-      <label>Avg % viewed <input id="base-avp" type="number" min="0" step="1" value="40"></label>
+      <span class="muted" id="base-summary">baseline: not computed yet</span>
       <span class="store" id="store-state"><span class="dot"></span><span>this browser only</span></span>
     </div>
   </header>
 
   <div class="layout">
     <nav class="rail" aria-label="Stages">
-      <button data-stage="scan" aria-current="page"><span class="n">1</span>Scan<span class="count" id="count-scan"></span></button>
+      <button data-stage="today" aria-current="page"><span class="n">·</span>Today<span class="count" id="count-today"></span></button>
+      <button data-stage="scan"><span class="n">1</span>Scan<span class="count" id="count-scan"></span></button>
       <button data-stage="ideas"><span class="n">2</span>Idea bank<span class="count" id="count-ideas"></span></button>
       <button data-stage="package"><span class="n">3</span>Package</button>
       <button data-stage="thumb"><span class="n">4</span>Thumbnail</button>
       <button data-stage="story"><span class="n">5</span>Story</button>
       <button data-stage="workflow"><span class="n">6</span>Workflow</button>
-      <button data-stage="review"><span class="n">7</span>Review</button>
-      <button data-stage="ledger"><span class="n">8</span>Ledger<span class="count" id="count-ledger"></span></button>
+      <button data-stage="publish"><span class="n">7</span>Publish</button>
+      <button data-stage="review"><span class="n">8</span>Review<span class="count" id="count-review"></span></button>
+      <button data-stage="ledger"><span class="n">9</span>Ledger<span class="count" id="count-ledger"></span></button>
+      <button data-stage="retro"><span class="n">10</span>Retro</button>
+      <button data-stage="profile"><span class="n">·</span>Profile</button>
     </nav>
 
     <main>
+      <!-- TODAY -->
+      <section class="stage" id="stage-today">
+        <div class="stage-head"><h2>Today</h2><p>What needs a decision, what is due, and what moved. Every item is one click away.</p></div>
+        <div class="today">
+          <div class="card"><h3>Reads due</h3><div id="today-due"></div></div>
+          <div class="card"><h3>Decisions awaiting you</h3><div id="today-decisions"></div></div>
+          <div class="card"><h3>Tests running</h3><div id="today-tests"></div></div>
+          <div class="card"><h3>Alerts</h3><div id="today-alerts"></div></div>
+          <div class="card"><h3>Next three ideas</h3><div id="today-next"></div></div>
+          <div class="card"><h3>This week</h3><div id="today-cadence"></div></div>
+        </div>
+      </section>
+
       <!-- 1 SCAN -->
-      <section class="stage" id="stage-scan">
-        <div class="stage-head"><h2>Outlier scan</h2><p>Paste an export of adjacent channels (title, views, published, channel, duration). A video at 10x its channel's median is the audience voting. Loaded with example data.</p></div>
+      <section class="stage" id="stage-scan" hidden>
+        <div class="stage-head"><h2>Outlier scan</h2><p>Paste an export of adjacent channels (title, views, published, channel, duration). A video at 10x its channel's median is the audience voting; a fresh video climbing at 3x the channel's usual pace is a format to catch early. Loaded with example data.</p></div>
         <div class="card">
           <div class="row">
             <div class="field lg"><label for="scan-csv">CSV</label><textarea id="scan-csv" spellcheck="false"></textarea></div>
             <div class="field sm"><label for="scan-threshold">Outlier at</label><select id="scan-threshold"><option value="5">5x</option><option value="10" selected>10x</option><option value="20">20x</option></select></div>
+            <div class="field sm"><label for="scan-since">Window (days)</label><input id="scan-since" type="number" value="90"></div>
             <button class="btn primary" id="scan-run">Scan</button>
           </div>
           <p class="muted" id="scan-summary"></p>
         </div>
-        <div class="card"><h3>Ranked by multiplier</h3><div class="tablewrap"><table id="scan-table"><thead><tr><th class="num">#</th><th class="num">Mult</th><th>Tier</th><th class="num">Views</th><th>Title</th><th>Formats</th><th></th></tr></thead><tbody></tbody></table></div></div>
-        <div class="card"><h3>Format lift among winners</h3><div class="lift-list" id="scan-lift"></div></div>
+        <div class="card"><h3>Ranked by multiplier</h3><div class="tablewrap"><table id="scan-table"><thead><tr><th class="num">#</th><th class="num">Mult</th><th>Tier</th><th class="num">Views</th><th class="num">Vel.</th><th>Title</th><th>Formats</th><th></th></tr></thead><tbody></tbody></table></div></div>
+        <div class="grid2">
+          <div class="card"><h3>Topic demand</h3><div class="tablewrap"><table id="scan-topics"><thead><tr><th>Topic</th><th class="num">Videos</th><th class="num">Best</th><th>Channels</th><th>Best title</th></tr></thead><tbody></tbody></table></div></div>
+          <div class="card"><h3>Format lift among winners</h3><div class="lift-list" id="scan-lift"></div></div>
+        </div>
       </section>
 
       <!-- 2 IDEAS -->
       <section class="stage" id="stage-ideas" hidden>
-        <div class="stage-head"><h2>Idea bank</h2><p>Score every candidate before anything is written. Demand and packaging carry half the score. Any axis at 1 caps you at yellow; demand or packaging at 1 is red.</p></div>
+        <div class="stage-head"><h2>Idea bank</h2><p>Score every candidate before anything is written. Demand and packaging carry half the score. Any axis at 1 caps you at yellow; demand or packaging at 1 is red. Demand can be read from the last scan.</p></div>
         <div class="card lift">
           <div class="row">
             <div class="field lg"><label for="idea-text">Idea (topic + angle)</label><input id="idea-text" placeholder="I lived off a $300 solar generator for 30 days"></div>
             <div class="field"><label for="idea-source">Borrowed from (outlier)</label><input id="idea-source" placeholder="How I Built a Solar Generator for $300 · 32x"></div>
+            <button class="btn" id="idea-demand-auto">Demand from scan</button>
           </div>
+          <p class="muted" id="idea-demand-note"></p>
           <div class="axes" id="idea-axes"></div>
           <div class="row">
             <div class="verdict neutral" id="idea-verdict" style="flex:1 1 280px"><span class="big">—</span><div><b id="idea-verdict-label">Score an idea</b><p class="muted" id="idea-verdict-note">Slide the six axes.</p></div></div>
@@ -204,12 +237,18 @@
           </div>
           <ul class="list" id="idea-fixes"></ul>
         </div>
-        <div class="card"><h3>Bank</h3><div class="tablewrap"><table id="ideas-table"><thead><tr><th class="num">Total</th><th>Verdict</th><th>Idea</th><th>Borrowed from</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div><div class="empty" id="ideas-empty">No ideas yet. Send outliers from the scan, or score one above.</div></div>
+        <div class="card"><h3>Bank <span class="chip" id="ideas-wip"></span></h3><div class="tablewrap"><table id="ideas-table"><thead><tr><th class="num">Total</th><th>Verdict</th><th>Idea</th><th>Weakest</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div><div class="empty" id="ideas-empty">No ideas yet. Send outliers from the scan, or score one above.</div></div>
       </section>
 
       <!-- 3 PACKAGE -->
       <section class="stage" id="stage-package" hidden>
-        <div class="stage-head"><h2>Package</h2><p>The title tells; the thumbnail shows. Write ten, keep two, then make them say different things.</p></div>
+        <div class="stage-head"><h2>Package</h2><p>The title tells; the thumbnail shows. Write ten, keep two, write three of your own, then make the pair say different things. The promise is written once here and checked everywhere it must survive.</p></div>
+        <div class="card">
+          <div class="row">
+            <div class="field lg"><label for="pk-promise">Promise (one sentence the video keeps)</label><input id="pk-promise" placeholder="A $300 solar generator runs a van fridge for 30 days, with two failures along the way"></div>
+            <span class="muted" id="pr-current"></span>
+          </div>
+        </div>
         <div class="grid2">
           <div class="card">
             <h3>Title lab</h3>
@@ -224,6 +263,7 @@
               <button class="btn ai" id="tl-ai" hidden>Ask Claude for 15</button>
             </div>
             <div class="tablewrap"><table id="tl-table"><thead><tr><th class="num">Score</th><th>Lever</th><th>Title</th><th></th></tr></thead><tbody></tbody></table></div>
+            <div class="stack"><label class="muted" for="tl-own1">Three of your own (the sheet is not done until these are filled)</label><input id="tl-own1" placeholder="1."><input id="tl-own2" placeholder="2."><input id="tl-own3" placeholder="3."></div>
           </div>
           <div class="card">
             <h3>Packaging review</h3>
@@ -234,14 +274,14 @@
               <button class="btn primary" id="pr-run">Review</button>
             </div>
             <div id="pr-out"></div>
-            <div class="row"><button class="btn" id="pr-attach">Attach to current idea</button><span class="muted" id="pr-current"></span></div>
+            <div class="row"><button class="btn" id="pr-attach">Attach to current idea</button></div>
           </div>
         </div>
       </section>
 
       <!-- 4 THUMB -->
       <section class="stage" id="stage-thumb" hidden>
-        <div class="stage-head"><h2>Thumbnail factory</h2><p>A thumbnail is a spec before it is an image: one subject, three elements, three words, high contrast, phone first. Score it here before anyone opens a design tool.</p></div>
+        <div class="stage-head"><h2>Thumbnail factory</h2><p>A thumbnail is a spec before it is an image: one subject, three elements, three words, high contrast, phone first. The channel signature from your profile is checked too.</p></div>
         <div class="grid2">
           <div class="card">
             <h3>QA a concept</h3>
@@ -262,7 +302,7 @@
             <div id="tq-out"></div>
           </div>
           <div class="card">
-            <h3>Brief</h3>
+            <h3>Brief and image prompts</h3>
             <div class="row">
               <div class="field"><label for="tb-subject">Subject on screen</label><input id="tb-subject" placeholder="me"></div>
               <div class="field"><label for="tb-stake">Stake</label><input id="tb-stake" placeholder="a dead battery at night"></div>
@@ -276,14 +316,16 @@
 
       <!-- 5 STORY -->
       <section class="stage" id="stage-story" hidden>
-        <div class="stage-head"><h2>Story spine</h2><p>Storytelling is packaging kept. Promise on screen inside 5 seconds, stake by 15, roadmap in one line, a rehook every 60 to 90 seconds, the thumbnail moment in the final third.</p></div>
+        <div class="stage-head"><h2>Story spine</h2><p>Storytelling is packaging kept. Paste the script or outline: the hook scorer checks that the promise lands in the first 25 words, that a rehook arrives every 90 seconds, and that the thumbnail moment happens on screen.</p></div>
         <div class="card">
-          <div class="field"><label for="st-open">First 30 seconds, word for word</label><textarea id="st-open" placeholder="0-5s: show the promise. 5-15s: the stake. 15-30s: the roadmap, then start."></textarea></div>
-          <div class="grid2">
-            <div class="field"><label for="st-payoffs">Payoff ladder (one per line: time, moment)</label><textarea id="st-payoffs" placeholder="1:00 first result&#10;4:30 the thing breaks&#10;11:00 thumbnail moment"></textarea></div>
-            <div class="field"><label for="st-rehooks">Rehooks (one per line: time, device, line)</label><textarea id="st-rehooks" placeholder="1:30 question — but would it survive a cloudy week?"></textarea></div>
+          <div class="row">
+            <div class="field"><label for="st-title">Title</label><input id="st-title"></div>
+            <div class="field"><label for="st-promise">Promise</label><input id="st-promise"></div>
+            <div class="field"><label for="st-moment">Thumbnail moment (what the image shows)</label><input id="st-moment" placeholder="the fridge light still on at 3am, day 30"></div>
           </div>
-          <div class="row"><button class="btn primary" id="st-save">Save to current idea</button><span class="muted" id="st-current"></span><span class="muted" id="st-check"></span></div>
+          <div class="field"><label for="st-script">Script or outline (timestamps like 1:30 at line start are honoured)</label><textarea id="st-script" style="min-height:180px" placeholder="0:00 The fridge is still running. Thirty days ago I bet it would not.&#10;0:20 Here is the rule: $300, no shore power, no cheating.&#10;..."></textarea></div>
+          <div class="row"><button class="btn primary" id="st-run">Score the hook</button><button class="btn" id="st-save">Save to current idea</button><span class="muted" id="st-current"></span></div>
+          <div id="st-out"></div>
         </div>
       </section>
 
@@ -304,37 +346,123 @@
         <div class="card"><h3>Weekly cadence</h3><div class="grid2" id="wf-cadence"></div></div>
       </section>
 
-      <!-- 7 REVIEW -->
-      <section class="stage" id="stage-review" hidden>
-        <div class="stage-head"><h2>48-hour review</h2><p>Read the funnel in order: impressions (idea), CTR (packaging), first 30 seconds (hook), the rest (retention). Fix the first broken stage only.</p></div>
-        <div class="card lift">
+      <!-- 7 PUBLISH -->
+      <section class="stage" id="stage-publish" hidden>
+        <div class="stage-head"><h2>Publish package</h2><p>Description line one restates the promise, chapters follow the payoff ladder, the pinned comment asks the sequel's question, two Shorts inside 48 hours, Test &amp; Compare with A and B from the start. Confirming the publish starts the review clock.</p></div>
+        <div class="card">
           <div class="row">
-            <div class="field lg"><label for="rv-title">Video</label><input id="rv-title" placeholder="Published title"></div>
-            <div class="field sm"><label for="rv-hours">Hours since publish</label><input id="rv-hours" type="number" value="48"></div>
+            <div class="field lg"><label for="pb-title">Title</label><input id="pb-title"></div>
+            <div class="field lg"><label for="pb-promise">Promise</label><input id="pb-promise"></div>
           </div>
           <div class="row">
-            <div class="field sm"><label for="rv-impr">Impressions</label><input id="rv-impr" type="number" placeholder="24000"></div>
-            <div class="field sm"><label for="rv-ctr">CTR %</label><input id="rv-ctr" type="number" step="0.1" placeholder="2.1"></div>
-            <div class="field sm"><label for="rv-avp">Avg % viewed</label><input id="rv-avp" type="number" step="1" placeholder="44"></div>
-            <div class="field sm"><label for="rv-ret">30s retention %</label><input id="rv-ret" type="number" step="1" placeholder="68"></div>
-            <button class="btn primary" id="rv-run">Diagnose</button>
+            <div class="field sm"><label for="pb-thumb-a">Thumbnail A (concept name)</label><input id="pb-thumb-a" placeholder="stakes"></div>
+            <div class="field sm"><label for="pb-thumb-b">Thumbnail B</label><input id="pb-thumb-b" placeholder="result"></div>
+            <div class="field"><label for="pb-related">Related proven video (end screen)</label><input id="pb-related"></div>
+            <div class="field"><label for="pb-sequel">Sequel question (pinned comment)</label><input id="pb-sequel"></div>
+            <button class="btn primary" id="pb-run">Assemble</button>
           </div>
-          <div class="funnel" id="rv-funnel"></div>
-          <div id="rv-out"></div>
-          <div class="row"><div class="field"><label for="rv-lever">Lever learned (one sentence)</label><input id="rv-lever" placeholder="The stakes concept beat the result concept on watch-time share."></div><button class="btn" id="rv-log">Log to ledger</button></div>
+          <div class="copy" id="pb-out"></div>
+          <div id="pb-check"></div>
+        </div>
+        <div class="card">
+          <h3>Confirm the publish (starts the 24 / 48 / 168 / 672 hour reads)</h3>
+          <div class="row">
+            <div class="field sm"><label for="pb-video-id">Video id</label><input id="pb-video-id" placeholder="11 characters"></div>
+            <div class="field sm"><label for="pb-at">Published at</label><input id="pb-at" type="datetime-local"></div>
+            <div class="field"><label for="pb-levers">Hypothesis: levers (comma separated)</label><input id="pb-levers" placeholder="stakes, first-person test"></div>
+            <div class="field sm"><label for="pb-predict">Predicted CTR multiple</label><input id="pb-predict" type="number" step="0.1" value="1.0"></div>
+            <button class="btn primary" id="pb-confirm">Confirm published</button>
+          </div>
+          <p class="muted">This is a human-only gate: click it after the video is live in Studio with Test &amp; Compare on.</p>
         </div>
       </section>
 
-      <!-- 8 LEDGER -->
+      <!-- 8 REVIEW -->
+      <section class="stage" id="stage-review" hidden>
+        <div class="stage-head"><h2>Review</h2><p>Type the read for a published video, read the funnel in order, get a numbered decision with the numbers that made it and what would flip it. The agent prepares; you confirm.</p></div>
+        <div class="card lift">
+          <div class="row">
+            <div class="field lg"><label for="rv-slug">Video</label><select id="rv-slug"></select></div>
+            <div class="field sm"><label for="rv-bucket">Read</label><select id="rv-bucket"><option value="24">24 h</option><option value="48" selected>48 h</option><option value="168">7 d</option><option value="672">28 d</option></select></div>
+          </div>
+          <div class="row">
+            <div class="field sm"><label for="rv-impr">Impressions</label><input id="rv-impr" type="number"></div>
+            <div class="field sm"><label for="rv-ctr">CTR %</label><input id="rv-ctr" type="number" step="0.1"></div>
+            <div class="field sm"><label for="rv-views">Views</label><input id="rv-views" type="number"></div>
+            <div class="field sm"><label for="rv-avp">Avg % viewed</label><input id="rv-avp" type="number" step="1"></div>
+            <div class="field sm"><label for="rv-ret">30 s retention %</label><input id="rv-ret" type="number" step="1"></div>
+            <div class="field sm"><label for="rv-returning">Returning viewers %</label><input id="rv-returning" type="number" step="1"></div>
+            <div class="field sm"><label for="rv-browse">Browse + suggested %</label><input id="rv-browse" type="number" step="1"></div>
+            <div class="field"><label for="rv-lever">Lever learned (required at 7 d)</label><input id="rv-lever"></div>
+            <button class="btn primary" id="rv-run">Record and diagnose</button>
+          </div>
+          <div class="funnel" id="rv-funnel"></div>
+          <div id="rv-out"></div>
+          <div id="rv-decision"></div>
+        </div>
+        <div class="card">
+          <h3>Test &amp; Compare</h3>
+          <div class="row">
+            <div class="field sm"><label for="tc-a">A: impressions, CTR, watch-time share %</label><input id="tc-a" placeholder="12000, 4.8, 54"></div>
+            <div class="field sm"><label for="tc-b">B</label><input id="tc-b" placeholder="12100, 5.6, 46"></div>
+            <div class="field sm"><label for="tc-hours">Hours running</label><input id="tc-hours" type="number" value="96"></div>
+            <button class="btn primary" id="tc-run">Judge</button>
+            <button class="btn" id="tc-record">Record result</button>
+          </div>
+          <div id="tc-out"></div>
+        </div>
+      </section>
+
+      <!-- 9 LEDGER -->
       <section class="stage" id="stage-ledger" hidden>
-        <div class="stage-head"><h2>Packaging ledger</h2><p>The channel's memory. Review it in the Sunday retro; promote any lever that won twice into the playbook.</p></div>
-        <div class="card"><div class="tablewrap"><table id="ledger-table"><thead><tr><th>Date</th><th>Video</th><th class="num">Impr.</th><th class="num">CTR</th><th class="num">AVP</th><th class="num">30s</th><th>Bottleneck</th><th>Lever learned</th><th></th></tr></thead><tbody></tbody></table></div><div class="empty" id="ledger-empty">Nothing logged yet. Diagnose a video in Review and log it.</div></div>
-        <div class="card"><h3>What the ledger says</h3><ul class="list" id="ledger-insights"></ul></div>
+        <div class="stage-head"><h2>Packaging ledger</h2><p>The channel's memory. Reads per bucket, the lever learned, your own winners, and what the levers say. Review it in the Sunday retro.</p></div>
+        <div class="card"><div class="tablewrap"><table id="ledger-table"><thead><tr><th>Published</th><th>Video</th><th>A / B</th><th>Win</th><th class="num">Impr 48h</th><th class="num">CTR 48h</th><th class="num">AVP 48h</th><th class="num">Views 7d</th><th>Bottleneck</th><th>Decision</th><th>Lever</th><th></th></tr></thead><tbody></tbody></table></div><div class="empty" id="ledger-empty">Nothing logged yet. Confirm a publish, then record reads in Review.</div></div>
+        <div class="grid2">
+          <div class="card"><h3>Levers</h3><ul class="list" id="ledger-levers"></ul></div>
+          <div class="card"><h3>Your winners (5x your 7-day median)</h3><ul class="list" id="ledger-winners"></ul></div>
+        </div>
+      </section>
+
+      <!-- 10 RETRO -->
+      <section class="stage" id="stage-retro" hidden>
+        <div class="stage-head"><h2>Sunday retro</h2><p>Which lever won, which lost, one rule for the playbook, next week's three ideas. Thirty minutes.</p></div>
+        <div class="grid2">
+          <div class="card"><h3>Last 7 days</h3><div id="retro-week"></div></div>
+          <div class="card"><h3>Rule for the playbook</h3><div class="field"><label for="retro-rule">Draft (edit before accepting)</label><textarea id="retro-rule"></textarea></div><div class="row"><button class="btn primary" id="retro-accept">Accept rule</button><span class="muted">Accepted rules are pinned; the CLI compiles evidence-based ones.</span></div><ul class="list" id="retro-rules"></ul></div>
+        </div>
+      </section>
+
+      <!-- PROFILE -->
+      <section class="stage" id="stage-profile" hidden>
+        <div class="stage-head"><h2>Channel profile</h2><p>Who watches, what they get, the visual signature the QA checks against, and the cadence cap. Baselines are computed from the ledger, never typed; the manual numbers below are used only until five videos have reads.</p></div>
+        <div class="card">
+          <div class="row">
+            <div class="field lg"><label for="pf-positioning">Positioning (who watches, what they get every time, why they come back)</label><input id="pf-positioning"></div>
+            <div class="field lg"><label for="pf-persona">Returning viewer in one sentence</label><input id="pf-persona"></div>
+          </div>
+          <div class="row">
+            <div class="field sm"><label for="pf-colors">Signature colours</label><input id="pf-colors" placeholder="yellow, black"></div>
+            <div class="field sm"><label for="pf-face">Face policy</label><select id="pf-face"><option value="either">either</option><option value="always">always</option><option value="never">never</option></select></div>
+            <div class="field sm"><label for="pf-maxwords">Max words on thumbnail</label><input id="pf-maxwords" type="number" value="3"></div>
+            <div class="field sm"><label for="pf-maxperweek">Max uploads / week</label><input id="pf-maxperweek" type="number" value="1"></div>
+            <div class="field sm"><label for="pf-publishday">Publish day</label><select id="pf-publishday"><option>mon</option><option>tue</option><option>wed</option><option selected>thu</option><option>fri</option><option>sat</option><option>sun</option></select></div>
+          </div>
+          <div class="row">
+            <div class="field lg"><label for="pf-competitors">Competitor channels (comma separated)</label><input id="pf-competitors"></div>
+          </div>
+          <div class="row">
+            <div class="field sm"><label for="pf-mviews">Manual baseline: median views</label><input id="pf-mviews" type="number" value="4000"></div>
+            <div class="field sm"><label for="pf-mctr">CTR %</label><input id="pf-mctr" type="number" step="0.1" value="4.5"></div>
+            <div class="field sm"><label for="pf-mavp">Avg % viewed</label><input id="pf-mavp" type="number" value="40"></div>
+            <button class="btn primary" id="pf-save">Save profile</button>
+          </div>
+          <div id="pf-baselines"></div>
+        </div>
       </section>
     </main>
   </div>
 
-  <footer>Built from the strategist playbook in the channel-booster module. Deterministic scores are heuristics: they catch the obvious mistakes so your judgment is spent on the rest. Example rows are examples, not your numbers.</footer>
+  <footer>Built from the strategist playbook in the channel-booster module. Every threshold carries an evidence tag: sourced, unverified, or house. Deterministic scores are checklists, not predictions. Example rows are examples, not your numbers.</footer>
 </div>
 
 <!-- @@ENGINE@@ -->
@@ -362,30 +490,69 @@ Off-grid update,21000,2026-04-21,OffGridLab,8:40
 How I Built a Solar Generator for $300,1100000,2026-05-05,OffGridLab,19:03
 Charging tests,28000,2026-05-19,OffGridLab,14:12
 Inverter guide,33000,2026-06-02,OffGridLab,16:27
-Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
+Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58
+Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
 
-  // ---------- state + storage ----------
-  const state = { ideas: [], ledger: [], baseline: { views: 4000, ctr: 4.5, avp: 40 }, currentId: null, db: null, sample: null }
+  // ---------- utils ----------
   const AXES = ['demand', 'packaging', 'fit', 'angle', 'payoff', 'feasibility']
   const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n))
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
-  const list = (s) => (s || '').split(/[,;]/).map((x) => x.trim()).filter(Boolean)
+  const list = (s) => (s || '').split(/[,;|]/).map((x) => x.trim()).filter(Boolean)
   const numv = (id) => { const v = parseFloat($(id).value); return Number.isNaN(v) ? undefined : v }
-  const uid = () => 'l_' + Math.random().toString(36).slice(2, 10)
+  const nowIso = () => new Date().toISOString()
+  const pctf = (v, d = 1) => v === undefined || v === null ? '—' : Number(v).toFixed(d) + '%'
+  const pill = (kind, text) => `<span class="pill ${kind}">${esc(text)}</span>`
+  const verdictKind = (v) => v === 'green' || v === 'pass' || v === 'ship' || v === 'none' ? 'good' : v === 'yellow' || v === 'revise' || v === 'insufficient-data' || v === 'packaging-soft' ? 'warn' : v === 'banked' || v === 'parked' ? 'neutral' : 'bad'
   let toastTimer
-  function toast(msg) { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t) } t.textContent = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 2400) }
+  function toast(msg) { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t) } t.textContent = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 2600) }
+  function mmss(sec) { return B.formatSec ? B.formatSec(sec) : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` }
 
+  // ---------- state + storage ----------
+  const COLS = ['ideas', 'ledger', 'decisions', 'experiments', 'rules']
+  const state = { docs: { ideas: [], ledger: [], decisions: [], experiments: [], rules: [] }, profile: null, currentId: null, lastScan: null, db: null, sample: null }
   const local = {
     read(key) { try { return JSON.parse(localStorage.getItem('booster:' + key) || 'null') } catch { return null } },
     write(key, value) { try { localStorage.setItem('booster:' + key, JSON.stringify(value)) } catch {} },
   }
+  const defaultProfile = () => ({ positioning: '', persona: '', signature: { colors: ['yellow', 'black'], facePolicy: 'either', maxWords: 3 }, competitors: [], maxPerWeek: 1, publishDay: 'thu', solo: true, manual: { views: 4000, ctr: 4.5, avp: 40 }, updatedAt: nowIso() })
   const store = {
-    async addIdea(doc) { if (state.db) { await state.db.collection('ideas').add(doc); return } state.ideas.push({ id: uid(), ...doc }); local.write('ideas', state.ideas); renderIdeas() },
-    async updateIdea(id, patch) { if (state.db) { await state.db.doc('ideas/' + id).update(patch); return } const i = state.ideas.find((x) => x.id === id); if (i) Object.assign(i, patch); local.write('ideas', state.ideas); renderIdeas() },
-    async deleteIdea(id) { if (state.db) { await state.db.doc('ideas/' + id).delete(); return } state.ideas = state.ideas.filter((x) => x.id !== id); local.write('ideas', state.ideas); renderIdeas() },
-    async addLedger(doc) { if (state.db) { await state.db.collection('ledger').add(doc); return } state.ledger.push({ id: uid(), ...doc }); local.write('ledger', state.ledger); renderLedger() },
-    async deleteLedger(id) { if (state.db) { await state.db.doc('ledger/' + id).delete(); return } state.ledger = state.ledger.filter((x) => x.id !== id); local.write('ledger', state.ledger); renderLedger() },
-    async saveBaseline() { if (state.db) { await state.db.doc('settings/baseline').set(state.baseline); return } local.write('baseline', state.baseline) },
+    async put(col, doc) {
+      doc.updatedAt = nowIso(); doc.source = doc.source || 'desk'
+      if (state.db) { await state.db.doc(`${col}/${doc.id}`).set(doc); return }
+      state.docs[col] = state.docs[col].filter((d) => d.id !== doc.id).concat([doc]); local.write(col, state.docs[col]); renderAll()
+    },
+    async del(col, id) {
+      if (state.db) { await state.db.doc(`${col}/${id}`).delete(); return }
+      state.docs[col] = state.docs[col].filter((d) => d.id !== id); local.write(col, state.docs[col]); renderAll()
+    },
+    async saveProfile(p) {
+      p.updatedAt = nowIso(); state.profile = p
+      if (state.db) { await state.db.doc('settings/profile').set(p); return }
+      local.write('profile', p); renderAll()
+    },
+  }
+  const docs = (col) => state.docs[col]
+  const ideas = () => docs('ideas')
+  const ledgerRows = () => [...docs('ledger')].sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
+  const signature = () => state.profile?.signature?.colors?.length ? state.profile.signature : undefined
+
+  // ---------- baselines ----------
+  function computedBaselines(excludeSlug) {
+    const rows = ledgerRows(); const now = new Date()
+    return { b48: B.baselineFrom(rows, { bucket: '48', now, excludeSlug }), b168: B.baselineFrom(rows, { bucket: '168', now, excludeSlug }) }
+  }
+  function flatBaseline() {
+    const m = state.profile?.manual || {}
+    return { ctr: m.ctr, avpPct: m.avp, views: m.views }
+  }
+  function renderBaseline() {
+    const { b48, b168 } = computedBaselines()
+    const m = state.profile?.manual || {}
+    if (b48.n >= 1) {
+      $('base-summary').textContent = `baseline (${b48.tier}, n=${b48.n}): CTR ${b48.ctr ? b48.ctr.median.toFixed(1) + '%' : '—'} · AVP ${b48.avpPct ? b48.avpPct.median.toFixed(0) + '%' : '—'} · 7d views ${b168.views ? fmt(b168.views.median) : '—'}`
+    } else {
+      $('base-summary').textContent = `baseline: manual (median views ${fmt(m.views || 0)}, CTR ${m.ctr ?? '—'}%, AVP ${m.avp ?? '—'}%) until five videos have reads`
+    }
   }
 
   // ---------- navigation ----------
@@ -394,43 +561,80 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     rail.forEach((b) => { if (b.dataset.stage === stage) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current') })
     document.querySelectorAll('section.stage').forEach((s) => { s.hidden = s.id !== 'stage-' + stage })
     local.write('stage', stage)
+    prefill(stage)
+  }
+  /** Carry the current package into the panels that need it, without overwriting what the user typed. */
+  function prefill(stage) {
+    const title = $('pr-title').value.trim() || currentIdea()?.title || ''
+    const promise = $('pk-promise').value.trim() || currentIdea()?.promise || ''
+    const fill = (id, v) => { if (v && !$(id).value.trim()) $(id).value = v }
+    if (stage === 'story') { fill('st-title', title); fill('st-promise', promise); fill('st-moment', currentIdea()?.thumbnailMoment || '') }
+    if (stage === 'publish') { fill('pb-title', title); fill('pb-promise', promise); fill('pb-thumb-a', 'A'); fill('pb-thumb-b', 'B') }
+    if (stage === 'thumb') fill('tq-title', title)
+    if (stage === 'review') renderReviewSelect()
   }
   rail.forEach((b) => b.addEventListener('click', () => show(b.dataset.stage)))
+  const jump = (stage) => `data-jump="${stage}"`
+  document.addEventListener('click', (e) => { const t = e.target.closest('[data-jump]'); if (t) show(t.dataset.jump) })
 
-  // ---------- baseline ----------
-  function bindBaseline() {
-    const b = state.baseline
-    $('base-views').value = b.views; $('base-ctr').value = b.ctr; $('base-avp').value = b.avp
-    for (const [id, key] of [['base-views', 'views'], ['base-ctr', 'ctr'], ['base-avp', 'avp']]) {
-      $(id).addEventListener('change', () => { state.baseline[key] = parseFloat($(id).value) || 0; store.saveBaseline() })
-    }
+  // ---------- TODAY ----------
+  function renderToday() {
+    const now = new Date(); const rows = ledgerRows()
+    const due = B.dueReads(rows, now)
+    $('today-due').innerHTML = due.length ? due.slice(0, 8).map((d) => `<div class="item"><span>${esc(rows.find((r) => r.slug === d.slug)?.title || d.slug)} <span class="chip">${d.bucket} h</span> <span class="muted">${d.overdueHours} h overdue</span></span><button class="btn sm" ${jump('review')}>Record</button></div>`).join('') : '<p class="muted">Nothing due. Confirm a publish to start the clock.</p>'
+    const pending = docs('decisions').filter((d) => !d.approvedAt)
+    $('today-decisions').innerHTML = pending.length ? pending.map((d) => `<div class="item"><span>${pill(d.decision === 'REPACKAGE' ? 'bad' : d.decision === 'SEQUEL' || d.decision === 'EXPAND' ? 'good' : 'warn', d.decision)} ${esc(d.slug)} <span class="chip">${d.bucket} h</span></span><button class="btn sm" ${jump('review')}>Open</button></div>`).join('') : '<p class="muted">No decision waiting.</p>'
+    const running = docs('experiments').filter((x) => !x.outcome || x.outcome === 'too-early')
+    $('today-tests').innerHTML = running.length ? running.map((x) => `<div class="item"><span>${esc(x.slug)} · ${x.variants.map((v) => v.name).join(' vs ')}</span><button class="btn sm" ${jump('review')}>Judge</button></div>`).join('') : '<p class="muted">No Test &amp; Compare running.</p>'
+    const alerts = []
+    const inPackaging = ideas().filter((i) => i.status === 'packaging').length, inProduction = ideas().filter((i) => i.status === 'production').length
+    if (inPackaging > B.thresholds.wipPackaging.value) alerts.push(`${inPackaging} ideas in packaging (cap ${B.tagged('wipPackaging')})`)
+    if (inProduction > B.thresholds.wipProduction.value) alerts.push(`${inProduction} videos in production (cap ${B.tagged('wipProduction')})`)
+    const weekAgo = now.getTime() - 7 * 86400000
+    const publishedThisWeek = rows.filter((r) => Date.parse(r.publishedAt) > weekAgo).length
+    if (state.profile && publishedThisWeek > (state.profile.maxPerWeek || 1)) alerts.push(`${publishedThisWeek} uploads this week, above your cap of ${state.profile.maxPerWeek} [house]: write the reason in the retro`)
+    const { b48 } = computedBaselines()
+    if (b48.n > 0 && b48.n < 5) alerts.push(`baseline is ${b48.tier} (n=${b48.n}): verdicts borrow priors until five videos have reads`)
+    if (!state.profile?.positioning) alerts.push('profile has no positioning sentence yet')
+    $('today-alerts').innerHTML = alerts.length ? alerts.map((a) => `<div class="item"><span>${esc(a)}</span></div>`).join('') : '<p class="muted">Nothing to flag.</p>'
+    const next = rankedIdeas().filter((i) => i.status === 'green' || i.status === 'banked').slice(0, 3)
+    $('today-next').innerHTML = next.length ? next.map((i) => `<div class="item"><span>${pill(verdictKind(i.v.verdict), i.v.verdict)} ${esc(i.idea)} <span class="chip">${i.v.total}</span></span><button class="btn sm" data-open-idea="${i.id}">Open</button></div>`).join('') : '<p class="muted">Bank three ideas from the scan.</p>'
+    $('today-next').querySelectorAll('[data-open-idea]').forEach((b) => b.addEventListener('click', () => { loadIdea(b.dataset.openIdea); show('ideas') }))
+    const cadence = B.weeklyCadence({ publishDay: state.profile?.publishDay || 'thu', perWeek: state.profile?.maxPerWeek || 1, solo: state.profile?.solo !== false })
+    $('today-cadence').innerHTML = cadence.slice(0, 6).map((r) => `<div class="item"><span><b>${esc(r.when)}</b> ${esc(r.name)}</span><span class="chip">${r.minutes} min</span></div>`).join('')
+    const count = due.length + pending.length
+    $('count-today').textContent = count ? String(count) : ''
+    $('count-review').textContent = due.length ? String(due.length) : ''
   }
 
-  // ---------- 1 scan ----------
-  let lastScan = []
+  // ---------- 1 SCAN ----------
   function runScan() {
     let rows
     try { rows = B.readVideoRows($('scan-csv').value) } catch (e) { $('scan-summary').textContent = e.message; return }
     const threshold = parseFloat($('scan-threshold').value)
-    const ranked = B.computeOutliers(rows, { threshold, minAgeDays: 7 })
-    lastScan = ranked
+    const ranked = B.computeOutliers(rows, { threshold, minAgeDays: 7, sinceDays: numv('scan-since') || 90 })
+    state.lastScan = { scannedAt: nowIso(), sinceDays: numv('scan-since') || 90, ranked }
+    local.write('lastScan', state.lastScan)
     const channels = [...new Set(rows.map((r) => r.channel || 'default'))]
     $('scan-summary').textContent = `${rows.length} videos · ` + channels.map((c) => `${c}: median ${fmt(B.median(rows.filter((r) => (r.channel || 'default') === c).map((r) => r.views)))}`).join(' · ')
     const tb = $('scan-table').querySelector('tbody')
-    tb.innerHTML = ranked.slice(0, 25).map((r, i) => `<tr><td class="num">${i + 1}</td><td class="num">${r.multiplier.toFixed(1)}x</td><td><span class="pill ${r.tier === 'outlier' ? 'good' : r.tier === 'strong' ? 'warn' : 'neutral'}">${r.tier}</span></td><td class="num">${fmt(r.views)}</td><td>${esc(r.title)}</td><td class="muted">${esc(r.formats.slice(0, 3).join(', '))}</td><td><button class="btn sm" data-send="${i}">To bank</button></td></tr>`).join('')
+    tb.innerHTML = ranked.slice(0, 25).map((r, i) => `<tr><td class="num">${i + 1}</td><td class="num">${r.multiplier.toFixed(1)}x</td><td>${pill(r.tier === 'outlier' ? 'good' : r.tier === 'fresh' ? 'good' : r.tier === 'strong' ? 'warn' : 'neutral', r.tier)}${r.stale ? ' <span class="chip">stale</span>' : ''}</td><td class="num">${fmt(r.views)}</td><td class="num">${r.velocityMultiplier ? r.velocityMultiplier.toFixed(1) + 'x' : '—'}</td><td>${esc(r.title)}</td><td class="muted">${esc(r.formats.slice(0, 3).join(', '))}</td><td><button class="btn sm" data-send="${i}">To bank</button></td></tr>`).join('')
     tb.querySelectorAll('[data-send]').forEach((btn) => btn.addEventListener('click', () => sendToBank(ranked[Number(btn.dataset.send)])))
+    const topics = B.topicDemand(ranked).slice(0, 10)
+    $('scan-topics').querySelector('tbody').innerHTML = topics.length ? topics.map((t) => `<tr><td class="mono">${esc(t.topicKey)}</td><td class="num">${t.count}${t.fresh ? ` <span class="chip">${t.fresh} fresh</span>` : ''}</td><td class="num">${t.bestMultiplier.toFixed(1)}x</td><td class="muted">${esc(t.channels.join(', '))}</td><td>${esc(t.bestTitle)}</td></tr>`).join('') : '<tr><td colspan="5" class="muted">No topics yet.</td></tr>'
     const lifts = B.formatLift(ranked).slice(0, 8)
-    $('scan-lift').innerHTML = lifts.length ? lifts.map((l) => `<div class="item"><span>${esc(l.format)}</span><b>lift ${l.lift.toFixed(2)}</b><div class="bar"><i style="width:${Math.min(100, l.lift * 25)}%"></i></div><small class="muted">${Math.round(l.shareInWinners * 100)}% of winners · ${Math.round(l.shareOverall * 100)}% overall</small></div>`).join('') : '<p class="muted">No winners above the threshold yet.</p>'
-    $('count-scan').textContent = ranked.filter((r) => r.tier === 'outlier').length + ' outliers'
+    $('scan-lift').innerHTML = lifts.length ? lifts.map((l) => `<div class="item"><span>${esc(l.format)}${l.thin ? ' <span class="chip">thin</span>' : ''}</span><b>lift ${l.lift.toFixed(2)}</b><div class="bar"><i style="width:${Math.min(100, l.lift * 25)}%"></i></div><small class="muted">${Math.round(l.shareInWinners * 100)}% of winners · ${Math.round(l.shareOverall * 100)}% overall</small></div>`).join('') : '<p class="muted">No winners above the threshold yet.</p>'
+    $('count-scan').textContent = ranked.filter((r) => r.tier === 'outlier' || r.tier === 'fresh').length + ' winners'
   }
   async function sendToBank(row) {
-    const demand = row.tier === 'outlier' ? 5 : row.tier === 'strong' ? 4 : 2
-    await store.addIdea({ idea: 'Remix: ' + row.title, source: `${row.title} · ${row.multiplier.toFixed(1)}x`, scores: { demand, packaging: 3, fit: 3, angle: 2, payoff: 3, feasibility: 3 }, status: 'bank', createdAt: new Date().toISOString(), formats: row.formats })
+    const demand = row.tier === 'outlier' || row.tier === 'fresh' ? 5 : row.tier === 'strong' ? 4 : 2
+    const idea = 'Remix: ' + row.title
+    await store.put('ideas', { id: B.stableId('idea', idea), idea, topicKey: B.topicKey(row.title), sources: [{ title: row.title, multiplier: row.multiplier, channel: row.channel, date: row.published }], scores: { demand, packaging: 3, fit: 3, angle: 2, payoff: 3, feasibility: 3 }, status: 'banked', createdAt: nowIso() })
     toast('Sent to the idea bank. Score its angle next.')
   }
   $('scan-run').addEventListener('click', runScan)
 
-  // ---------- 2 ideas ----------
+  // ---------- 2 IDEAS ----------
   function buildAxes() {
     $('idea-axes').innerHTML = AXES.map((a) => `<div class="axis"><label for="ax-${a}"><span>${a}</span><b id="axv-${a}">3</b></label><input type="range" id="ax-${a}" min="0" max="5" step="1" value="3"><small>${esc(B.IDEA_AXIS_QUESTIONS[a])}</small></div>`).join('')
     AXES.forEach((a) => $('ax-' + a).addEventListener('input', () => { $('axv-' + a).textContent = $('ax-' + a).value; scoreCurrentIdea() }))
@@ -438,50 +642,68 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
   function readAxes() { const s = {}; AXES.forEach((a) => { s[a] = Number($('ax-' + a).value) }); return s }
   function scoreCurrentIdea() {
     const v = B.scoreIdea(readAxes())
-    const box = $('idea-verdict'); box.className = 'verdict ' + (v.verdict === 'green' ? 'good' : v.verdict === 'yellow' ? 'warn' : 'bad')
+    const box = $('idea-verdict'); box.className = 'verdict ' + verdictKind(v.verdict)
     box.querySelector('.big').textContent = v.total
     $('idea-verdict-label').textContent = v.verdict.toUpperCase()
     $('idea-verdict-note').textContent = v.verdict === 'green' ? 'Move it to the packaging sprint.' : v.verdict === 'yellow' ? 'Bank it with the weakest axis named.' : 'Not an idea yet.'
     $('idea-fixes').innerHTML = v.fixes.map((f) => `<li>${esc(f)}</li>`).join('')
     return v
   }
+  $('idea-demand-auto').addEventListener('click', () => {
+    const idea = $('idea-text').value.trim(); if (!idea) { toast('Write the idea first.'); return }
+    if (!state.lastScan) { toast('Run a scan first.'); return }
+    const s = B.suggestDemand(idea, state.lastScan.ranked, { now: new Date() })
+    $('ax-demand').value = s.score; $('axv-demand').textContent = String(s.score); scoreCurrentIdea()
+    $('idea-demand-note').textContent = `${s.reason} [house]` + (s.evidence.length ? ' · ' + s.evidence.slice(0, 3).map((e) => `${e.title} (${e.multiplier.toFixed(1)}x)`).join(' · ') : '')
+  })
+  function rankedIdeas() { return ideas().map((i) => ({ ...i, v: B.scoreIdea(i.scores || {}) })).sort((a, b) => b.v.total - a.v.total) }
+  function weakest(scores) { return AXES.slice().sort((a, b) => (scores[a] ?? 0) - (scores[b] ?? 0))[0] }
   $('idea-save').addEventListener('click', async () => {
     const idea = $('idea-text').value.trim(); if (!idea) { toast('Write the idea first.'); return }
     const scores = readAxes(); const v = B.scoreIdea(scores)
-    if (state.currentId && state.ideas.some((i) => i.id === state.currentId)) await store.updateIdea(state.currentId, { idea, source: $('idea-source').value.trim(), scores })
-    else await store.addIdea({ idea, source: $('idea-source').value.trim(), scores, status: v.verdict === 'green' ? 'packaging' : 'bank', createdAt: new Date().toISOString() })
+    const existing = ideas().find((i) => i.id === state.currentId)
+    const doc = existing ? { ...existing, idea, source: $('idea-source').value.trim() || existing.source, scores } : { id: B.stableId('idea', idea), idea, topicKey: B.topicKey(idea), sources: $('idea-source').value.trim() ? [{ title: $('idea-source').value.trim() }] : [], scores, status: v.verdict === 'green' ? 'green' : 'banked', createdAt: nowIso() }
+    doc.weakestAxis = weakest(scores)
+    await store.put('ideas', doc); state.currentId = doc.id; local.write('currentId', doc.id)
     toast('Saved.')
   })
+  const STATUSES = ['banked', 'green', 'packaging', 'production', 'published', 'parked', 'retired']
   function renderIdeas() {
-    const rows = state.ideas.map((i) => ({ ...i, v: B.scoreIdea(i.scores || {}) })).sort((a, b) => b.v.total - a.v.total)
+    const rows = rankedIdeas()
     const tb = $('ideas-table').querySelector('tbody')
-    tb.innerHTML = rows.map((r) => `<tr><td class="num">${r.v.total}</td><td><span class="pill ${r.v.verdict === 'green' ? 'good' : r.v.verdict === 'yellow' ? 'warn' : 'bad'}">${r.v.verdict}</span></td><td>${esc(r.idea)}${r.title ? `<br><small class="muted">${esc(r.title)}</small>` : ''}</td><td class="muted">${esc(r.source || '')}</td><td><span class="pill neutral">${esc(r.status || 'bank')}</span></td><td style="white-space:nowrap"><button class="btn sm" data-load="${r.id}">Open</button> <button class="btn sm" data-pkg="${r.id}">Package</button> <button class="btn sm" data-del="${r.id}">✕</button></td></tr>`).join('')
+    tb.innerHTML = rows.map((r) => `<tr><td class="num">${r.v.total}</td><td>${pill(verdictKind(r.v.verdict), r.v.verdict)}</td><td>${esc(r.idea)}${r.title ? `<br><small class="muted">${esc(r.title)}</small>` : ''}${r.sequelOf ? `<br><small class="muted">sequel of ${esc(r.sequelOf)}</small>` : ''}</td><td class="muted">${esc(r.weakestAxis || weakest(r.scores || {}))}</td><td><select data-status="${r.id}">${STATUSES.map((s) => `<option ${s === (r.status || 'banked') ? 'selected' : ''}>${s}</option>`).join('')}</select></td><td style="white-space:nowrap"><button class="btn sm" data-load="${r.id}">Open</button> <button class="btn sm" data-pkg="${r.id}">Package</button> <button class="btn sm" data-del="${r.id}">✕</button></td></tr>`).join('')
     $('ideas-empty').hidden = rows.length > 0
     $('count-ideas').textContent = rows.length ? String(rows.length) : ''
+    const wipP = rows.filter((r) => r.status === 'packaging').length, wipQ = rows.filter((r) => r.status === 'production').length
+    $('ideas-wip').textContent = `WIP ${wipP}/${B.thresholds.wipPackaging.value} packaging · ${wipQ}/${B.thresholds.wipProduction.value} production`
     tb.querySelectorAll('[data-load]').forEach((b) => b.addEventListener('click', () => loadIdea(b.dataset.load)))
     tb.querySelectorAll('[data-pkg]').forEach((b) => b.addEventListener('click', () => { loadIdea(b.dataset.pkg); show('package') }))
-    tb.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => store.deleteIdea(b.dataset.del)))
+    tb.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => store.del('ideas', b.dataset.del)))
+    tb.querySelectorAll('[data-status]').forEach((sel) => sel.addEventListener('change', async () => { const i = ideas().find((x) => x.id === sel.dataset.status); if (!i) return; if (sel.value === 'green' && !confirm('Approving a green idea is a human gate: this is your angle, not a clone?')) { renderIdeas(); return } await store.put('ideas', { ...i, status: sel.value }) }))
     renderCurrent()
   }
   function loadIdea(id) {
-    const i = state.ideas.find((x) => x.id === id); if (!i) return
+    const i = ideas().find((x) => x.id === id); if (!i) return
     state.currentId = id; local.write('currentId', id)
-    $('idea-text').value = i.idea; $('idea-source').value = i.source || ''
+    $('idea-text').value = i.idea; $('idea-source').value = i.sources?.[0]?.title || i.source || ''
     AXES.forEach((a) => { $('ax-' + a).value = i.scores?.[a] ?? 3; $('axv-' + a).textContent = $('ax-' + a).value })
     scoreCurrentIdea()
-    $('tl-topic').value = i.idea.replace(/^Remix:\s*/i, ''); $('wf-idea').value = i.idea; $('rv-title').value = i.title || i.idea
-    if (i.title) { $('pr-title').value = i.title; $('tq-title').value = i.title }
+    $('tl-topic').value = i.idea.replace(/^Remix:\s*/i, ''); $('wf-idea').value = i.idea
+    if (i.title) { $('pr-title').value = i.title; $('tq-title').value = i.title; $('st-title').value = i.title; $('pb-title').value = i.title }
+    if (i.promise) { $('pk-promise').value = i.promise; $('st-promise').value = i.promise; $('pb-promise').value = i.promise }
     if (i.thumbText) { $('pr-thumb').value = i.thumbText; $('tq-text').value = i.thumbText }
-    if (i.open) $('st-open').value = i.open; if (i.payoffs) $('st-payoffs').value = i.payoffs; if (i.rehooks) $('st-rehooks').value = i.rehooks
+    if (i.script) $('st-script').value = i.script
+    if (i.thumbnailMoment) $('st-moment').value = i.thumbnailMoment
     renderCurrent()
   }
+  function currentIdea() { return ideas().find((x) => x.id === state.currentId) }
   function renderCurrent() {
-    const i = state.ideas.find((x) => x.id === state.currentId)
+    const i = currentIdea()
     const label = i ? 'Current: ' + i.idea : 'No idea selected (open one in the bank).'
     $('pr-current').textContent = label; $('st-current').textContent = label
   }
 
-  // ---------- 3 package ----------
+  // ---------- 3 PACKAGE ----------
   function runTitles() {
     const topic = $('tl-topic').value.trim(); if (!topic) { toast('Give a topic.'); return }
     const c = B.generateTitles({ topic, number: $('tl-number').value.trim() || undefined, subject: $('tl-subject').value.trim() || undefined, audience: $('tl-audience').value.trim() || undefined })
@@ -490,14 +712,14 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
   function renderTitleRows(rows) {
     const tb = $('tl-table').querySelector('tbody')
     tb.innerHTML = rows.map((r, i) => `<tr><td class="num">${r.score}</td><td class="muted">${esc(r.lever)}</td><td>${esc(r.title)}</td><td><button class="btn sm" data-use="${i}">Use</button></td></tr>`).join('')
-    tb.querySelectorAll('[data-use]').forEach((b) => b.addEventListener('click', () => { const t = rows[Number(b.dataset.use)].title; $('pr-title').value = t; $('tq-title').value = t; $('rv-title').value = t; toast('Title placed in the review and the thumbnail QA.') }))
+    tb.querySelectorAll('[data-use]').forEach((b) => b.addEventListener('click', () => { const t = rows[Number(b.dataset.use)].title; ;['pr-title', 'tq-title', 'st-title', 'pb-title'].forEach((id) => { $(id).value = t }); toast('Title placed in review, thumbnail, story, and publish.') }))
   }
   $('tl-run').addEventListener('click', runTitles)
   $('tl-ai').addEventListener('click', async () => {
     const topic = $('tl-topic').value.trim(); if (!topic || !state.sample) return
     $('tl-ai').disabled = true; $('tl-ai').textContent = 'Thinking…'
     try {
-      const out = await state.sample.json(`You write YouTube titles. Rules: 30-55 characters, promise inside the first 40, one promise, a number or named thing, no shouting, no "video/vlog/episode". Idea: ${topic}. Number/stake: ${$('tl-number').value || 'none'}. Subject: ${$('tl-subject').value || 'none'}. Audience: ${$('tl-audience').value || 'general'}. Return JSON only: {"titles":[{"title":"...","lever":"curiosity|stakes|specificity|contrast|identity|negativity|transformation|first-person"}]} with 15 entries.`, { modelTier: 'default' })
+      const out = await state.sample.json(`You write YouTube titles. Rules: 30-55 characters, promise inside the first 40, one promise, a number or named thing, no shouting, no "video/vlog/episode", never repeat the thumbnail text. Idea: ${topic}. Promise: ${$('pk-promise').value || 'not written yet'}. Number/stake: ${$('tl-number').value || 'none'}. Subject: ${$('tl-subject').value || 'none'}. Audience: ${$('tl-audience').value || 'general'}. Channel: ${state.profile?.positioning || 'not described'}. Return JSON only: {"titles":[{"title":"...","lever":"curiosity|stakes|specificity|contrast|identity|negativity|transformation|first-person"}]} with 15 entries.`, { modelTier: 'default' })
       const rows = (out?.titles || []).map((t) => ({ title: t.title, lever: t.lever || 'claude', score: B.scoreTitle(t.title).score })).sort((a, b) => b.score - a.score)
       renderTitleRows(rows)
     } catch (e) { toast(e?.code === 'not_granted' ? 'Claude calls were not allowed on this page.' : 'Claude could not answer: ' + (e?.message || e)) }
@@ -507,48 +729,58 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     const title = $('pr-title').value.trim(); if (!title) { toast('Give a title.'); return }
     const t = B.scoreTitle(title); const thumb = $('pr-thumb').value.trim(); const overlap = B.titleThumbnailOverlap(title, thumb); const elements = list($('pr-elements').value)
     const issues = []
-    if (t.score < 60) issues.push('Title scores under 60: rewrite before testing the thumbnail.')
-    if (overlap >= 0.67) issues.push('Thumbnail text repeats the title: one thing twice instead of two things once.')
-    if (thumb.split(/\s+/).filter(Boolean).length > 3) issues.push('Thumbnail text is longer than three words.')
-    if (elements.length > 3) issues.push(`Thumbnail has ${elements.length} elements; cut to three.`)
+    if (t.score < B.thresholds.titleGateScore.value) issues.push(`Title scores under ${B.tagged('titleGateScore')}: rewrite before testing the thumbnail.`)
+    if (overlap >= B.thresholds.titleThumbOverlapMax.value) issues.push('Thumbnail text repeats the title: one thing twice instead of two things once.')
+    if (thumb.split(/\s+/).filter(Boolean).length > B.thresholds.thumbMaxWords.value) issues.push('Thumbnail text is longer than three words.')
+    if (elements.length > B.thresholds.thumbMaxElements.value) issues.push(`Thumbnail has ${elements.length} elements; cut to three.`)
+    const promise = $('pk-promise').value.trim()
+    let promiseHtml = ''
+    if (promise) {
+      const p = B.checkPromise(promise, { title, thumbnailText: thumb || undefined })
+      if (!p.pass) issues.push(...p.drift)
+      promiseHtml = `<p class="muted">Promise: ${p.pass ? '<span class="ok">carried</span>' : '<span class="no">drift</span>'} · ${Object.values(p.surfaces).map((s) => `${s.surface} ${Math.round(s.overlap * 100)}%`).join(' · ')}</p>`
+    }
+    const own = ['tl-own1', 'tl-own2', 'tl-own3'].filter((id) => $(id).value.trim()).length
+    if (own < 3) issues.push(`Write ${3 - own} more title(s) of your own before the pick (the sheet has three lines).`)
     const verdict = issues.length === 0 ? 'pass' : issues.length === 1 ? 'revise' : 'fail'
-    $('pr-out').innerHTML = `<div class="verdict ${verdict === 'pass' ? 'good' : verdict === 'revise' ? 'warn' : 'bad'}"><span class="big">${t.score}</span><div><b>${verdict.toUpperCase()}</b><p class="muted">title score · overlap ${Math.round(overlap * 100)}%</p></div></div><ul class="list">${t.notes.map((n) => `<li class="muted">${esc(n)}</li>`).join('')}${issues.map((i) => `<li><b>${esc(i)}</b></li>`).join('')}</ul>${issues.length ? '' : '<p class="muted">Title tells, thumbnail shows. Ship it to Test &amp; Compare.</p>'}`
+    $('pr-out').innerHTML = `<div class="verdict ${verdictKind(verdict)}"><span class="big">${t.score}</span><div><b>${verdict.toUpperCase()}</b><p class="muted">title score · overlap ${Math.round(overlap * 100)}%</p></div></div>${promiseHtml}<ul class="list">${t.notes.map((n) => `<li class="muted">${esc(n)}</li>`).join('')}${issues.map((i) => `<li><b>${esc(i)}</b></li>`).join('')}</ul>${issues.length ? '' : '<p class="muted">Title tells, thumbnail shows, promise carried. Ship it to Test &amp; Compare.</p>'}`
   }
   $('pr-run').addEventListener('click', runReview)
-  $('pr-attach').addEventListener('click', async () => { if (!state.currentId) { toast('Open an idea first.'); return } await store.updateIdea(state.currentId, { title: $('pr-title').value.trim(), thumbText: $('pr-thumb').value.trim(), status: 'packaging' }); toast('Package attached.') })
+  $('pr-attach').addEventListener('click', async () => { const i = currentIdea(); if (!i) { toast('Open an idea first.'); return } await store.put('ideas', { ...i, title: $('pr-title').value.trim(), thumbText: $('pr-thumb').value.trim(), promise: $('pk-promise').value.trim(), ownTitles: ['tl-own1', 'tl-own2', 'tl-own3'].map((id) => $(id).value.trim()).filter(Boolean), status: i.status === 'banked' || i.status === 'green' ? 'packaging' : i.status }); toast('Package attached.') })
 
-  // ---------- 4 thumbnail ----------
+  // ---------- 4 THUMBNAIL ----------
   function specFromForm() { return { focalSubject: $('tq-subject').value.trim(), emotion: $('tq-emotion').value.trim() || undefined, elements: list($('tq-elements').value), text: $('tq-text').value.trim() || undefined, background: $('tq-bg').value.trim() || undefined, colors: list($('tq-colors').value), title: $('tq-title').value.trim() || undefined } }
-  function qaHtml(qa) { return `<div class="verdict ${qa.grade === 'ship' ? 'good' : qa.grade === 'revise' ? 'warn' : 'bad'}"><span class="big">${qa.score}</span><div><b>${qa.grade.toUpperCase()}</b><p class="muted">${qa.passes.length} pass · ${qa.failures.length} fail</p></div></div><ul class="list">${qa.passes.map((p) => `<li class="muted">✓ ${esc(p)}</li>`).join('')}${qa.failures.map((f) => `<li><b>✕ ${esc(f)}</b></li>`).join('')}${qa.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` }
-  $('tq-run').addEventListener('click', () => { const spec = specFromForm(); if (!spec.focalSubject) { toast('Name the focal subject.'); return } $('tq-out').innerHTML = qaHtml(B.qaThumbnail(spec)) })
+  function qaHtml(qa) { return `<div class="verdict ${verdictKind(qa.grade)}"><span class="big">${qa.score}</span><div><b>${qa.grade.toUpperCase()}</b><p class="muted">${qa.passes.length} pass · ${qa.failures.length} fail</p></div></div><ul class="list">${qa.passes.map((p) => `<li class="muted">✓ ${esc(p)}</li>`).join('')}${qa.failures.map((f) => `<li><b>✕ ${esc(f)}</b></li>`).join('')}${qa.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` }
+  $('tq-run').addEventListener('click', () => { const spec = specFromForm(); if (!spec.focalSubject) { toast('Name the focal subject.'); return } $('tq-out').innerHTML = qaHtml(B.qaThumbnail(spec, signature())) })
   $('tq-ai').addEventListener('click', async () => {
     const title = $('tq-title').value.trim() || $('pr-title').value.trim(); if (!title || !state.sample) { toast('Give the title first.'); return }
     $('tq-ai').disabled = true; $('tq-ai').textContent = 'Thinking…'
     try {
-      const out = await state.sample.json(`Design 5 YouTube thumbnail concepts as specs for the title "${title}". Rules: one focal subject; at most three elements; three words of text or fewer that do NOT repeat the title; a specific emotion if a face is present; a high-contrast colour pair; a clean background. Return JSON only: {"concepts":[{"name":"","focalSubject":"","emotion":"","elements":["",""],"text":"","background":"","colors":["",""],"composition":""}]}`, { modelTier: 'default' })
+      const sig = signature()
+      const out = await state.sample.json(`Design 5 YouTube thumbnail concepts as specs for the title "${title}" (promise: ${$('pk-promise').value || 'see title'}). Rules: one focal subject; at most three elements; three words of text or fewer that do NOT repeat the title; a specific emotion if a face is present; a high-contrast colour pair; a clean background.${sig ? ' Channel signature: ' + B.describeSignature(sig) : ''} Return JSON only: {"concepts":[{"name":"","angle":"result|stakes|curiosity|contrast|identity","focalSubject":"","emotion":"","elements":["",""],"text":"","background":"","colors":["",""],"composition":""}]}`, { modelTier: 'default' })
       const concepts = out?.concepts || []
-      $('tq-out').innerHTML = concepts.map((c) => { const qa = B.qaThumbnail({ ...c, title }); return `<div class="concept"><h4>${esc(c.name)} <span class="pill ${qa.grade === 'ship' ? 'good' : qa.grade === 'revise' ? 'warn' : 'bad'}">${qa.score} ${qa.grade}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)} (${esc(c.emotion || 'no face')})</dd><dt>Elements</dt><dd>${esc((c.elements || []).join(', '))}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Colours</dt><dd>${esc((c.colors || []).join(' / '))} · ${esc(c.background || '')}</dd><dt>Composition</dt><dd>${esc(c.composition || '')}</dd>${qa.fixes.length ? `<dt>Fix</dt><dd>${esc(qa.fixes.join(' '))}</dd>` : ''}</dl></div>` }).join('')
+      $('tq-out').innerHTML = concepts.map((c) => { const qa = B.qaThumbnail({ ...c, title }, sig); return `<div class="concept"><h4>${esc(c.name)} <span class="pill ${verdictKind(qa.grade)}">${qa.score} ${qa.grade}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)} (${esc(c.emotion || 'no face')})</dd><dt>Elements</dt><dd>${esc((c.elements || []).join(', '))}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Colours</dt><dd>${esc((c.colors || []).join(' / '))} · ${esc(c.background || '')}</dd><dt>Composition</dt><dd>${esc(c.composition || '')}</dd>${qa.fixes.length ? `<dt>Fix</dt><dd>${esc(qa.fixes.join(' '))}</dd>` : ''}</dl></div>` }).join('')
     } catch (e) { toast(e?.code === 'not_granted' ? 'Claude calls were not allowed on this page.' : 'Claude could not answer: ' + (e?.message || e)) }
     $('tq-ai').disabled = false; $('tq-ai').textContent = 'Ask Claude for 5 concepts'
   })
   $('tb-run').addEventListener('click', () => {
     const title = $('tq-title').value.trim() || $('pr-title').value.trim() || '(title pending)'
     const brief = B.buildThumbnailBrief($('wf-idea').value.trim() || $('idea-text').value.trim() || title, title, { subject: $('tb-subject').value.trim() || undefined, stake: $('tb-stake').value.trim() || undefined, result: $('tb-result').value.trim() || undefined })
-    $('tb-out').innerHTML = brief.concepts.map((c) => `<div class="concept"><h4>${esc(c.name)} <span class="pill neutral">${esc(c.angle)}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)}</dd><dt>Support</dt><dd>${esc(c.supportingElement)}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Composition</dt><dd>${esc(c.composition)}</dd><dt>Why</dt><dd>${esc(c.whyItWorks)}</dd></dl></div>`).join('') + `<h3 style="margin-top:8px">Test plan</h3><ul class="list">${brief.testPlan.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
+    const prompts = B.renderImagePrompts(brief.concepts.map((c) => ({ name: c.name, focalSubject: c.focalSubject, emotion: 'as the concept says', elements: [c.focalSubject, c.supportingElement, c.text].filter(Boolean), text: c.text, background: 'clean', colors: signature()?.colors || ['yellow', 'black'], composition: c.composition })), signature())
+    $('tb-out').innerHTML = brief.concepts.map((c, i) => `<div class="concept"><h4>${esc(c.name)} <span class="pill neutral">${esc(c.angle)}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)}</dd><dt>Support</dt><dd>${esc(c.supportingElement)}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Composition</dt><dd>${esc(c.composition)}</dd><dt>Why</dt><dd>${esc(c.whyItWorks)}</dd><dt>Image prompt</dt><dd class="muted">${esc(prompts[i] || '')}</dd></dl></div>`).join('') + `<h3 style="margin-top:8px">Test plan</h3><ul class="list">${brief.testPlan.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
   })
 
-  // ---------- 5 story ----------
-  function checkStory() {
-    const open = $('st-open').value; const title = $('pr-title').value || ''
-    const first = open.split(/\n/)[0] || ''
-    const words = title.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3)
-    const stated = words.length && words.some((w) => first.toLowerCase().includes(w))
-    $('st-check').textContent = open.trim() ? (stated ? 'The first line carries the packaging promise.' : 'The first line does not mention the title promise yet.') : ''
-  }
-  $('st-open').addEventListener('input', checkStory)
-  $('st-save').addEventListener('click', async () => { if (!state.currentId) { toast('Open an idea first.'); return } await store.updateIdea(state.currentId, { open: $('st-open').value, payoffs: $('st-payoffs').value, rehooks: $('st-rehooks').value }); toast('Story spine saved.') })
+  // ---------- 5 STORY ----------
+  let lastHook = null
+  $('st-run').addEventListener('click', () => {
+    const script = $('st-script').value; if (!script.trim()) { toast('Paste the script.'); return }
+    const report = B.scoreHook(script, { title: $('st-title').value.trim(), promise: $('st-promise').value.trim() || undefined, thumbnailMoment: $('st-moment').value.trim() || undefined })
+    lastHook = report
+    $('st-out').innerHTML = `<div class="verdict ${report.pass ? 'good' : 'bad'}"><span class="big">${report.hookScore}</span><div><b>${report.pass ? 'GATE PASSED' : 'GATE FAILED'} (gate ${report.gateScore})</b><p class="muted">promise in first 25 words: ${report.promiseInFirst25Words ? 'yes' : 'no'} · thumbnail moment: ${esc(report.thumbnailMomentPosition)} · ${mmss(report.estimatedDurationSec)} (${report.timestampSource})</p></div></div><pre>${esc(B.renderHookReport(report))}</pre>`
+  })
+  $('st-save').addEventListener('click', async () => { const i = currentIdea(); if (!i) { toast('Open an idea first.'); return } await store.put('ideas', { ...i, script: $('st-script').value, thumbnailMoment: $('st-moment').value.trim(), promise: $('st-promise').value.trim() || i.promise, hookScore: lastHook?.hookScore, chapters: lastHook?.chapters }); toast('Story spine saved.') })
 
-  // ---------- 6 workflow ----------
+  // ---------- 6 WORKFLOW ----------
   let lastMd = ''
   $('wf-format').innerHTML = B.WORKFLOW_FORMATS.map((f) => `<option value="${f}">${f}</option>`).join('')
   function runWorkflow() {
@@ -556,57 +788,169 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     const wf = B.generateWorkflow(idea, { format: $('wf-format').value, days: Number($('wf-days').value) || 14 })
     const kickoff = $('wf-kickoff').value ? new Date($('wf-kickoff').value + 'T00:00:00Z') : undefined
     lastMd = B.renderWorkflowMarkdown(wf, kickoff)
-    $('wf-out').innerHTML = `<ol>${wf.stages.map((s) => { const due = kickoff ? new Date(kickoff.getTime() + s.dueDay * 86400000).toISOString().slice(0, 10) : 'day ' + s.dueDay; return `<li><b>${esc(s.name)}</b> <span class="pill neutral">${esc(s.owner)}</span> <span class="mono muted">${due}</span><ul class="list">${s.checklist.map((c) => `<li>${esc(c)}</li>`).join('')}</ul><div class="gate">Gate: ${esc(s.gate)}</div></li>` }).join('')}</ol>`
+    $('wf-out').innerHTML = `<ol>${wf.stages.map((s) => { const due = kickoff ? new Date(kickoff.getTime() + s.dueDay * 86400000).toISOString().slice(0, 10) : 'day ' + s.dueDay; return `<li><b>${esc(s.name)}</b> <span class="pill neutral">${esc(s.owner)}</span> <span class="mono muted">${due}</span>${s.run ? ` <span class="chip">${esc(s.run.kind)}</span>` : ''}<ul class="list">${s.checklist.map((c) => `<li>${esc(c)}</li>`).join('')}</ul><div class="gate">Gate: ${esc(s.gate)}</div></li>` }).join('')}</ol>`
   }
   $('wf-run').addEventListener('click', runWorkflow)
   $('wf-copy').addEventListener('click', async () => { if (!lastMd) runWorkflow(); try { await navigator.clipboard.writeText(lastMd); toast('Runbook copied as Markdown.') } catch { toast('Clipboard blocked; select the text instead.') } })
-  $('wf-cadence').innerHTML = B.weeklyCadence().map((r) => `<div class="concept"><h4>${esc(r.when)} <span class="pill neutral">${esc(r.owner)} · ${r.minutes} min</span></h4><b>${esc(r.name)}</b><ul class="list">${r.agenda.map((a) => `<li>${esc(a)}</li>`).join('')}</ul></div>`).join('')
-
-  // ---------- 7 review ----------
-  let lastDiag = null
-  function runReviewDiag() {
-    const d = B.diagnose({ impressions: numv('rv-impr'), ctr: numv('rv-ctr'), avpPct: numv('rv-avp'), retention30sPct: numv('rv-ret'), hoursSincePublish: numv('rv-hours'), baseline: { ctr: state.baseline.ctr, avpPct: state.baseline.avp, views: state.baseline.views } })
-    lastDiag = d
-    const steps = [['idea', 'Impressions'], ['packaging', 'CTR'], ['hook', 'First 30s'], ['retention', 'Retention']]
-    $('rv-funnel').innerHTML = steps.map(([k, label]) => `<div class="step ${d.bottleneck === k ? 'hit' : d.bottleneck === 'none' || steps.findIndex((s) => s[0] === d.bottleneck) > steps.findIndex((s) => s[0] === k) ? 'ok' : ''}"><b>${label}</b>${d.bottleneck === k ? 'bottleneck' : ''}</div>`).join('')
-    $('rv-out').innerHTML = `<div class="verdict ${d.bottleneck === 'none' ? 'good' : d.bottleneck === 'insufficient-data' ? 'warn' : 'bad'}"><span class="big" style="font-size:18px">${esc(d.bottleneck.toUpperCase())}${d.repackage ? ' · REPACKAGE' : ''}</span><div><b>${esc(d.headline)}</b><p class="muted">${esc(d.evidence.join(' · '))}</p></div></div><ul class="list">${d.actions.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>`
+  function renderCadence() {
+    const rituals = B.weeklyCadence({ publishDay: state.profile?.publishDay || 'thu', perWeek: state.profile?.maxPerWeek || 1, solo: state.profile?.solo !== false })
+    $('wf-cadence').innerHTML = rituals.map((r) => `<div class="concept"><h4>${esc(r.when)} <span class="pill neutral">${esc(r.owner)} · ${r.minutes} min</span></h4><b>${esc(r.name)}</b><ul class="list">${r.agenda.map((a) => `<li>${esc(a)}</li>`).join('')}</ul></div>`).join('')
   }
-  $('rv-run').addEventListener('click', runReviewDiag)
-  $('rv-log').addEventListener('click', async () => {
-    if (!lastDiag) runReviewDiag()
-    const title = $('rv-title').value.trim(); if (!title) { toast('Name the video.'); return }
-    await store.addLedger({ date: new Date().toISOString().slice(0, 10), title, impressions: numv('rv-impr') ?? null, ctr: numv('rv-ctr') ?? null, avp: numv('rv-avp') ?? null, ret30: numv('rv-ret') ?? null, bottleneck: lastDiag.bottleneck, lever: $('rv-lever').value.trim(), thumbText: $('pr-thumb').value.trim() })
-    if (state.currentId) store.updateIdea(state.currentId, { status: 'published' })
-    toast('Logged to the ledger.')
+
+  // ---------- 7 PUBLISH ----------
+  let lastPack = null
+  function chaptersFromIdea() { const i = currentIdea(); return (i?.chapters || lastHook?.chapters || []).map((c) => ({ atSec: c.atSec, title: c.title })) }
+  $('pb-run').addEventListener('click', () => {
+    const title = $('pb-title').value.trim(); const promise = $('pb-promise').value.trim()
+    if (!title || !promise) { toast('Title and promise are required.'); return }
+    lastPack = B.assemblePublish({ title, promise, chapters: chaptersFromIdea(), sequelQuestion: $('pb-sequel').value.trim() || undefined, thumbs: { a: $('pb-thumb-a').value.trim() || 'A', b: $('pb-thumb-b').value.trim() || 'B' }, profile: state.profile || undefined, relatedVideo: $('pb-related').value.trim() || undefined })
+    const md = B.renderPublishMarkdown(lastPack)
+    $('pb-out').innerHTML = `<button class="btn sm" id="pb-copy">Copy</button><pre>${esc(md)}</pre>`
+    $('pb-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(md); toast('Publish pack copied.') } catch { toast('Clipboard blocked; select the text instead.') } })
+    const thumbText = $('pr-thumb').value.trim()
+    const check = B.checkPublish(lastPack, { titleScore: B.scoreTitle(title).score, thumbGrades: ['ship', 'ship'], overlapOk: B.titleThumbnailOverlap(title, thumbText) < B.thresholds.titleThumbOverlapMax.value, reviewScheduled: true })
+    $('pb-check').innerHTML = `<h3>Checklist · ${check.pass ? '<span class="ok">ready</span>' : '<span class="no">not yet</span>'}</h3><ul class="plain">${check.items.map((it) => `<li>${it.ok ? '<span class="ok">✓</span>' : '<span class="no">✕</span>'} ${esc(it.label)}</li>`).join('')}</ul>`
+  })
+  $('pb-confirm').addEventListener('click', async () => {
+    const title = $('pb-title').value.trim() || $('pr-title').value.trim(); if (!title) { toast('Title is required.'); return }
+    const at = $('pb-at').value ? new Date($('pb-at').value).toISOString() : nowIso()
+    const slug = B.slugify(title)
+    if (!confirm(`Confirm "${title}" is live as of ${at.slice(0, 16)}? This starts the 24 / 48 / 168 / 672 hour reads.`)) return
+    const existing = docs('ledger').find((r) => r.id === slug)
+    await store.put('ledger', { ...(existing || {}), id: slug, slug, title, publishedAt: at, videoId: $('pb-video-id').value.trim() || existing?.videoId, thumbA: $('pb-thumb-a').value.trim() || 'A', thumbB: $('pb-thumb-b').value.trim() || 'B', reads: existing?.reads || {}, hypothesis: { levers: list($('pb-levers').value), angle: currentIdea()?.sources?.[0]?.title, predictedCtrMultiple: numv('pb-predict') ?? 1, registeredAt: at } })
+    const i = currentIdea(); if (i) await store.put('ideas', { ...i, status: 'published' })
+    toast('Ledger row created. The 24-hour read is due tomorrow.'); show('today')
   })
 
-  // ---------- 8 ledger ----------
+  // ---------- 8 REVIEW ----------
+  function renderReviewSelect() {
+    const rows = ledgerRows(); const sel = $('rv-slug'); const prev = sel.value
+    sel.innerHTML = rows.map((r) => `<option value="${esc(r.slug)}">${esc(r.title)} · ${r.publishedAt.slice(0, 10)}</option>`).join('')
+    if (rows.some((r) => r.slug === prev)) sel.value = prev
+    if (rows.length) fillReadFields()
+  }
+  function fillReadFields() {
+    const row = docs('ledger').find((r) => r.slug === $('rv-slug').value); if (!row) return
+    const read = row.reads?.[$('rv-bucket').value] || {}
+    const set = (id, v) => { $(id).value = v === undefined || v === null ? '' : v }
+    set('rv-impr', read.impressions); set('rv-ctr', read.ctr); set('rv-views', read.views); set('rv-avp', read.avpPct); set('rv-ret', read.retention30sPct); set('rv-returning', read.returningPct); set('rv-browse', read.browseSuggestedPct); set('rv-lever', row.lever)
+    renderDecisionCard(row)
+  }
+  $('rv-slug').addEventListener('change', fillReadFields); $('rv-bucket').addEventListener('change', fillReadFields)
+  let lastDiag = null
+  $('rv-run').addEventListener('click', async () => {
+    const row = docs('ledger').find((r) => r.slug === $('rv-slug').value); if (!row) { toast('Confirm a publish first.'); return }
+    const bucket = $('rv-bucket').value; const now = new Date()
+    const lever = $('rv-lever').value.trim()
+    if (bucket === '168' && !lever && !row.lever) { toast('A 7-day read needs the lever learned (one sentence).'); return }
+    const read = { at: nowIso(), impressions: numv('rv-impr'), ctr: numv('rv-ctr'), views: numv('rv-views'), avpPct: numv('rv-avp'), retention30sPct: numv('rv-ret'), returningPct: numv('rv-returning'), browseSuggestedPct: numv('rv-browse') }
+    Object.keys(read).forEach((k) => { if (read[k] === undefined) delete read[k] })
+    const { b48, b168 } = computedBaselines(row.slug)
+    const baselines = bucket === '48' || bucket === '24' ? b48 : b168
+    const hours = (now.getTime() - Date.parse(row.publishedAt)) / 3600000
+    const d = B.diagnose({ ...read, bucket, baselines: baselines.n > 0 ? baselines : undefined, baseline: baselines.n < 5 ? flatBaseline() : undefined, hoursSincePublish: hours, previousRead: bucket === '48' ? row.reads?.['24'] : undefined, returningViewerPct: read.returningPct, browseSuggestedPct: read.browseSuggestedPct })
+    lastDiag = d
+    const updated = { ...row, reads: { ...(row.reads || {}), [bucket]: read }, lever: lever || row.lever, bottleneck: d.bottleneck }
+    const decision = B.decide({ diagnosis: d, row: updated, bucket, baselines: baselines.n > 0 ? baselines : undefined, now, source: 'desk' })
+    updated.decision = decision.decision
+    await store.put('ledger', updated)
+    const existingDecision = docs('decisions').find((x) => x.id === decision.id)
+    await store.put('decisions', { ...decision, approvedAt: existingDecision?.decision === decision.decision ? existingDecision.approvedAt : undefined, approvedBy: existingDecision?.decision === decision.decision ? existingDecision.approvedBy : undefined })
+    const steps = [['idea', 'Impressions'], ['packaging', 'CTR'], ['hook', 'First 30s'], ['retention', 'Retention']]
+    const hit = d.bottleneck === 'packaging-soft' ? 'packaging' : d.bottleneck
+    $('rv-funnel').innerHTML = steps.map(([k, label]) => `<div class="step ${hit === k ? 'hit' : d.bottleneck === 'none' || steps.findIndex((s) => s[0] === hit) > steps.findIndex((s) => s[0] === k) ? 'ok' : ''}"><b>${label}</b>${hit === k ? d.bottleneck : ''}</div>`).join('')
+    $('rv-out').innerHTML = `<div class="verdict ${verdictKind(d.bottleneck)}"><span class="big" style="font-size:18px">${esc(d.bottleneck.toUpperCase())}${d.repackage ? ' · REPACKAGE' : ''}</span><div><b>${esc(d.headline)}</b><p class="muted">${esc(d.mode || '')} · ${esc(d.evidence[0] || '')}</p></div></div><ul class="list">${d.evidence.slice(1).map((e) => `<li class="muted">${esc(e)}</li>`).join('')}${d.actions.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>${d.thresholdsUsed?.length ? `<p class="muted">Thresholds: ${esc(d.thresholdsUsed.join(' · '))}</p>` : ''}`
+    renderDecisionCard(updated)
+    toast('Read recorded and diagnosed.')
+  })
+  function renderDecisionCard(row) {
+    const bucket = $('rv-bucket').value
+    const doc = docs('decisions').find((x) => x.id === `${row.slug}:${bucket}`)
+    if (!doc) { $('rv-decision').innerHTML = ''; return }
+    $('rv-decision').innerHTML = `<div class="card" style="margin-top:8px"><h3>Decision · ${bucket} h ${doc.approvedAt ? '<span class="chip">approved ' + esc(doc.approvedAt.slice(0, 10)) + '</span>' : '<span class="chip">awaiting you</span>'}</h3><pre>${esc(B.describeDecision(doc))}</pre><div class="row">${doc.approvedAt ? '' : `<button class="btn primary" id="rv-approve">Approve</button>`}${doc.decision === 'REPACKAGE' && doc.approvedAt && !doc.appliedAt ? `<button class="btn" id="rv-applied">Swap applied in Studio</button>` : ''}<button class="btn" data-jump="ledger">Ledger</button></div></div>`
+    const ap = $('rv-approve'); if (ap) ap.addEventListener('click', async () => { if (!confirm(`Approve ${doc.decision} for ${row.slug}? An agent prepared it; you own it.`)) return; await store.put('decisions', { ...doc, approvedAt: nowIso(), approvedBy: 'desk' }); toast('Decision approved.') })
+    const al = $('rv-applied'); if (al) al.addEventListener('click', async () => { await store.put('decisions', { ...doc, appliedAt: nowIso() }); const r = docs('ledger').find((x) => x.slug === row.slug); if (r) await store.put('ledger', { ...r, repackagedAt: nowIso() }); toast('Repackage recorded; the ledger excludes this row from baselines from now on.') })
+  }
+  function parseVariant(name, text) { const [impressions, ctr, share] = list(text).map(Number); if (!impressions || !ctr) return null; return { name, impressions, ctr, watchTimeSharePct: Number.isNaN(share) ? undefined : share } }
+  let lastJudge = null
+  $('tc-run').addEventListener('click', () => {
+    const a = parseVariant('A', $('tc-a').value), b = parseVariant('B', $('tc-b').value)
+    if (!a || !b) { toast('Give impressions and CTR for A and B (share is optional).'); return }
+    const { b48 } = computedBaselines()
+    lastJudge = { variants: [a, b], j: B.judgeTest([a, b], { hoursRunning: numv('tc-hours') || 0, coldStart: b48.tier === 'prior' }) }
+    $('tc-out').innerHTML = `<pre>${esc(B.renderJudgement(lastJudge.j))}</pre>`
+  })
+  $('tc-record').addEventListener('click', async () => {
+    if (!lastJudge) { toast('Judge first.'); return }
+    const row = docs('ledger').find((r) => r.slug === $('rv-slug').value); if (!row) { toast('Pick a video.'); return }
+    const n = docs('experiments').filter((x) => x.slug === row.slug).length + 1
+    await store.put('experiments', { id: `${row.slug}:${n}`, slug: row.slug, kind: 'thumbnail', variants: lastJudge.variants, startedAt: new Date(Date.now() - (numv('tc-hours') || 0) * 3600000).toISOString(), outcome: lastJudge.j.outcome, winner: lastJudge.j.winner })
+    const letter = B.winnerLetter(lastJudge.j)
+    if (letter) await store.put('ledger', { ...row, winner: letter })
+    toast('Test recorded.')
+  })
+
+  // ---------- 9 LEDGER ----------
   function renderLedger() {
-    const rows = [...state.ledger].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    const rows = ledgerRows()
     const tb = $('ledger-table').querySelector('tbody')
-    tb.innerHTML = rows.map((r) => `<tr><td class="mono">${esc(r.date)}</td><td>${esc(r.title)}</td><td class="num">${r.impressions != null ? fmt(r.impressions) : '—'}</td><td class="num">${r.ctr != null ? r.ctr + '%' : '—'}</td><td class="num">${r.avp != null ? r.avp + '%' : '—'}</td><td class="num">${r.ret30 != null ? r.ret30 + '%' : '—'}</td><td><span class="pill ${r.bottleneck === 'none' ? 'good' : r.bottleneck === 'insufficient-data' ? 'neutral' : 'bad'}">${esc(r.bottleneck)}</span></td><td>${esc(r.lever || '')}</td><td><button class="btn sm" data-ldel="${r.id}">✕</button></td></tr>`).join('')
+    const v = (r, b, k, suffix = '') => r.reads?.[b]?.[k] === undefined ? '—' : (k === 'impressions' || k === 'views' ? fmt(r.reads[b][k]) : r.reads[b][k] + suffix)
+    tb.innerHTML = rows.map((r) => `<tr><td class="mono">${esc(r.publishedAt.slice(0, 10))}</td><td>${esc(r.title)}</td><td class="muted">${esc(r.thumbA || '—')} / ${esc(r.thumbB || '—')}</td><td>${esc(r.winner || '—')}</td><td class="num">${v(r, '48', 'impressions')}</td><td class="num">${v(r, '48', 'ctr', '%')}</td><td class="num">${v(r, '48', 'avpPct', '%')}</td><td class="num">${v(r, '168', 'views')}</td><td>${r.bottleneck ? pill(verdictKind(r.bottleneck), r.bottleneck) : '—'}</td><td>${esc(r.decision || '—')}</td><td>${esc(r.lever || '')}</td><td><button class="btn sm" data-ldel="${r.id}">✕</button></td></tr>`).join('')
     $('ledger-empty').hidden = rows.length > 0
     $('count-ledger').textContent = rows.length ? String(rows.length) : ''
-    tb.querySelectorAll('[data-ldel]').forEach((b) => b.addEventListener('click', () => store.deleteLedger(b.dataset.ldel)))
-    const counts = {}; rows.forEach((r) => { counts[r.bottleneck] = (counts[r.bottleneck] || 0) + 1 })
-    const insights = []
-    if (rows.length >= 2) {
-      const top = Object.entries(counts).filter(([k]) => k !== 'none' && k !== 'insufficient-data').sort((a, b) => b[1] - a[1])[0]
-      if (top) insights.push(`${top[1]} of ${rows.length} videos broke at ${top[0]}. That is the stage to over-invest in next sprint.`)
-      const ctrs = rows.map((r) => r.ctr).filter((v) => v != null); if (ctrs.length) insights.push(`Median logged CTR ${B.median(ctrs).toFixed(1)}% against a baseline of ${state.baseline.ctr}%. Update the baseline if this holds for five videos.`)
-      const levers = rows.map((r) => r.lever).filter(Boolean); if (levers.length) insights.push(`Levers learned: ${levers.slice(0, 3).join(' · ')}`)
-    }
-    $('ledger-insights').innerHTML = insights.length ? insights.map((i) => `<li>${esc(i)}</li>`).join('') : '<li class="muted">Log two videos and the ledger starts talking.</li>'
+    tb.querySelectorAll('[data-ldel]').forEach((b) => b.addEventListener('click', () => { if (confirm('Delete this ledger row?')) store.del('ledger', b.dataset.ldel) }))
+    const levers = B.leverTally(rows)
+    $('ledger-levers').innerHTML = levers.length ? levers.slice(0, 8).map((l) => `<li>${esc(l.lever)} <span class="chip">${l.count}</span></li>`).join('') : '<li class="muted">Register levers at publish and write one sentence at 7 days.</li>'
+    const winners = B.ownOutliers(rows)
+    $('ledger-winners').innerHTML = winners.length ? winners.map((w) => `<li>${esc(w.row.title)} <span class="chip">${w.multiple.toFixed(1)}x</span> brief the sequel</li>`).join('') : '<li class="muted">No 5x winner yet, or fewer than two 7-day reads.</li>'
   }
+
+  // ---------- 10 RETRO ----------
+  function renderRetro() {
+    const now = new Date(); const since = now.getTime() - 7 * 86400000
+    const rows = ledgerRows(); const week = rows.filter((r) => Date.parse(r.publishedAt) >= since || Object.values(r.reads || {}).some((rd) => Date.parse(rd.at || 0) >= since))
+    const levers = B.leverTally(week)
+    const winners = B.ownOutliers(rows).filter((w) => Date.parse(w.row.publishedAt) >= since - 21 * 86400000)
+    const losers = week.filter((r) => r.bottleneck && r.bottleneck !== 'none' && r.bottleneck !== 'insufficient-data')
+    $('retro-week').innerHTML = `<dl class="kv"><dt>Published or read</dt><dd>${week.length ? week.map((r) => esc(r.title)).join('; ') : 'nothing this week'}</dd><dt>Levers</dt><dd>${levers.length ? levers.map((l) => `${esc(l.lever)} (${l.count})`).join(' · ') : '—'}</dd><dt>Winners</dt><dd>${winners.length ? winners.map((w) => `${esc(w.row.title)} ${w.multiple.toFixed(1)}x`).join(' · ') : '—'}</dd><dt>Broke at</dt><dd>${losers.length ? losers.map((r) => `${esc(r.title)}: ${esc(r.bottleneck)}`).join(' · ') : '—'}</dd><dt>Overrides</dt><dd>${docs('decisions').filter((d) => d.approvedAt && Date.parse(d.approvedAt) >= since).length} decisions approved</dd></dl>`
+    if (!$('retro-rule').value && levers.length) $('retro-rule').value = `On this channel, ${levers[0].lever} (n=${levers[0].count}: ${levers[0].slugs.join(', ')}).`
+    const rules = docs('rules')
+    $('retro-rules').innerHTML = rules.length ? rules.map((r) => `<li>${esc(r.rule)} <span class="chip">${esc(r.status)}${r.tests ? ` n=${r.tests}` : ''}</span></li>`).join('') : '<li class="muted">No rules yet.</li>'
+  }
+  $('retro-accept').addEventListener('click', async () => {
+    const rule = $('retro-rule').value.trim(); if (!rule) { toast('Write the rule.'); return }
+    if (!confirm('Accept this rule into the playbook? The CLI appends it under Learned rules on the next sync.')) return
+    await store.put('rules', { id: B.stableId('rule', rule), rule, tests: 0, wins: 0, confidence: 1, status: 'pinned', pinned: true, slugs: [], acceptedBy: 'desk' })
+    $('retro-rule').value = ''; toast('Rule accepted.')
+  })
+
+  // ---------- PROFILE ----------
+  function bindProfile() {
+    const p = state.profile || defaultProfile()
+    $('pf-positioning').value = p.positioning || ''; $('pf-persona').value = p.persona || ''
+    $('pf-colors').value = (p.signature?.colors || []).join(', '); $('pf-face').value = p.signature?.facePolicy || 'either'; $('pf-maxwords').value = p.signature?.maxWords ?? 3
+    $('pf-maxperweek').value = p.maxPerWeek ?? 1; $('pf-publishday').value = p.publishDay || 'thu'; $('pf-competitors').value = (p.competitors || []).join(', ')
+    $('pf-mviews').value = p.manual?.views ?? 4000; $('pf-mctr').value = p.manual?.ctr ?? 4.5; $('pf-mavp').value = p.manual?.avp ?? 40
+    const { b48, b168 } = computedBaselines()
+    const stat = (s, suffix = '') => s ? `${s.median.toFixed(1)}${suffix} (MAD ${s.mad.toFixed(1)}, n=${s.n})` : '—'
+    $('pf-baselines').innerHTML = `<h3>Computed baselines</h3><dl class="kv"><dt>48 h tier</dt><dd>${b48.tier} (n=${b48.n})</dd><dt>CTR</dt><dd>${stat(b48.ctr, '%')}</dd><dt>Avg % viewed</dt><dd>${stat(b48.avpPct, '%')}</dd><dt>30 s retention</dt><dd>${stat(b48.retention30sPct, '%')}</dd><dt>7 d views</dt><dd>${b168.views ? fmt(b168.views.median) + ` (n=${b168.views.n})` : '—'}</dd><dt>Returning share</dt><dd>${stat(b168.returningPct, '%')}</dd></dl><p class="muted">Leave-one-out median and MAD over the trailing ten videos aged seven days or more, repackaged rows excluded. Tiers: prior under 5, thin 5 to 9, solid 10 and up [house].</p>`
+  }
+  $('pf-save').addEventListener('click', async () => {
+    const p = { ...(state.profile || defaultProfile()), positioning: $('pf-positioning').value.trim(), persona: $('pf-persona').value.trim(), signature: { colors: list($('pf-colors').value), facePolicy: $('pf-face').value, maxWords: Number($('pf-maxwords').value) || 3 }, competitors: list($('pf-competitors').value), maxPerWeek: Number($('pf-maxperweek').value) || 1, publishDay: $('pf-publishday').value, manual: { views: numv('pf-mviews') ?? 4000, ctr: numv('pf-mctr') ?? 4.5, avp: numv('pf-mavp') ?? 40 } }
+    await store.saveProfile(p); toast('Profile saved.')
+  })
+
+  // ---------- render all ----------
+  function renderAll() { renderBaseline(); renderIdeas(); renderLedger(); renderReviewSelect(); renderToday(); renderRetro(); renderCadence(); bindProfile() }
 
   // ---------- boot ----------
   function boot() {
-    buildAxes(); bindBaseline()
-    const savedBase = local.read('baseline'); if (savedBase) { Object.assign(state.baseline, savedBase); bindBaseline() }
-    state.ideas = local.read('ideas') || []; state.ledger = local.read('ledger') || []
-    state.currentId = local.read('currentId')
+    buildAxes()
+    state.profile = local.read('profile') || defaultProfile()
+    for (const c of COLS) state.docs[c] = local.read(c) || []
+    state.currentId = local.read('currentId'); state.lastScan = local.read('lastScan')
     $('scan-csv').value = EXAMPLE_CSV
-    runScan(); renderIdeas(); renderLedger(); scoreCurrentIdea()
+    runScan(); renderAll(); scoreCurrentIdea()
     const stage = local.read('stage'); if (stage && document.getElementById('stage-' + stage)) show(stage)
     if (state.currentId) loadIdea(state.currentId)
     lightUp()
@@ -618,9 +962,8 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     if (!db) return
     state.db = db
     const st = $('store-state'); st.classList.add('shared'); st.querySelector('span:last-child').textContent = 'shared with your team'
-    db.collection('ideas').onSnapshot((snap) => { state.ideas = snap.docs.map((d) => ({ id: d.id, ...d.data() })); renderIdeas() }, () => {})
-    db.collection('ledger').onSnapshot((snap) => { state.ledger = snap.docs.map((d) => ({ id: d.id, ...d.data() })); renderLedger() }, () => {})
-    db.doc('settings/baseline').onSnapshot((snap) => { if (snap.exists) { Object.assign(state.baseline, snap.data()); bindBaseline() } }, () => {})
+    for (const c of COLS) db.collection(c).onSnapshot((snap) => { state.docs[c] = snap.docs.map((d) => ({ id: d.id, ...d.data() })); renderAll() }, () => {})
+    db.doc('settings/profile').onSnapshot((snap) => { if (snap.exists) { state.profile = { ...defaultProfile(), ...snap.data() }; renderAll() } }, () => {})
   }
   boot()
 })()

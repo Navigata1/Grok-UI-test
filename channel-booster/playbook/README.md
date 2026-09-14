@@ -12,3 +12,4 @@ The operating rules of the Channel Booster, one file per stage. The Claude-power
 | Publish | [publish-checklist.md](publish-checklist.md) | `booster workflow` stage 8 |
 | Learn | [post-mortem-template.md](post-mortem-template.md), [packaging-ledger.md](packaging-ledger.md) | `booster postmortem`, `/booster-postmortem` |
 | Audit | [channel-audit.md](channel-audit.md) | `booster audit`, `/booster-channel-audit` |
+| Learned | [00-learned-rules.md](00-learned-rules.md) | compiled from the ledger by `booster rules compile`; loaded first, never edited by hand (human rules go in via `booster retro --accept-rule`) |

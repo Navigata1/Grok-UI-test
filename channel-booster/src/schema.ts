@@ -229,13 +229,4 @@ export const COLLECTIONS = {
 } as const
 export type CollectionName = keyof typeof COLLECTIONS
 
-/** Small stable hash for deterministic ids (FNV-1a, 32-bit, base36). */
-export function stableId(prefix: string, text: string): string {
-  let h = 0x811c9dc5
-  const s = text.trim().toLowerCase()
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 0x01000193) >>> 0
-  }
-  return `${prefix}:${h.toString(36)}`
-}
+export { stableId } from './schema-id.js'
