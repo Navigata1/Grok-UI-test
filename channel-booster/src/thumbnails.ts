@@ -1,3 +1,5 @@
+import type { Signature } from './schema.js'
+import { checkSignature, describeSignature, looksLikePerson } from './signature.js'
 import { titleThumbnailOverlap } from './titles.js'
 import type { ThumbnailBrief, ThumbnailConcept, ThumbnailQa, ThumbnailSpec } from './types.js'
 
@@ -20,14 +22,20 @@ function pairMatches(colors: string[], pairs: Array<[string, string]>): boolean 
   return pairs.some(([a, b]) => set.includes(a) && set.includes(b))
 }
 
+/** Points deducted when a concept drifts from the channel signature [house]. A deliberate drift is written on the proof sheet. */
+const SIGNATURE_DRIFT_PENALTY = 10
+
 /**
  * Score a thumbnail concept before anyone opens Photoshop.
  *
  * The rules encode the "clean thumbnail" school: one focal subject, at most
  * three elements, three words or fewer, high contrast, and text that adds
- * something the title does not already say.
+ * something the title does not already say. With a channel `signature`
+ * (channel.json) the concept is also checked against the registered colour
+ * pair, word budget and face policy; drift costs 10 and is reported as
+ * "signature drift: ..." so a deliberate drift can be written on the sheet.
  */
-export function qaThumbnail(spec: ThumbnailSpec): ThumbnailQa {
+export function qaThumbnail(spec: ThumbnailSpec, signature?: Signature): ThumbnailQa {
   const passes: string[] = []
   const failures: string[] = []
   const fixes: string[] = []
@@ -80,8 +88,7 @@ export function qaThumbnail(spec: ThumbnailSpec): ThumbnailQa {
     }
   }
 
-  const looksLikePerson = /\b(me|my face|face|person|host|creator|guy|girl|man|woman|kid|him|her|reaction|i)\b/i.test(spec.focalSubject)
-  if (looksLikePerson) {
+  if (looksLikePerson(spec.focalSubject)) {
     if (!spec.emotion || /^(none|neutral|flat|no)/i.test(spec.emotion)) {
       score -= 15
       failures.push('a face with no expression')
@@ -105,6 +112,17 @@ export function qaThumbnail(spec: ThumbnailSpec): ThumbnailQa {
     score -= 10
     failures.push('busy background')
     fixes.push('Blur, darken, or simplify the background so the subject separates from it.')
+  }
+
+  if (signature) {
+    const check = checkSignature(spec, signature)
+    if (check.drift) {
+      score -= SIGNATURE_DRIFT_PENALTY
+      failures.push(`signature drift: ${check.reasons.join('; ')}`)
+      fixes.push(`Match the channel signature (${describeSignature(signature).replace(/^Keep the channel signature: /, '').replace(/\.$/, '')}) or write the deliberate drift on the proof sheet.`)
+    } else {
+      passes.push('matches the channel signature')
+    }
   }
 
   score = Math.max(0, Math.min(100, score))
@@ -203,4 +221,64 @@ export function buildThumbnailBrief(idea: string, title: string, options: { subj
     qaChecklist: THUMBNAIL_QA_CHECKLIST,
     testPlan: THUMBNAIL_TEST_PLAN,
   }
+}
+
+/**
+ * What `renderImagePrompts()` needs from a concept. Both a brief's
+ * `ThumbnailConcept` and a QA `ThumbnailSpec` satisfy it, so the render hook
+ * can take either the brief or the QA-passed specs.
+ */
+export interface ImagePromptConcept {
+  name?: string
+  focalSubject: string
+  emotion?: string
+  /** Every element when known (spec); otherwise derived from subject, supporting element and text. */
+  elements?: string[]
+  supportingElement?: string
+  text?: string
+  composition?: string
+  background?: string
+  /** Colour pair; falls back to the signature colours when absent. */
+  colors?: string[]
+}
+
+function clean(s: string | undefined): string {
+  return (s ?? '').trim().replace(/\s+/g, ' ')
+}
+
+/**
+ * One image-generation prompt per concept (architecture 2.7 render hook), so
+ * any external image tool can build the QA-passed concepts. Each prompt
+ * states the subject, its expression, the elements, the colour pair, the
+ * composition and background, a 16:9 1280x720 frame, and either the exact
+ * text to set or "no text"; the signature sentence closes it. Pure string
+ * work: the same input always yields the same prompts.
+ */
+export function renderImagePrompts(concepts: ImagePromptConcept[], signature?: Signature): string[] {
+  const sigColors = (signature?.colors ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean)
+  return concepts.map((c) => {
+    const subject = clean(c.focalSubject) || 'the focal subject'
+    const emotion = clean(c.emotion)
+    const text = clean(c.text)
+    const elements = (c.elements && c.elements.length > 0
+      ? c.elements
+      : [c.focalSubject, c.supportingElement ?? '', text ? `the text "${text}"` : '']
+    ).map(clean).filter(Boolean)
+    const colors = (c.colors ?? []).map((x) => x.trim().toLowerCase()).filter(Boolean)
+    const pair = colors.length > 0 ? colors : sigColors
+
+    const lines: string[] = []
+    lines.push(`${c.name ? `${clean(c.name)}: ` : ''}YouTube thumbnail, 16:9, 1280x720, photoreal, sharp, phone-first.`)
+    lines.push(`Subject: ${subject}${emotion && !/^(none|neutral|flat|no)/i.test(emotion) ? `, expression ${emotion}` : ''}, filling the frame, separated from the background.`)
+    lines.push(`Elements (${elements.length}): ${elements.join('; ')}. Nothing else in the frame.`)
+    if (pair.length > 0) lines.push(`Colours: ${pair.join(' and ')}, high contrast, subject and background at opposite ends of brightness.`)
+    if (clean(c.composition)) lines.push(`Composition: ${clean(c.composition)}`)
+    if (clean(c.background)) lines.push(`Background: ${clean(c.background)}.`)
+    lines.push(text
+      ? `Text: exactly the words "${text}" in large bold type, readable at 120px wide, nowhere near the bottom-right corner. No other lettering.`
+      : 'No text, no letters, no captions, no logos, no watermark.')
+    lines.push('Safe margins, no thin lines, no small details, no clutter.')
+    if (signature) lines.push(describeSignature(signature))
+    return lines.join(' ')
+  })
 }

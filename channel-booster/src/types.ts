@@ -200,6 +200,28 @@ export interface Workflow {
 
 export type WorkflowFormat = 'talking-head' | 'documentary' | 'tutorial' | 'challenge' | 'vlog' | 'listicle' | 'interview'
 
+/**
+ * A machine-checkable gate. Every `path` is relative to the package directory
+ * `packages/<slug>/`; `jsonPath` is a dotted path with optional `[n]` indices
+ * into the JSON artifact at `path` (for example `gateReport.pass`).
+ */
+export type GatePredicate =
+  | { kind: 'file-exists'; path: string }
+  | { kind: 'json-path-min'; path: string; jsonPath: string; min: number }
+  | { kind: 'json-path-eq'; path: string; jsonPath: string; value: string | number | boolean }
+  | { kind: 'all-of'; checks: GatePredicate[] }
+
+/** How a stage is executed: a `booster` command the runner spawns, or a human step that leaves an evidence file. */
+export interface WorkflowRun {
+  kind: 'command' | 'human'
+  /** argv for `command` stages; `<slug>` and `<dir>` (packages/<slug>) are substituted at run time. */
+  command?: string[]
+  /** The file the stage produces, relative to packages/<slug>/. */
+  artifact: string
+  /** For `human` stages: the evidence file (relative to packages/<slug>/) that must exist before the gate is checked. */
+  evidence?: string
+}
+
 export interface WorkflowStage {
   id: string
   name: string
@@ -208,5 +230,10 @@ export interface WorkflowStage {
   inputs: string[]
   outputs: string[]
   checklist: string[]
+  /** The gate in prose, for the runbook and the Desk. */
   gate: string
+  /** How the runner executes the stage. Absent on hand-written workflows: the runner then only evaluates `check`. */
+  run?: WorkflowRun
+  /** The machine-checkable gate. Absent means the runner cannot pass the stage without `--override --reason`. */
+  check?: GatePredicate
 }

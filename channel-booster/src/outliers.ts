@@ -1,6 +1,50 @@
+import { thresholds } from './thresholds.js'
 import type { OutlierOptions, OutlierRow, VideoRow } from './types.js'
 
 export const DEFAULT_OUTLIER_THRESHOLD = 10
+
+/**
+ * Fresh tier: a video at most this many days old whose velocity is at least
+ * FRESH_VELOCITY_MULTIPLIER times its channel's median velocity is "fresh":
+ * it has not had time to earn an outlier multiplier but is on pace for one.
+ * [house] Both numbers belong in thresholds.ts (freshMaxAgeDays,
+ * freshVelocityMultiplier); they live here until the thresholds owner moves them.
+ */
+export const FRESH_MAX_AGE_DAYS = 21
+export const FRESH_VELOCITY_MULTIPLIER = 3
+
+/** [house] Smallest baseline pool before the miner widens the window (then drops the age filter). */
+const MIN_BASELINE_POOL = 3
+
+/** Tier of a ranked row. "fresh" is new in v2 and is not part of types.ts's OutlierRow union. */
+export type OutlierTier = 'outlier' | 'strong' | 'fresh' | 'normal'
+
+/**
+ * Outlier row v2: the shipped OutlierRow plus the demand-radar fields.
+ * `tier` is widened to include "fresh", so an OutlierRowV2[] is NOT assignable
+ * to OutlierRow[] (the CLI owner can widen OutlierRow['tier'] in types.ts to
+ * make the two identical; see integration notes). Every other field is the same.
+ */
+export interface OutlierRowV2 extends Omit<OutlierRow, 'tier'> {
+  tier: OutlierTier
+  /** Published more than `sinceDays` ago: still ranked, but outside the demand window. */
+  stale: boolean
+  /** Views per day divided by the channel's median views per day (baseline pool). */
+  velocityMultiplier?: number
+}
+
+/** Options for computeOutliers(). Every field of the shipped OutlierOptions still applies. */
+export interface OutlierOptionsV2 extends OutlierOptions {
+  /**
+   * Only videos published within this many days enter the baseline pool; older
+   * videos are still ranked but flagged `stale`. Default: thresholds.demandWindowDays (90).
+   */
+  sinceDays?: number
+  /** Override FRESH_MAX_AGE_DAYS. */
+  freshMaxAgeDays?: number
+  /** Override FRESH_VELOCITY_MULTIPLIER. */
+  freshVelocityMultiplier?: number
+}
 
 /** Median of a numeric list; 0 for an empty list. */
 export function median(values: number[]): number {
@@ -25,7 +69,8 @@ const FORMAT_PATTERNS: Array<[string, RegExp]> = [
   ['money', /\$\s?\d|\b\d+\s?[km]\b|\b(million|billion|money|rich|broke|cost|price|free)\b/i],
   ['story', /\b(the day|the time|story|what happened|happened when|until)\b/i],
   ['test', /\b(tested|testing|review|reviewed|rating|ranking|ranked|tier list)\b/i],
-  ['first-person', /\b(i|my|me|we|our)\b/i],
+  // Sentence-initial only: "I Tried..." is first-person, "...Ruined My Batteries" is not.
+  ['first-person', /^\s*(i|my|we|our)\b/i],
 ]
 
 /** Extract the format cues present in a title. */
@@ -33,25 +78,47 @@ export function detectFormats(title: string): string[] {
   return FORMAT_PATTERNS.filter(([, re]) => re.test(title)).map(([label]) => label)
 }
 
-function ageDays(published: string | undefined, now: Date): number | undefined {
+/** Days between a publish date and `now`; undefined when the date is missing or unparseable. Never negative. */
+export function ageInDays(published: string | undefined, now: Date): number | undefined {
   if (!published) return undefined
   const t = Date.parse(published)
   if (Number.isNaN(t)) return undefined
   return Math.max(0, (now.getTime() - t) / 86_400_000)
 }
 
+/** Views per day since publish, counting the first day whole so a six-hour-old upload is not multiplied by four. */
+function velocityOf(views: number, age: number | undefined): number | undefined {
+  if (age === undefined) return undefined
+  return views / Math.max(1, age)
+}
+
 /**
  * Rank videos by how far they outperform their channel's typical video.
  *
  * The baseline for each channel is the median view count of that channel's
- * videos in the input (after dropping videos younger than `minAgeDays`).
- * The multiplier is views ÷ baseline, which is the same idea 1of10-style
- * outlier tools use: a 10x video is a format the audience is telling you
- * they want more of.
+ * videos in the input. The pool is narrowed in two steps: videos younger than
+ * `minAgeDays` are dropped (they have not had time to earn views), then videos
+ * older than `sinceDays` are dropped (the window the scorecard promises). If
+ * fewer than three videos survive a step, the miner widens back to the previous
+ * pool, so a small export still gets a baseline. Videos older than `sinceDays`
+ * are ranked anyway and flagged `stale`.
+ *
+ * The multiplier is views / baseline, the same idea 1of10-style outlier tools
+ * use: a 10x video is a format the audience is telling you they want more of.
+ * `velocityMultiplier` is views per day against the pool's median views per day.
+ * Videos younger than `minAgeDays` cannot have earned a multiplier yet, so they
+ * are ranked by `velocityMultiplier` instead; everything else ranks by multiplier.
+ *
+ * Tiers: "outlier" at >= threshold, "strong" at >= half the threshold, "fresh"
+ * for a normal-multiplier video aged <= FRESH_MAX_AGE_DAYS with
+ * velocityMultiplier >= FRESH_VELOCITY_MULTIPLIER, else "normal".
  */
-export function computeOutliers(rows: VideoRow[], options: OutlierOptions = {}): OutlierRow[] {
+export function computeOutliers(rows: VideoRow[], options: OutlierOptionsV2 = {}): OutlierRowV2[] {
   const threshold = options.threshold ?? DEFAULT_OUTLIER_THRESHOLD
   const minAgeDays = options.minAgeDays ?? 0
+  const sinceDays = options.sinceDays ?? thresholds.demandWindowDays.value
+  const freshMaxAge = options.freshMaxAgeDays ?? FRESH_MAX_AGE_DAYS
+  const freshVelocity = options.freshVelocityMultiplier ?? FRESH_VELOCITY_MULTIPLIER
   const now = options.now ?? new Date()
 
   const byChannel = new Map<string, VideoRow[]>()
@@ -62,44 +129,92 @@ export function computeOutliers(rows: VideoRow[], options: OutlierOptions = {}):
     byChannel.set(key, list)
   }
 
-  const baselines = new Map<string, number>()
+  const baselines = new Map<string, { views: number; velocity: number }>()
   for (const [channel, list] of byChannel) {
-    const eligible = list.filter((r) => {
-      const age = ageDays(r.published, now)
+    const aged = list.filter((r) => {
+      const age = ageInDays(r.published, now)
       return age === undefined || age >= minAgeDays
     })
-    const pool = eligible.length >= 3 ? eligible : list
-    baselines.set(channel, median(pool.map((r) => r.views)))
+    const windowed = aged.filter((r) => {
+      const age = ageInDays(r.published, now)
+      return age === undefined || age <= sinceDays
+    })
+    const pool = windowed.length >= MIN_BASELINE_POOL ? windowed : aged.length >= MIN_BASELINE_POOL ? aged : list
+    const velocities = pool
+      .map((r) => velocityOf(r.views, ageInDays(r.published, now)))
+      .filter((v): v is number => v !== undefined)
+    baselines.set(channel, { views: median(pool.map((r) => r.views)), velocity: median(velocities) })
   }
 
-  const out: OutlierRow[] = rows.map((row) => {
-    const baseline = baselines.get(row.channel ?? 'default') ?? 0
-    const multiplier = baseline > 0 ? row.views / baseline : 0
-    const age = ageDays(row.published, now)
-    const velocity = age !== undefined && age > 0 ? row.views / age : undefined
-    const tier: OutlierRow['tier'] = multiplier >= threshold ? 'outlier' : multiplier >= threshold / 2 ? 'strong' : 'normal'
-    const result: OutlierRow = { ...row, multiplier, baseline, tier, formats: detectFormats(row.title) }
+  const scored = rows.map((row) => {
+    const base = baselines.get(row.channel ?? 'default') ?? { views: 0, velocity: 0 }
+    const multiplier = base.views > 0 ? row.views / base.views : 0
+    const age = ageInDays(row.published, now)
+    const velocity = velocityOf(row.views, age)
+    const velocityMultiplier = velocity !== undefined && base.velocity > 0 ? velocity / base.velocity : undefined
+    const stale = age !== undefined && age > sinceDays
+    const young = age !== undefined && age < minAgeDays
+    let tier: OutlierTier = multiplier >= threshold ? 'outlier' : multiplier >= threshold / 2 ? 'strong' : 'normal'
+    if (tier === 'normal' && age !== undefined && age <= freshMaxAge && velocityMultiplier !== undefined && velocityMultiplier >= freshVelocity) {
+      tier = 'fresh'
+    }
+    const result: OutlierRowV2 = { ...row, multiplier, baseline: base.views, tier, stale, formats: detectFormats(row.title) }
     if (velocity !== undefined) result.velocity = velocity
-    return result
+    if (velocityMultiplier !== undefined) result.velocityMultiplier = velocityMultiplier
+    const rank = young ? (velocityMultiplier ?? multiplier) : multiplier
+    return { result, rank }
   })
 
-  return out.sort((a, b) => b.multiplier - a.multiplier)
+  return scored
+    .sort((a, b) => b.rank - a.rank || b.result.multiplier - a.result.multiplier || b.result.views - a.result.views)
+    .map((s) => s.result)
 }
 
 export interface FormatLift {
   format: string
-  /** Share of outlier+strong titles carrying this format. */
+  /** Raw share of winning (outlier, strong, fresh) titles carrying this format. */
   shareInWinners: number
-  /** Share of all titles carrying this format. */
+  /** Raw share of all titles carrying this format. */
   shareOverall: number
-  /** shareInWinners ÷ shareOverall; > 1 means the format over-indexes among winners. */
+  /**
+   * Laplace-smoothed shareInWinners / shareOverall; > 1 means the format
+   * over-indexes among winners. Smoothing adds `alpha` pseudo-hits and `alpha`
+   * pseudo-misses to both shares, so one winner in five rows lifts a format to
+   * about 2.3, not 5.0.
+   */
   lift: number
+  /** Titles carrying this format. */
   count: number
+  /** Winning titles carrying this format. */
+  winners: number
+  /** Fewer than `minCount` titles carry the format: the lift is a guess. Thin formats sort after solid ones. */
+  thin: boolean
 }
 
-/** Which title formats over-index among the winners in a ranked set. */
-export function formatLift(rows: OutlierRow[]): FormatLift[] {
+export interface FormatLiftOptions {
+  /** Formats carried by fewer titles than this are flagged `thin` and ranked last. [house] Default 3. */
+  minCount?: number
+  /** Laplace pseudo-count applied to every share. Default 1. */
+  alpha?: number
+}
+
+/** [house] Default minCount for formatLift(); belongs in thresholds.ts as formatLiftMinCount. */
+export const FORMAT_LIFT_MIN_COUNT = 3
+
+/** Rows formatLift() needs: any shipped OutlierRow or OutlierRowV2 qualifies. */
+type LiftRow = { tier: OutlierTier; formats: ReadonlyArray<string> }
+
+/**
+ * Which title formats over-index among the winners in a ranked set.
+ *
+ * Nothing is dropped: a format carried by fewer than `minCount` titles is kept
+ * with `thin: true` and sorted after the solid formats, so a five-row scan still
+ * reports something and a 300-row scan is not led by a one-off.
+ */
+export function formatLift(rows: ReadonlyArray<LiftRow>, options: FormatLiftOptions = {}): FormatLift[] {
   if (rows.length === 0) return []
+  const minCount = options.minCount ?? FORMAT_LIFT_MIN_COUNT
+  const alpha = options.alpha ?? 1
   const winners = rows.filter((r) => r.tier !== 'normal')
   const counts = new Map<string, { all: number; winners: number }>()
   for (const row of rows) {
@@ -110,17 +225,22 @@ export function formatLift(rows: OutlierRow[]): FormatLift[] {
       counts.set(f, c)
     }
   }
+  const smooth = (hits: number, n: number): number => (hits + alpha) / (n + 2 * alpha)
   const lifts: FormatLift[] = []
   for (const [format, c] of counts) {
     const shareOverall = c.all / rows.length
     const shareInWinners = winners.length > 0 ? c.winners / winners.length : 0
+    const smoothedOverall = smooth(c.all, rows.length)
+    const smoothedWinners = winners.length > 0 ? smooth(c.winners, winners.length) : 0
     lifts.push({
       format,
       shareInWinners,
       shareOverall,
-      lift: shareOverall > 0 ? shareInWinners / shareOverall : 0,
+      lift: smoothedOverall > 0 ? smoothedWinners / smoothedOverall : 0,
       count: c.all,
+      winners: c.winners,
+      thin: c.all < minCount,
     })
   }
-  return lifts.sort((a, b) => b.lift - a.lift || b.count - a.count)
+  return lifts.sort((a, b) => Number(a.thin) - Number(b.thin) || b.lift - a.lift || b.count - a.count || a.format.localeCompare(b.format))
 }
