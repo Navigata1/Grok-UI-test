@@ -16,5 +16,6 @@ Ideas are borrowed formats plus your angle. Never brainstorm from a blank page.
 3. Produce 10 ideas. For each: the outlier it borrows from (multiplier), the format cue, the angle you add, a working title, a one-line thumbnail concept (one subject, three elements, three words), and the six axis scores from `channel-booster/playbook/idea-scorecard.md`.
 4. Score each with `npm run booster -- idea score "<idea>" --score "demand=..,packaging=..,fit=..,angle=..,payoff=..,feasibility=.."` and rank by total. At least two ideas must be yellow or red or the ranking is dishonest.
 5. Deliver a ranked table plus the top three as fully packaged briefs (title, thumbnail concept, promise, first payoff). Bank the yellows with their weakest axis named.
+6. Persist: `npm run booster -- bank add "<idea>" --score "demand=auto,..." --csv <csv> --promise ".."` banks an idea with its evidence (or `bank import <file.json>` for the AI engine's `--out`); `bank list` ranks the bank, sequels first. Approving an idea to green is the person's (`bank approve <id> --yes`).
 
 With an API key, `npm run booster -- ai idea-engine --niche ".." --channel ".." --csv <csv>` does steps 3-4 in one call; still show your work.

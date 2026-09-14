@@ -358,8 +358,8 @@ describe('promise check', () => {
 })
 
 describe('package build', () => {
-  it('says where it lands and keeps package review working', async () => {
-    await expect(main(['package', 'build', SLUG, ...common()])).rejects.toThrow(/package orchestrator/)
+  it('needs a promise (the full build is covered in package-build.test.ts) and keeps package review working', async () => {
+    await expect(main(['package', 'build', SLUG, ...common()])).rejects.toThrow(/--promise is required/)
     const j = await json(['package', 'review', '--title', 'I Lived Off a $300 Solar Generator for 30 Days', '--thumb-text', 'Day 30'])
     expect(j.verdict).toBe('pass')
   })

@@ -181,15 +181,15 @@ describe('runStage', () => {
 
   it('checks the evidence file for a human stage and never spawns', () => {
     const calls: string[][] = []
-    const before = runStage(wf, 'plan', { cwd: root, agent: 'jony', now: clock(), spawn: fakeSpawn(calls) })
-    expect(before).toMatchObject({ kind: 'human', evidence: 'shots.md', status: 'failed', dryRun: false })
-    expect(before.gate.detail).toMatch(/^FAIL: evidence file packages\/i-tried-30-days-of-cold-showers\/shots.md is missing/)
-    writeFileSync(path.join(pkg(wf), 'shots.md'), '- [ ] the thumbnail moment')
-    const after = runStage(wf, 'plan', { cwd: root, agent: 'jony', now: clock(), spawn: fakeSpawn(calls) })
+    const before = runStage(wf, 'production', { cwd: root, agent: 'jony', now: clock(), spawn: fakeSpawn(calls) })
+    expect(before).toMatchObject({ kind: 'human', evidence: 'footage.txt', status: 'failed', dryRun: false })
+    expect(before.gate.detail).toMatch(/^FAIL: evidence file packages\/i-tried-30-days-of-cold-showers\/footage.txt is missing/)
+    writeFileSync(path.join(pkg(wf), 'footage.txt'), 'shot list covered; thumbnail photos at the peak moment')
+    const after = runStage(wf, 'production', { cwd: root, agent: 'jony', now: clock(), spawn: fakeSpawn(calls) })
     expect(after.status).toBe('passed')
-    expect(after.gate.detail).toBe('ok: shots.md exists')
+    expect(after.gate.detail).toBe('ok: footage.txt exists')
     expect(calls).toEqual([])
-    expect(runStage(wf, 'plan', { cwd: root, dryRun: true, now: clock() }).status).toBe('dry-run')
+    expect(runStage(wf, 'production', { cwd: root, dryRun: true, now: clock() }).status).toBe('dry-run')
   })
 
   it('treats a stage without a run as a human stage with only its check', () => {

@@ -48,14 +48,15 @@ describe('generateWorkflow', () => {
   it('makes the agent stages booster commands with <slug> placeholders and the creative stages human with evidence files', () => {
     const wf = generateWorkflow('Test idea')
     const byId = Object.fromEntries(wf.stages.map((s) => [s.id, s]))
-    for (const id of ['demand', 'packaging', 'story', 'thumbnail', 'publish', 'review48', 'postmortem']) {
+    for (const id of ['demand', 'packaging', 'story', 'plan', 'thumbnail', 'publish', 'review48', 'postmortem']) {
       const run = byId[id].run!
       expect(run.kind).toBe('command')
       expect(run.command!.slice(0, 4)).toEqual(['npm', 'run', 'booster', '--'])
       expect(run.command!.join(' ')).toContain('<slug>')
       expect(run.evidence).toBeUndefined()
     }
-    expect(byId.plan.run).toEqual({ kind: 'human', artifact: 'shots.md', evidence: 'shots.md' })
+    expect(byId.plan.run).toEqual({ kind: 'command', command: ['npm', 'run', 'booster', '--', 'plan', 'shots', '<slug>', '--format', 'talking-head'], artifact: 'shots.md' })
+    expect(generateWorkflow('Test idea', { format: 'challenge' }).stages.find((s) => s.id === 'plan')!.run!.command!.slice(-1)).toEqual(['challenge'])
     expect(byId.production.run).toEqual({ kind: 'human', artifact: 'footage.txt', evidence: 'footage.txt' })
     expect(byId.edit.run).toEqual({ kind: 'human', artifact: 'cut.txt', evidence: 'cut.txt' })
     expect(byId.plan.check).toEqual({ kind: 'file-exists', path: 'shots.md' })
@@ -83,7 +84,8 @@ describe('generateWorkflow', () => {
   it('prints the resolved command and the machine check for every stage in the runbook', () => {
     const md = renderWorkflowMarkdown(generateWorkflow('Test idea'))
     expect(md).toContain('Run: `npm run booster -- package build test-idea`')
-    expect(md).toContain('Run: `human step; evidence: packages/test-idea/shots.md`')
+    expect(md).toContain('Run: `npm run booster -- plan shots test-idea --format talking-head`')
+    expect(md).toContain('Run: `human step; evidence: packages/test-idea/footage.txt`')
     expect(md).toContain('Check: story.json: hookScore >= 70 and story.json: promiseInFirst25Words == true')
     expect(md).toContain('workflow run test-idea --next --agent <name>')
     expect(md).not.toContain('<slug>')

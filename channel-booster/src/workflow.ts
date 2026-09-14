@@ -165,7 +165,7 @@ export function generateWorkflow(idea: string, options: { format?: WorkflowForma
         'Schedule the shoot so the ending is filmed before the open.',
       ],
       gate: 'Every payoff moment in the spine has a shot that shows it.',
-      run: human('shots.md'),
+      run: command('shots.md', 'plan', 'shots', slug, '--format', format),
       check: { kind: 'file-exists', path: 'shots.md' },
     },
     {

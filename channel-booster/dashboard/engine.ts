@@ -21,6 +21,7 @@ export { assemblePublish, checkPublish, renderPublishMarkdown, renderPublishChec
 export { judgeTest, renderJudgement, winnerLetter } from '../src/experiments.js'
 export { generateWorkflow, renderWorkflowMarkdown, weeklyCadence, buildCalendar, governCalendar, slugify, WORKFLOW_FORMATS } from '../src/workflow.js'
 export { baselineFrom, leverTally, ownOutliers, dueReads, mad, tierFor, renderLedgerMarkdown } from '../src/ledger-core.js'
+export { buildDirection, renderDirectionMarkdown, shotList, renderShotListMarkdown, returningTrendOf, neverAgainFrom } from '../src/direction.js'
 export { thresholds, tagged, DEFAULT_THRESHOLDS } from '../src/thresholds.js'
 export { BUCKET_HOURS, BUCKETS } from '../src/buckets.js'
 export { stableId } from '../src/schema-id.js'

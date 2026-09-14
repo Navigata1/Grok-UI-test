@@ -8,5 +8,7 @@ import { reviewModule } from './review.js'
 import { dataModule } from './data.js'
 import { publishModule } from './publish.js'
 import { aiModule } from './ai.js'
+import { directionModule } from './direction.js'
+import { learnModule } from './learn.js'
 
-export const MODULES: CommandModule[] = [dataModule, scanModule, ideasModule, packageModule, workflowModule, publishModule, reviewModule, aiModule]
+export const MODULES: CommandModule[] = [dataModule, scanModule, ideasModule, packageModule, workflowModule, directionModule, publishModule, reviewModule, learnModule, aiModule]

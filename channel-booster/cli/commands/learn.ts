@@ -1,0 +1,273 @@
+/**
+ * Commands: review due | run, brief, retro, rules compile | show.
+ *
+ * The scheduled half of the system (architecture 2.16 and 2.17). `review run`
+ * is what the six-hourly routine calls: ingest inbox/, diagnose every read
+ * that is due, record decisions, prepare swaps, write the day's JSON and a
+ * digest; with --slug and --bucket it is the workflow's review-48 and
+ * postmortem stage and writes packages/<slug>/review-<bucket>.json. `brief`
+ * is the Monday page. `retro` drafts the weekly retro and, with
+ * --accept-rule, is the only writer to playbook/*.md (human-only gate: it
+ * needs --yes). `rules compile` turns the ledger into
+ * playbook/00-learned-rules.md.
+ */
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { buildBrief, renderBriefMarkdown } from '../../src/brief.js'
+import { BUCKETS, type Bucket } from '../../src/buckets.js'
+import { readLedger } from '../../src/ledger.js'
+import { acceptRule, buildRetro, formatRuleLine, renderRetroMarkdown } from '../../src/retro.js'
+import { dueReviews, renderDigest, runReviews } from '../../src/review.js'
+import { compileRules, renderLearnedRules, smoothedWinRate, sortRules, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
+import { stableId, type RuleDoc } from '../../src/schema.js'
+import { bool, getProfile, getStore, list, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
+
+/** channel-booster/, where inbox/ and playbook/ live by default. */
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+const USAGE_REVIEW = 'booster review due [--now ISO] | booster review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>] [--now ISO]'
+const USAGE_BRIEF = 'booster brief [--week | --today] [--inbox dir] [--out brief.md] [--now ISO]'
+const USAGE_RETRO = 'booster retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md] [--now ISO]'
+const USAGE_ACCEPT = 'booster retro --accept-rule "<rule>" --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes'
+const USAGE_RULES = 'booster rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--playbook dir] [--agent <name>] | booster rules show'
+
+function inboxFrom(flags: Flags): string {
+  return path.resolve(str(flags, 'inbox') ?? path.join(ROOT, 'inbox'))
+}
+
+function playbookFrom(flags: Flags): string {
+  return path.resolve(str(flags, 'playbook') ?? path.join(ROOT, 'playbook'))
+}
+
+function sourceFrom(flags: Flags): string {
+  const agent = str(flags, 'agent')
+  return agent ? `agent:${agent}` : 'cli'
+}
+
+function bucketFrom(flags: Flags, usage: string): Bucket | undefined {
+  const v = str(flags, 'bucket')
+  if (v === undefined) return undefined
+  if (!(BUCKETS as readonly string[]).includes(v)) throw new Error(`--bucket must be one of ${BUCKETS.join('|')}, got "${v}". Usage: ${usage}`)
+  return v as Bucket
+}
+
+function writeText(file: string, body: string): void {
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, body.endsWith('\n') ? body : `${body}\n`)
+}
+
+// ---------------------------------------------------------------- review
+
+async function reviewDue(flags: Flags): Promise<number> {
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const due = dueReviews(store, now)
+  const value = { now: now.toISOString(), due: due.map((d) => ({ slug: d.slug, bucket: d.bucket, overdueHours: d.overdueHours, title: d.row.title, videoId: d.row.videoId })) }
+  out(value, flags, () => {
+    if (due.length === 0) return renderDigest({ date: now.toISOString().slice(0, 10), reviews: [], awaitingData: [] }, { rows: readLedger(store), now }).split('\n')[2] ?? 'Nothing due.'
+    return [
+      `${due.length} read${due.length === 1 ? '' : 's'} due:`,
+      ...due.map((d) => `  ${d.slug} at ${d.bucket} h, ${d.overdueHours} h overdue · ${d.row.title}`),
+      '',
+      'Drop the Studio export in inbox/ and run booster review run, or type the numbers: booster set <slug> --bucket <b> --impressions N --ctr X --avp Y',
+    ].join('\n')
+  })
+  return 0
+}
+
+async function reviewRun(flags: Flags): Promise<number> {
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const profile = getProfile(flags)
+  const slug = str(flags, 'slug')
+  const bucket = bucketFrom(flags, USAGE_REVIEW)
+  if (bucket && !slug) throw new Error(`--bucket needs --slug. Usage: ${USAGE_REVIEW}`)
+  const inboxDir = inboxFrom(flags)
+  const root = path.resolve(str(flags, 'root') ?? process.cwd())
+  const result = runReviews(store, {
+    now,
+    profile,
+    inboxDir: existsSync(inboxDir) ? inboxDir : undefined,
+    outDir: path.resolve(str(flags, 'out') ?? path.join(store.root, 'reviews')),
+    packagesDir: path.join(root, 'packages'),
+    slug,
+    bucket,
+    source: sourceFrom(flags),
+  })
+  // The workflow stages gate on packages/<slug>/review-<bucket>.json carrying the bucket.
+  let stageFile: string | undefined
+  if (slug && bucket) {
+    const review = result.reviews.find((r) => r.slug === slug && r.bucket === bucket) ?? null
+    stageFile = path.join(root, 'packages', slug, `review-${bucket}.json`)
+    writeText(stageFile, JSON.stringify({ slug, bucket, date: result.date, reviewedAt: now.toISOString(), review, digest: result.digest }, null, 2))
+  }
+  out({ ...result, stageFile: stageFile ?? null }, flags, () => [result.digest, ...(result.outFile ? [`Wrote ${result.outFile}`] : []), ...(stageFile ? [`Wrote ${stageFile}`] : [])].join('\n'))
+  return 0
+}
+
+// ---------------------------------------------------------------- brief
+
+async function runBrief(flags: Flags): Promise<number> {
+  if (bool(flags, 'week') && bool(flags, 'today')) throw new Error(`pick --week or --today, not both. Usage: ${USAGE_BRIEF}`)
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const profile = getProfile(flags)
+  const inboxDir = inboxFrom(flags)
+  const inboxFiles = existsSync(inboxDir) ? readdirSync(inboxDir).filter((f) => !f.startsWith('.')) : []
+  const brief = buildBrief(store, { now, profile, window: bool(flags, 'today') ? 'today' : 'week', inboxFiles })
+  const md = renderBriefMarkdown(brief)
+  const outFile = str(flags, 'out')
+  if (outFile) writeText(path.resolve(outFile), md)
+  out(brief, flags, () => (outFile ? `${md.trimEnd()}\n\nWrote ${path.resolve(outFile)}` : md))
+  return 0
+}
+
+// ---------------------------------------------------------------- retro
+
+/** `--since 7d`, `--since 30d` or `--since YYYY-MM-DD` (UTC midnight); default seven days back. */
+function sinceFrom(flags: Flags, now: Date): Date {
+  const raw = str(flags, 'since') ?? '7d'
+  const days = /^(\d+)d$/.exec(raw)
+  if (days) return new Date(now.getTime() - Number(days[1]) * 86_400_000)
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw)
+  if (Number.isNaN(d.getTime())) throw new Error(`--since must be Nd (7d, 30d) or an ISO date, got "${raw}". Usage: ${USAGE_RETRO}`)
+  return d
+}
+
+/** `--into` as a path inside the playbook folder: absolute, `playbook/x.md`, `channel-booster/playbook/x.md` or bare `x.md`. */
+function intoFrom(into: string, playbookDir: string): string {
+  if (path.isAbsolute(into)) return path.relative(playbookDir, into)
+  const fromCwd = path.resolve(into)
+  const rel = path.relative(playbookDir, fromCwd)
+  if (existsSync(fromCwd) && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel
+  return into.replace(/^(?:\.\/)?(?:channel-booster\/)?playbook\//, '')
+}
+
+async function retroAccept(rule: string, flags: Flags): Promise<number> {
+  const into = need(flags, 'into', USAGE_ACCEPT)
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const playbookDir = playbookFrom(flags)
+  const file = intoFrom(into, playbookDir)
+  const slugs = list(flags, 'slugs') ?? []
+  const by = str(flags, 'by') ?? 'human'
+  const text = rule.replace(/\s+/g, ' ').trim()
+  if (!text) throw new Error(`a rule needs text. Usage: ${USAGE_ACCEPT}`)
+  const target = path.join(playbookDir, file)
+  const line = formatRuleLine(text, slugs, now)
+  const id = stableId('rule', text)
+  const plan = { action: 'accept-rule', file: target, line, ruleId: id, acceptedBy: by, applied: false, needs: '--yes' }
+  if (!bool(flags, 'yes')) {
+    out(plan, flags, () => [
+      `About to append to ${target}:`,
+      `  ${line}`,
+      `and record rules/${id} as accepted by ${by} (protected from booster rules compile).`,
+      'Accepting a playbook rule is a human-only decision (AGENTS.md).',
+    ].join('\n'))
+    throw new Error('nothing written. A person re-runs with --yes to accept the rule.')
+  }
+  const written = acceptRule(playbookDir, file, text, { slugs, now })
+  const doc: RuleDoc = {
+    id,
+    rule: text,
+    tests: 0,
+    wins: 0,
+    confidence: 1,
+    status: 'promoted',
+    slugs,
+    acceptedBy: by,
+    pinned: false,
+    updatedAt: now.toISOString(),
+    source: sourceFrom(flags),
+  }
+  const existing = store.get('rules', id)
+  store.upsert('rules', existing ? { ...existing, rule: text, status: 'promoted', slugs: [...new Set([...existing.slugs, ...slugs])], acceptedBy: by, updatedAt: now.toISOString() } : doc)
+  out({ ...plan, applied: true, written }, flags, () => [`Accepted into ${written}:`, `  ${line}`, `Recorded rules/${id} (accepted by ${by}); booster rules compile keeps it.`].join('\n'))
+  return 0
+}
+
+async function runRetro(flags: Flags): Promise<number> {
+  const rule = str(flags, 'accept-rule')
+  if (rule !== undefined) return retroAccept(rule, flags)
+  if (flags['accept-rule'] === true) throw new Error(`--accept-rule needs the rule text. Usage: ${USAGE_ACCEPT}`)
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const retro = buildRetro(store, { since: sinceFrom(flags, now), now, profile: getProfile(flags) })
+  const md = renderRetroMarkdown(retro)
+  const outFile = str(flags, 'out')
+  if (outFile) writeText(path.resolve(outFile), md)
+  out(retro, flags, () => (outFile ? `${md.trimEnd()}\n\nWrote ${path.resolve(outFile)}` : md))
+  return 0
+}
+
+// ---------------------------------------------------------------- rules
+
+function ruleLine(r: RuleDoc): string {
+  const tag = r.status === 'pinned' || r.pinned ? ' [pinned]' : r.acceptedBy ? ` [accepted by ${r.acceptedBy}]` : ''
+  return `  ${r.status.padEnd(9)} ${r.rule}${tag} (n=${r.tests}, win rate ${Math.round(smoothedWinRate(r.wins, r.tests) * 100)}%, confidence ${Math.round(r.confidence * 100)}%)`
+}
+
+async function rulesCompile(flags: Flags): Promise<number> {
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const options = {
+    now,
+    halfLifeDays: num(flags, 'half-life'),
+    promoteTests: num(flags, 'promote-tests'),
+    promoteWinRate: num(flags, 'promote-win-rate'),
+    retireWinRate: num(flags, 'retire-win-rate'),
+    source: sourceFrom(flags),
+  }
+  for (const [key, flagName] of [['halfLifeDays', 'half-life'], ['promoteTests', 'promote-tests'], ['promoteWinRate', 'promote-win-rate'], ['retireWinRate', 'retire-win-rate']] as const) {
+    if (options[key] === undefined && str(flags, flagName) !== undefined) throw new Error(`--${flagName} must be a number, got "${str(flags, flagName)}". Usage: ${USAGE_RULES}`)
+  }
+  const result = compileRules(store, options)
+  const content = renderLearnedRules(result.rules, options)
+  const written = writeLearnedRules(playbookFrom(flags), content)
+  out({ ...result, written, content }, flags, () => [
+    `Compiled ${result.rules.length} rule${result.rules.length === 1 ? '' : 's'} from ${result.tested} tested row${result.tested === 1 ? '' : 's'}: ${result.promoted.length} promoted, ${result.retired.length} retired, ${result.rules.length - result.promoted.length - result.retired.length} under test.`,
+    ...(result.changes.length ? ['Changes:', ...result.changes.map((c) => `  ${c.lever}: ${c.from} -> ${c.to}`)] : ['No status changes since the last compile.']),
+    ...result.promoted.map(ruleLine),
+    `Wrote ${written} (${content.length} chars); every booster ai engine loads it after docs/02.`,
+  ].join('\n'))
+  return 0
+}
+
+async function rulesShow(flags: Flags): Promise<number> {
+  const store = getStore(flags)
+  const rules = sortRules(store.read('rules'))
+  out({ rules, file: path.join(playbookFrom(flags), LEARNED_RULES_FILE) }, flags, () => (rules.length ? rules.map(ruleLine).join('\n') : `No rules yet: run booster rules compile once the ledger has 7-day reads with levers, or accept one with ${USAGE_ACCEPT}`))
+  return 0
+}
+
+export const learnModule: CommandModule = {
+  verbs: ['review', 'brief', 'retro', 'rules'],
+  help: [
+    'review due [--now ISO]                                             reads whose hour mark has passed with no numbers',
+    'review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>]   ingest inbox/, diagnose due reads, decide, prepare swaps; writes data/reviews/<date>.json (+ packages/<slug>/review-<bucket>.json with --slug)',
+    'brief [--week | --today] [--inbox dir] [--out brief.md]            the Monday page: reads due, decisions awaiting, tests to close, rule changes, alerts, next three',
+    'retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md]                 the weekly retro: published, levers, winners, losers, candidate rule, overrides',
+    'retro --accept-rule ".." --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes   accept a rule into a playbook file (human-only gate; the only writer to playbook/*.md)',
+    'rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--agent <name>]   compile the ledger into playbook/00-learned-rules.md',
+    'rules show                                                         every rule in the store with status, n, win rate and confidence',
+  ],
+  async run(cmd, sub, _rest, flags) {
+    if (cmd === 'review') {
+      if (sub === 'due') return reviewDue(flags)
+      if (sub === 'run') return reviewRun(flags)
+      throw new Error(`usage: ${USAGE_REVIEW}`)
+    }
+    if (cmd === 'brief') {
+      if (sub !== undefined) throw new Error(`usage: ${USAGE_BRIEF}`)
+      return runBrief(flags)
+    }
+    if (cmd === 'retro') {
+      if (sub !== undefined && sub !== 'show') throw new Error(`usage: ${USAGE_RETRO} | ${USAGE_ACCEPT}`)
+      return runRetro(flags)
+    }
+    if (sub === 'compile') return rulesCompile(flags)
+    if (sub === 'show' || sub === undefined) return rulesShow(flags)
+    throw new Error(`usage: ${USAGE_RULES}`)
+  },
+}

@@ -35,6 +35,7 @@ export type TitleBatch = z.infer<typeof TitleBatch>
 export const ThumbnailBatch = z.object({
   concepts: z.array(z.object({
     name: z.string(),
+    lever: z.string().describe('the one lever this concept pulls: result, stakes, curiosity, contrast or identity; the A/B pair must pull two different ones'),
     focalSubject: z.string(),
     emotion: z.string(),
     elements: z.array(z.string()).max(4),

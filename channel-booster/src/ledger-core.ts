@@ -79,9 +79,9 @@ export function baselineFrom(rows: LedgerRow[], options: BaselineOptions = {}): 
 export function leverTally(rows: LedgerRow[]): Array<{ lever: string; count: number; slugs: string[] }> {
   const tally = new Map<string, string[]>()
   for (const r of rows) {
-    const levers = new Set<string>([...(r.hypothesis?.levers ?? []), ...(r.lever ? [r.lever] : [])])
-    for (const l of levers) {
-      const key = l.trim().toLowerCase()
+    // Normalise before the per-row Set: a lever line and a hypothesis lever that differ only in case are one test, not two.
+    const levers = new Set<string>([...(r.hypothesis?.levers ?? []), ...(r.lever ? [r.lever] : [])].map((l) => l.trim().toLowerCase()))
+    for (const key of levers) {
       if (!key) continue
       tally.set(key, [...(tally.get(key) ?? []), r.slug])
     }

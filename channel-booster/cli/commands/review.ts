@@ -21,10 +21,12 @@ import { diagnose, type DiagnosisMode, type DiagnosisV2, type PostMortemInputV2 
 import { baselineInputFrom, describeBaselineInput, diagnoseBaseline } from '../../src/profile.js'
 import { describeRepackage, prepareRepackage, type PackagedThumbnail, type PackagedTitle, type RepackagePackage } from '../../src/repackage.js'
 import type { LedgerRead, ProfileDoc } from '../../src/schema.js'
-import { bool, getProfile, getStore, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
+import { bool, getProfile, getStore, need, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_POSTMORTEM = 'booster postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]'
 const USAGE_DECIDE = 'booster decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]'
+const USAGE_APPROVE = 'booster decide approve <slug> --bucket 48|168|672 --by <name> --yes [--now ISO]'
+const USAGE_APPLY = 'booster decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir] [--now ISO]'
 const USAGE_PREPARE = 'booster repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]'
 
 const ALL_BUCKETS: readonly Bucket[] = ['24', '48', '168', '672']
@@ -151,6 +153,98 @@ async function runDecide(flags: Flags): Promise<number> {
   return 0
 }
 
+/** The recorded decision for a slug at a bucket, or the command that records one. */
+function recordedDecision(store: ReturnType<typeof getStore>, slug: string, bucket: Bucket) {
+  const doc = store.get('decisions', `${slug}:${bucket}`)
+  if (!doc) throw new Error(`no recorded decision for "${slug}" at ${bucket} h: run booster decide --slug ${slug} --bucket ${bucket} --record (or booster review run) first`)
+  return doc
+}
+
+/**
+ * A person approves a recorded decision (human-only gate 3). Prints what it
+ * is about to stamp and needs --yes as well as --by; the decision itself is
+ * never changed here, only who stood behind it and when.
+ */
+async function runDecideApprove(slug: string | undefined, flags: Flags): Promise<number> {
+  if (!slug) throw new Error(`usage: ${USAGE_APPROVE}`)
+  const bucket = bucketFrom(flags, DECIDE_BUCKETS, USAGE_APPROVE)
+  if (!bucket) throw new Error(`--bucket is required. Usage: ${USAGE_APPROVE}`)
+  const by = need(flags, 'by', USAGE_APPROVE)
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const doc = recordedDecision(store, slug, bucket)
+  if (doc.appliedAt) throw new Error(`decisions/${doc.id} was applied at ${doc.appliedAt}; nothing to approve`)
+  const plan = { action: 'approve', id: doc.id, decision: doc.decision, previouslyApprovedBy: doc.approvedBy ?? null, by, applied: false, needs: '--yes' }
+  if (!bool(flags, 'yes')) {
+    out(plan, flags, () => [`About to approve decisions/${doc.id} (${doc.decision}${doc.flipCondition ? `; flips when ${doc.flipCondition}` : ''}) as ${by}.`, 'Approving a decision is a human-only gate: the person takes responsibility for the swap or the sequel it starts.'].join('\n'))
+    throw new Error(`nothing written. A person re-runs with --yes to approve ${doc.id}.`)
+  }
+  const updated = store.upsert('decisions', { ...doc, approvedBy: by, approvedAt: now.toISOString(), updatedAt: now.toISOString(), source: 'cli' })
+  out({ ...plan, applied: true, decision: updated }, flags, () => [
+    `Approved decisions/${doc.id}: ${doc.decision} by ${by} at ${updated.approvedAt}.`,
+    ...(doc.decision === 'REPACKAGE' || doc.decision === 'RE-TEST-TITLE' ? [`Next: booster repackage prepare ${slug} --bucket ${bucket} (if not yet), swap in Studio, then booster decide apply ${slug} --bucket ${bucket} --by ${by} --yes.`] : []),
+  ].join('\n'))
+  return 0
+}
+
+/** packages/<slug>/repackage.json as `repackage prepare` writes it; only the fields the apply stamp touches. */
+interface RepackageFile {
+  decisionId?: string
+  applied?: boolean
+  appliedAt?: string
+  [key: string]: unknown
+}
+
+/**
+ * A person records that a decision was carried out (human-only gate 4): the
+ * swap made in Studio, the sequel briefed, the idea parked. Stamps appliedAt
+ * (and approval by the same person when it was missing), marks the ledger
+ * row repackagedAt for REPACKAGE and RE-TEST-TITLE so later reads stay out
+ * of the baselines, and flips packages/<slug>/repackage.json to applied.
+ */
+async function runDecideApply(slug: string | undefined, flags: Flags): Promise<number> {
+  if (!slug) throw new Error(`usage: ${USAGE_APPLY}`)
+  const bucket = bucketFrom(flags, DECIDE_BUCKETS, USAGE_APPLY)
+  if (!bucket) throw new Error(`--bucket is required. Usage: ${USAGE_APPLY}`)
+  const by = need(flags, 'by', USAGE_APPLY)
+  const now = nowFrom(flags)
+  const store = getStore(flags)
+  const doc = recordedDecision(store, slug, bucket)
+  if (doc.appliedAt) throw new Error(`decisions/${doc.id} was already applied at ${doc.appliedAt}`)
+  if (doc.decision === 'WAIT') throw new Error(`decisions/${doc.id} is WAIT: there is nothing to apply until the next read`)
+  const swaps = doc.decision === 'REPACKAGE' || doc.decision === 'RE-TEST-TITLE'
+  const row = store.get('ledger', slug)
+  const planFile = path.join(rootFrom(flags), 'packages', slug, 'repackage.json')
+  const plan = { action: 'apply', id: doc.id, decision: doc.decision, by, approvedBy: doc.approvedBy ?? by, stampsRepackagedAt: swaps && Boolean(row), repackageFile: swaps && existsSync(planFile) ? planFile : null, applied: false, needs: '--yes' }
+  if (!bool(flags, 'yes')) {
+    out(plan, flags, () => [
+      `About to record decisions/${doc.id} (${doc.decision}) as applied by ${by}${doc.approvedBy ? '' : ' (and approved, since no approval was recorded)'}.`,
+      ...(swaps ? [row ? `The ledger row ${slug} gets repackagedAt = ${now.toISOString()}: its later reads leave the baselines.` : `No ledger row for ${slug}; nothing stamped there.`] : []),
+      ...(plan.repackageFile ? [`${plan.repackageFile} is marked applied.`] : []),
+      'Applying a decision is a human-only gate: the swap, the sequel or the park happened in the real world first.',
+    ].join('\n'))
+    throw new Error(`nothing written. A person re-runs with --yes to record ${doc.id} as applied.`)
+  }
+  const stamp = now.toISOString()
+  const updated = store.upsert('decisions', { ...doc, approvedBy: doc.approvedBy ?? by, approvedAt: doc.approvedAt ?? stamp, appliedAt: stamp, updatedAt: stamp, source: 'cli' })
+  if (swaps && row) store.upsert('ledger', { ...row, repackagedAt: stamp, updatedAt: stamp, source: 'cli' })
+  if (plan.repackageFile) {
+    try {
+      const raw = JSON.parse(readFileSync(plan.repackageFile, 'utf8')) as RepackageFile
+      if (raw.decisionId === undefined || raw.decisionId === doc.id) writeFileSync(plan.repackageFile, `${JSON.stringify({ ...raw, applied: true, appliedAt: stamp, appliedBy: by }, null, 2)}\n`)
+    } catch {
+      warn(`${plan.repackageFile} is not valid JSON; left untouched`)
+    }
+  }
+  out({ ...plan, applied: true, decision: updated }, flags, () => [
+    `Applied decisions/${doc.id}: ${doc.decision} by ${by} at ${stamp}.`,
+    ...(swaps && row ? [`Ledger row ${slug}: repackagedAt = ${stamp}.`] : []),
+    ...(plan.repackageFile ? [`${plan.repackageFile}: applied.`] : []),
+    doc.decision === 'SEQUEL' || doc.decision === 'EXPAND' ? `Next: booster bank sequels banks the follow-up; the 168 h lever on ${slug} feeds booster rules compile.` : `Next read decides whether it flipped: booster review due.`,
+  ].join('\n'))
+  return 0
+}
+
 /** The fields of packages/<slug>/package.json the repackage needs, as the package builder writes them (every field may be missing). */
 interface PackageFile {
   chosenTitle?: string
@@ -215,11 +309,18 @@ export const reviewModule: CommandModule = {
   help: [
     'postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]   diagnose typed Studio numbers; profile baselines unless --baseline-* is typed',
     'decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]         diagnose a ledger read with leave-one-out baselines and decide; --record stores decisions/<slug>:<bucket>',
+    'decide approve <slug> --bucket 48|168|672 --by <name> --yes            a person stands behind a recorded decision (human-only gate 3)',
+    'decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir]  record that it was carried out; stamps repackagedAt on the ledger row for a swap (human-only gate 4)',
     'repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]   the swap plan from the recorded decision and package.json; prepares only, never applies',
   ],
   async run(cmd, sub, rest, flags) {
     if (cmd === 'postmortem') return runPostmortem(flags)
-    if (cmd === 'decide') return runDecide(flags)
+    if (cmd === 'decide') {
+      if (sub === 'approve') return runDecideApprove(rest[0] ?? str(flags, 'slug'), flags)
+      if (sub === 'apply') return runDecideApply(rest[0] ?? str(flags, 'slug'), flags)
+      if (sub !== undefined) throw new Error(`unknown decide command "${sub}". Usage: ${USAGE_DECIDE} | ${USAGE_APPROVE} | ${USAGE_APPLY}`)
+      return runDecide(flags)
+    }
     if (cmd === 'repackage') {
       if (sub === 'prepare') return runRepackagePrepare(rest[0] ?? str(flags, 'slug'), flags)
       throw new Error(`unknown repackage command "${sub ?? ''}". Usage: ${USAGE_PREPARE}`)

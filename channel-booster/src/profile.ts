@@ -221,7 +221,7 @@ export function refreshBaselines(profile: ProfileDoc, rows: LedgerRow[], options
   const baselines168 = baselineFrom(rows, { ...common, bucket: '168' })
   const shifted = shiftedMetrics(b48, previous)
   const baselines48: Baselines = { ...b48, shift: shifted.length > 0 }
-  const next = parseProfile({ ...profile, baselines: baselines48, previousBaselines: previous, updatedAt: options.now.toISOString() }, 'profile refresh')
+  const next = parseProfile({ ...profile, baselines: baselines48, baselines168, previousBaselines: previous, updatedAt: options.now.toISOString() }, 'profile refresh')
   return { profile: next, baselines48, baselines168, previous, shift: baselines48.shift, shifted }
 }
 

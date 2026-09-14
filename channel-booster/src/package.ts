@@ -163,6 +163,8 @@ export interface FixContext<T> {
   round: number
   fixes: string[]
   previous?: T[]
+  /** The round's chosen title (concepts hook only), so concepts are designed against the title the gates score. */
+  title?: string
 }
 
 export interface GenerateHooks {
@@ -599,7 +601,7 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
     const rawTitles = hooks.titles ? await hooks.titles({ round, fixes, previous: prevTitles }) : offlineTitles(input)
     const titles = rankTitles(rawTitles)
     const chosenTitle = titles[0]?.title ?? ''
-    const rawConcepts = hooks.concepts ? await hooks.concepts({ round, fixes, previous: prevConcepts }) : offlineConcepts(input, chosenTitle)
+    const rawConcepts = hooks.concepts ? await hooks.concepts({ round, fixes, previous: prevConcepts, title: chosenTitle }) : offlineConcepts(input, chosenTitle)
     ev = evaluate(titles, rawConcepts, input.promise, input.signature)
     prevTitles = rawTitles
     prevConcepts = rawConcepts
