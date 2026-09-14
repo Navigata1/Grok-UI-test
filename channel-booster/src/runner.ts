@@ -15,6 +15,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { WorkflowStatusDoc } from './schema.js'
 import type { Store } from './store.js'
 import type { GatePredicate, Workflow, WorkflowStage } from './types.js'
@@ -99,8 +100,29 @@ export interface SpawnOutcome {
 
 export type SpawnFn = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => SpawnOutcome
 
+/** The repository root (two levels above channel-booster/src). */
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const BOOSTER_PREFIX = ['npm', 'run', 'booster', '--']
+
+/**
+ * `npm run booster -- ...` only works with the repository's package.json in
+ * the working directory. A stage run from `--root <dir>` keeps that argv as
+ * its record but is spawned as the CLI by absolute path (node + tsx +
+ * cli/booster.ts) with `--root <dir>` appended, so every stage command
+ * resolves packages/<slug>/ under the same root the gate checks. Any other
+ * command is spawned as given.
+ */
+export function toSpawnable(command: string, args: string[], root: string): { file: string; args: string[] } {
+  const argv = [command, ...args]
+  if (argv.length < BOOSTER_PREFIX.length || BOOSTER_PREFIX.some((a, i) => argv[i] !== a)) return { file: command, args }
+  const tsx = path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
+  const cli = path.join(REPO_ROOT, 'channel-booster', 'cli', 'booster.ts')
+  return { file: process.execPath, args: [tsx, cli, ...argv.slice(BOOSTER_PREFIX.length), '--root', root] }
+}
+
 function defaultSpawn(command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }): SpawnOutcome {
-  const r = spawnSync(command, args, { cwd: options.cwd, env: options.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  const spawnable = toSpawnable(command, args, options.cwd)
+  const r = spawnSync(spawnable.file, spawnable.args, { cwd: options.cwd, env: options.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error }
 }
 
@@ -115,6 +137,7 @@ export interface RunStageOptions {
   now?: () => Date
   /** Process spawner, injectable for tests. Defaults to node:child_process spawnSync. */
   spawn?: SpawnFn
+  /** Environment for spawned stage commands; `booster workflow run` passes BOOSTER_DATA and BOOSTER_PROFILE so stages share its store and profile. */
   env?: NodeJS.ProcessEnv
 }
 

@@ -211,6 +211,8 @@ export const WorkflowStatusDoc = z.object({
   slug: z.string(),
   idea: z.string(),
   format: z.string(),
+  /** The promise the package must keep; `package build <slug>` reads it when the idea is not banked with one. */
+  promise: z.string().optional(),
   stages: z.array(z.object({
     id: z.string(),
     status: z.enum(['pending', 'running', 'passed', 'failed', 'overridden']).default('pending'),

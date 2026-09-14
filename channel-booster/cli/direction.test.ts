@@ -110,7 +110,12 @@ describe('booster direction', () => {
     const d = await json(['direction', '--scan', scan])
     expect(d.scan).toBe(scan)
     expect(d.provenFormats.map((f: any) => f.format)).toContain('comparison')
-    expect(await fails(['direction', '--scan', path.join(tmp, 'nope.json')])).toMatch(/does not exist/)
+    // A bare `audit --save` lands in the store: "data/last-scan.json" from the repo root resolves there too.
+    mkdirSync(data, { recursive: true })
+    writeFileSync(path.join(data, 'last-scan.json'), JSON.stringify({ scannedAt: NOW, sinceDays: 90, ranked }))
+    expect((await json(['direction', '--scan', 'data/last-scan.json'])).scan).toBe(path.join(data, 'last-scan.json'))
+    expect((await json(['direction', '--scan', 'last-scan.json'])).scan).toBe(path.join(data, 'last-scan.json'))
+    expect(await fails(['direction', '--scan', path.join(tmp, 'nope.json')])).toMatch(/does not exist \(looked at/)
     writeFileSync(scan, '{"rows": []}')
     expect(await fails(['direction', '--scan', scan])).toMatch(/not a saved scan/)
     expect(await fails(['direction', 'extra'])).toMatch(/usage: booster direction/)

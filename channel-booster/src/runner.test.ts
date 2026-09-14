@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyStageResult, evaluateGate, findStage, nextRunnable, overrideStage, packageDir, runNext, runStage, startWorkflow, type SpawnFn, type StageResult } from './runner.js'
+import { applyStageResult, evaluateGate, findStage, nextRunnable, overrideStage, packageDir, runNext, runStage, startWorkflow, toSpawnable, type SpawnFn, type StageResult } from './runner.js'
 import { openStore, type Store } from './store.js'
 import type { GatePredicate, Workflow } from './types.js'
 import { generateWorkflow } from './workflow.js'
@@ -302,5 +302,16 @@ describe('runNext', () => {
     const end = runNext(store, wf, { cwd: root, now: clock(), spawn })
     expect(end.done).toBe(true)
     expect(end.result).toBeUndefined()
+  })
+})
+
+describe('toSpawnable', () => {
+  it('runs a booster stage as the CLI by absolute path with --root, and leaves other commands alone', () => {
+    const booster = toSpawnable('npm', ['run', 'booster', '--', 'package', 'build', 'my-slug'], '/tmp/somewhere')
+    expect(booster.file).toBe(process.execPath)
+    expect(booster.args.slice(0, 2).map((a) => a.replace(/\\/g, '/'))).toEqual([expect.stringMatching(/node_modules\/tsx\/dist\/cli\.mjs$/), expect.stringMatching(/channel-booster\/cli\/booster\.ts$/)])
+    expect(booster.args.slice(2)).toEqual(['package', 'build', 'my-slug', '--root', '/tmp/somewhere'])
+    expect(toSpawnable('node', ['-e', 'process.exit(0)'], '/tmp')).toEqual({ file: 'node', args: ['-e', 'process.exit(0)'] })
+    expect(toSpawnable('npm', ['run'], '/tmp')).toEqual({ file: 'npm', args: ['run'] })
   })
 })

@@ -61,6 +61,22 @@ async function createWorkflow(extra: string[] = []): Promise<void> {
   expect(code).toBe(0)
 }
 
+describe('booster workflow promise', () => {
+  it('stores --promise on the status document, takes a banked idea\'s promise, and warns when there is none', async () => {
+    const bare = await run(['workflow', IDEA, '--out', path.join(tmp, 'packages'), ...base()])
+    expect(bare.err).toMatch(/no promise for empty-sprinter-to-camper-in-90-days/)
+    expect(openStore(data).get('workflows', SLUG)!.promise).toBeUndefined()
+    const typed = await run(['workflow', IDEA, '--promise', 'a road-ready camper in 90 days, every cost shown', '--out', path.join(tmp, 'packages'), ...base()])
+    expect(typed.err).not.toMatch(/no promise/)
+    expect(openStore(data).get('workflows', SLUG)!.promise).toBe('a road-ready camper in 90 days, every cost shown')
+    expect(openStore(data).get('workflows', SLUG)!.stages.every((s) => s.status === 'pending')).toBe(true)
+    await run(['bank', 'add', 'Living in the camper for a month', '--score', 'demand=4,packaging=4,fit=4,angle=4,payoff=4,feasibility=4', '--promise', 'thirty nights in the camper, nothing hidden', ...base()])
+    const banked = await run(['workflow', 'Living in the camper for a month', '--out', path.join(tmp, 'packages'), ...base()])
+    expect(banked.err).not.toMatch(/no promise/)
+    expect(openStore(data).get('workflows', 'living-in-the-camper-for-a-month')!.promise).toBe('thirty nights in the camper, nothing hidden')
+  })
+})
+
 function runFlags(extra: string[]): string[] {
   return ['workflow', 'run', SLUG, '--root', tmp, ...base(), ...extra]
 }

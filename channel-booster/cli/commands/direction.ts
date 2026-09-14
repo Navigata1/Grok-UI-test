@@ -56,11 +56,17 @@ function scanRows(file: string): ScanRowLike[] {
 async function runDirection(flags: Flags): Promise<number> {
   const profile = getProfile(flags)
   const store = getStore(flags)
-  const scanFile = str(flags, 'scan')
-  if (scanFile !== undefined && !existsSync(scanFile)) throw new Error(`--scan ${scanFile} does not exist. Usage: ${USAGE_DIRECTION}`)
-  const ownScan = scanFile ? scanRows(path.resolve(scanFile)) : undefined
+  const scanArg = str(flags, 'scan')
+  let scanFile: string | undefined
+  if (scanArg !== undefined) {
+    // A bare `--save` writes <store>/last-scan.json, so "data/last-scan.json" from the repo root means the store copy too.
+    const candidates = [...new Set([path.resolve(scanArg), path.resolve(store.root, scanArg), path.resolve(store.root, path.basename(scanArg))])]
+    scanFile = candidates.find((f) => existsSync(f))
+    if (!scanFile) throw new Error(`--scan ${scanArg} does not exist (looked at ${candidates.join(', ')}); write one with booster audit <csv> --save. Usage: ${USAGE_DIRECTION}`)
+  }
+  const ownScan = scanFile ? scanRows(scanFile) : undefined
   const direction = buildDirection({ profile, ledgerRows: readLedger(store), ownScan, ideas: store.read('ideas') })
-  out({ scan: scanFile ? path.resolve(scanFile) : null, ...direction }, flags, () => renderDirectionMarkdown(direction))
+  out({ scan: scanFile ?? null, ...direction }, flags, () => renderDirectionMarkdown(direction))
   return 0
 }
 

@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { buildBrief, renderBriefMarkdown } from '../../src/brief.js'
 import { BUCKETS, type Bucket } from '../../src/buckets.js'
 import { readLedger } from '../../src/ledger.js'
-import { acceptRule, buildRetro, formatRuleLine, renderRetroMarkdown } from '../../src/retro.js'
+import { acceptRule, buildRetro, formatRuleLine, renderRetroMarkdown, resolvePlaybookFile } from '../../src/retro.js'
 import { dueReviews, renderDigest, runReviews } from '../../src/review.js'
 import { compileRules, renderLearnedRules, smoothedWinRate, sortRules, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
 import { stableId, type RuleDoc } from '../../src/schema.js'
@@ -40,9 +40,12 @@ function playbookFrom(flags: Flags): string {
   return path.resolve(str(flags, 'playbook') ?? path.join(ROOT, 'playbook'))
 }
 
+/** `--agent <name>` as the store's source `agent:<name>`; the schema allows letters, digits, _ and - only. */
 function sourceFrom(flags: Flags): string {
   const agent = str(flags, 'agent')
-  return agent ? `agent:${agent}` : 'cli'
+  if (agent === undefined) return 'cli'
+  if (!/^[a-z0-9_-]+$/i.test(agent)) throw new Error(`--agent must be letters, digits, _ or - (stored as "agent:<name>"), got "${agent}"`)
+  return `agent:${agent}`
 }
 
 function bucketFrom(flags: Flags, usage: string): Bucket | undefined {
@@ -95,15 +98,39 @@ async function reviewRun(flags: Flags): Promise<number> {
     bucket,
     source: sourceFrom(flags),
   })
-  // The workflow stages gate on packages/<slug>/review-<bucket>.json carrying the bucket.
+  // The workflow stages gate on packages/<slug>/review-<bucket>.json: it is written only when the
+  // review ran on real numbers and reached a decision (or a person already applied one), so a
+  // stage cannot pass on a missing read or a WAIT. Otherwise exit 1 and say what is missing.
   let stageFile: string | undefined
+  let blocked: string | undefined
   if (slug && bucket) {
-    const review = result.reviews.find((r) => r.slug === slug && r.bucket === bucket) ?? null
-    stageFile = path.join(root, 'packages', slug, `review-${bucket}.json`)
-    writeText(stageFile, JSON.stringify({ slug, bucket, date: result.date, reviewedAt: now.toISOString(), review, digest: result.digest }, null, 2))
+    const review = result.reviews.find((r) => r.slug === slug && r.bucket === bucket)
+    const decision = store.get('decisions', `${slug}:${bucket}`)
+    const setHint = `booster set ${slug} --bucket ${bucket} --impressions N --ctr X --avp Y${bucket === '48' ? ' --ret30 Z --returning W' : bucket === '168' ? ' --views V --returning W --lever "<sentence>"' : ''}`
+    if (!review) {
+      // runReviews leaves out a bucket a person already applied: that stage is done.
+      if (decision?.appliedAt) {
+        stageFile = path.join(root, 'packages', slug, `review-${bucket}.json`)
+        writeText(stageFile, JSON.stringify({ slug, bucket, pass: true, date: result.date, reviewedAt: now.toISOString(), review: null, decision, digest: result.digest }, null, 2))
+      } else {
+        blocked = `${slug}:${bucket}: nothing was reviewed; drop the Studio export in inbox/ or type the numbers: ${setHint}`
+      }
+    } else if (review.readAt === undefined) {
+      blocked = `${slug}:${bucket}: no numbers yet; drop the Studio export in inbox/ or type them: ${setHint}`
+    } else if (review.decision.decision === 'WAIT') {
+      blocked = `${slug}:${bucket}: decision is WAIT${review.decision.flipCondition ? ` (${review.decision.flipCondition})` : ''}; the stage file is not written until a decision is made`
+    } else {
+      stageFile = path.join(root, 'packages', slug, `review-${bucket}.json`)
+      writeText(stageFile, JSON.stringify({ slug, bucket, pass: true, date: result.date, reviewedAt: now.toISOString(), review, digest: result.digest }, null, 2))
+    }
   }
-  out({ ...result, stageFile: stageFile ?? null }, flags, () => [result.digest, ...(result.outFile ? [`Wrote ${result.outFile}`] : []), ...(stageFile ? [`Wrote ${stageFile}`] : [])].join('\n'))
-  return 0
+  out({ ...result, stageFile: stageFile ?? null, blocked: blocked ?? null }, flags, () => [
+    result.digest,
+    ...(result.outFile ? [`Wrote ${result.outFile}`] : []),
+    ...(stageFile ? [`Wrote ${stageFile}`] : []),
+    ...(blocked ? [`Stage not passed: ${blocked}`] : []),
+  ].join('\n'))
+  return blocked ? 1 : 0
 }
 
 // ---------------------------------------------------------------- brief
@@ -154,7 +181,9 @@ async function retroAccept(rule: string, flags: Flags): Promise<number> {
   const by = str(flags, 'by') ?? 'human'
   const text = rule.replace(/\s+/g, ' ').trim()
   if (!text) throw new Error(`a rule needs text. Usage: ${USAGE_ACCEPT}`)
-  const target = path.join(playbookDir, file)
+  // The same checks acceptRule() makes, so the preview never names a file the --yes run would refuse.
+  const target = resolvePlaybookFile(playbookDir, file)
+  if (!existsSync(target)) throw new Error(`no such playbook file: ${target}`)
   const line = formatRuleLine(text, slugs, now)
   const id = stableId('rule', text)
   const plan = { action: 'accept-rule', file: target, line, ruleId: id, acceptedBy: by, applied: false, needs: '--yes' }
@@ -245,7 +274,7 @@ export const learnModule: CommandModule = {
   verbs: ['review', 'brief', 'retro', 'rules'],
   help: [
     'review due [--now ISO]                                             reads whose hour mark has passed with no numbers',
-    'review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>]   ingest inbox/, diagnose due reads, decide, prepare swaps; writes data/reviews/<date>.json (+ packages/<slug>/review-<bucket>.json with --slug)',
+    'review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>]   ingest inbox/, diagnose due reads, decide, prepare swaps; writes data/reviews/<date>.json (+ packages/<slug>/review-<bucket>.json with --slug, only once a real read reached a decision; exit 1 otherwise)',
     'brief [--week | --today] [--inbox dir] [--out brief.md]            the Monday page: reads due, decisions awaiting, tests to close, rule changes, alerts, next three',
     'retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md]                 the weekly retro: published, levers, winners, losers, candidate rule, overrides',
     'retro --accept-rule ".." --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes   accept a rule into a playbook file (human-only gate; the only writer to playbook/*.md)',

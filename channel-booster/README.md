@@ -67,7 +67,7 @@ booster titles "<topic>" | titles score "<title>"
 booster thumbnail brief "<idea>" --title ".." | thumbnail qa --subject ".." --elements "a,b,c" [--text ..]
 booster thumbnail proof <slug> [--images dir] | thumbnail render <slug> | thumbnail check <file.png>
 booster package review --title ".." --thumb-text ".."
-booster hook score --script <file> --slug <slug>                              packages/<slug>/story.json; exit 1 when the hook gate fails
+booster hook score --script <file> --slug <slug> [--payoffs retention-map.json]   packages/<slug>/story.json (payoff ladder from the retention map); exit 1 when the hook gate fails
 booster promise check --promise ".." [--title ..] [--script <file>] [--description ..] [--thumb-text ..]
 booster plan shots <slug> [--format ..]                                       the shoot's shot list from package.json + story.json
 ```
@@ -75,7 +75,7 @@ booster plan shots <slug> [--format ..]                                       th
 **Run the workflow and publish**
 
 ```
-booster workflow "<idea>" [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] --out packages
+booster workflow "<idea>" [--promise ".."] [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] --out packages
 booster workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run]   one stage at a time; --override --reason ".." --yes is a person's call
 booster workflow status <slug> | cadence | calendar --ideas "A;B;C" --start YYYY-MM-DD
 booster publish pack <slug> | publish check <slug> | publish confirm <slug> --video-id <id> --at <ISO> --yes

@@ -31,7 +31,7 @@ const USAGE_PROOF = 'booster thumbnail proof <slug> [--out packages/<slug>/proof
 const USAGE_RENDER = 'booster thumbnail render <slug> [--out packages/<slug>/image-prompts.md] [--all] [--root dir]'
 const USAGE_CHECK = 'booster thumbnail check <file.png|file.jpg>'
 const USAGE_SIG_SET = 'booster signature set --colors "yellow,black" [--face always|never|either] [--max-words 3] [--framing ".."] [--typeface ".."] [--notes ".."]'
-const USAGE_HOOK = 'booster hook score --script <file> --slug <slug> [--title ".."] [--promise ".."] [--thumbnail-moment ".."] [--wpm 150] [--root dir]'
+const USAGE_HOOK = 'booster hook score --script <file> --slug <slug> [--title ".."] [--promise ".."] [--thumbnail-moment ".."] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]'
 const USAGE_PROMISE = 'booster promise check --promise ".." [--title ".."] [--script <file>] [--description <file>|".."] [--thumb-text ".."]'
 const USAGE_BUILD = 'booster package build "<idea>"|<idea:id> --promise ".." [--subject ..] [--stake ..] [--result ..] [--number ..] [--audience ..] [--rounds 3] [--offline] [--no-signature] [--root dir] [--out dir]'
 
@@ -202,6 +202,31 @@ async function thumbnailRender(slug: string, flags: Flags): Promise<number> {
   return 0
 }
 
+/** "m:ss", "h:mm:ss", "90s" or "90" -> seconds; undefined when unparseable. */
+function parseAt(at: unknown): number | undefined {
+  if (typeof at === 'number') return Number.isFinite(at) ? at : undefined
+  if (typeof at !== 'string') return undefined
+  const m = /^\s*(?:(\d+):)?(\d+):(\d{1,2})\s*$|^\s*(\d+(?:\.\d+)?)\s*s?\s*$/.exec(at)
+  if (!m) return undefined
+  if (m[4] !== undefined) return Number(m[4])
+  return (m[1] ? Number(m[1]) * 3600 : 0) + Number(m[2]) * 60 + Number(m[3])
+}
+
+/** The payoff ladder from `booster ai retention-map --out <file>` (payoff_ladder[].at as m:ss) or an already converted {atSec, moment}[] list. */
+function readPayoffs(file: string): Array<{ atSec: number; moment: string }> {
+  const raw = readJson<{ payoff_ladder?: unknown[]; payoffLadder?: unknown[] }>(file)
+  const list = Array.isArray(raw?.payoff_ladder) ? raw.payoff_ladder : Array.isArray(raw?.payoffLadder) ? raw.payoffLadder : undefined
+  if (!list) throw new Error(`${file} has no payoff_ladder: pass the file written by booster ai retention-map --out <file>, or a {"payoffLadder": [{"atSec": 45, "moment": ".."}]} list`)
+  const ladder = list.flatMap((p) => {
+    if (typeof p !== 'object' || p === null) return []
+    const r = p as Record<string, unknown>
+    const atSec = parseAt(r.atSec ?? r.at)
+    return atSec !== undefined && typeof r.moment === 'string' && r.moment.trim() ? [{ atSec, moment: r.moment.trim() }] : []
+  })
+  if (ladder.length === 0) throw new Error(`${file}: no payoff moment with a parseable "at" (m:ss) and a moment`)
+  return ladder.sort((a, b) => a.atSec - b.atSec)
+}
+
 async function hookScore(flags: Flags): Promise<number> {
   const scriptFile = need(flags, 'script', USAGE_HOOK)
   const slug = need(flags, 'slug', USAGE_HOOK)
@@ -218,9 +243,13 @@ async function hookScore(flags: Flags): Promise<number> {
   }
   const report = scoreHook(script, { title, promise, thumbnailMoment, wpm: num(flags, 'wpm'), now: nowFrom(flags) })
   const storyFile = path.join(packageDir(flags, slug), 'story.json')
+  const payoffsFile = str(flags, 'payoffs')
+  if (payoffsFile !== undefined && !existsSync(payoffsFile)) throw new Error(`--payoffs ${payoffsFile} does not exist. Usage: ${USAGE_HOOK}`)
   const previous = readJson<{ payoffLadder?: unknown[] }>(storyFile)
-  const story = { slug, ...report, payoffLadder: Array.isArray(previous?.payoffLadder) ? previous.payoffLadder : [] }
+  const payoffLadder = payoffsFile ? readPayoffs(payoffsFile) : Array.isArray(previous?.payoffLadder) ? previous.payoffLadder : []
+  const story = { slug, ...report, payoffLadder }
   writeFile(storyFile, `${JSON.stringify(story, null, 2)}\n`)
+  if (payoffLadder.length === 0) warn(`story.json has no payoff ladder: run booster ai retention-map --idea ".." --title ".." --script ${scriptFile} --out payoffs.json, then booster hook score --script ${scriptFile} --slug ${slug} --payoffs payoffs.json; plan shots has no payoff shots until then`)
   const gate = report.pass && report.promiseInFirst25Words
   out(story, flags, () => [renderHookReport(report), `Wrote ${storyFile}`, gate ? 'Story gate: PASS' : `Story gate: FAIL (${!report.pass ? `hook score ${report.hookScore} under ${report.gateScore}` : 'promise not in the first 25 words'})`].join('\n'))
   return gate ? 0 : 1
@@ -271,12 +300,14 @@ async function promiseCheck(flags: Flags): Promise<number> {
 async function packageBuild(raw: string | undefined, flags: Flags): Promise<number> {
   if (!raw) throw new Error(`usage: ${USAGE_BUILD}`)
   const store = getStore(flags)
-  const id = raw.startsWith('idea:') ? raw : ideaId(raw)
-  const doc = store.get('ideas', id)
+  let doc = store.get('ideas', raw.startsWith('idea:') ? raw : ideaId(raw))
   if (raw.startsWith('idea:') && !doc) throw new Error(`no idea "${raw}" in the bank (booster bank list shows ids)`)
-  const idea = doc?.idea ?? raw
-  const promise = str(flags, 'promise') ?? doc?.promise
-  if (!promise) throw new Error(`--promise is required: one sentence the video keeps${doc ? ` (or bank it with one: booster bank status ${doc.id} ...)` : ''}. Usage: ${USAGE_BUILD}`)
+  // The workflow runner passes the package slug: resolve it through the status document's idea text.
+  const wf = !doc && !raw.startsWith('idea:') ? store.get('workflows', raw) : undefined
+  if (wf) doc = store.get('ideas', ideaId(wf.idea))
+  const idea = doc?.idea ?? wf?.idea ?? raw
+  const promise = str(flags, 'promise') ?? doc?.promise ?? wf?.promise
+  if (!promise) throw new Error(`--promise is required: one sentence the video keeps${doc ? ` (bank ideas carry it: booster bank add "<idea>" --promise "..")` : wf ? ` (the workflow carries it: booster workflow "<idea>" --promise "..")` : ''}. Usage: ${USAGE_BUILD}`)
   const profile = getProfile(flags)
   const signature = bool(flags, 'no-signature') ? undefined : profile.signature
   const offline = bool(flags, 'offline') || !process.env.ANTHROPIC_API_KEY
@@ -369,7 +400,7 @@ export const packageModule: CommandModule = {
     'thumbnail check <file>                                             delivered PNG/JPG: 1280x720, 16:9, under 2 MB',
     'signature show                                                     the channel signature from channel.json',
     'signature set --colors "yellow,black" [--face ..] [--max-words ..] [--framing ..] [--typeface ..] [--notes ..]',
-    'hook score --script <file> --slug <slug> [--title ..] [--promise ..] [--thumbnail-moment ..] [--wpm 150] [--root dir]   writes packages/<slug>/story.json; exit 1 when the gate fails',
+    'hook score --script <file> --slug <slug> [--title ..] [--promise ..] [--thumbnail-moment ..] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]   writes packages/<slug>/story.json (payoffLadder from --payoffs); exit 1 when the gate fails',
     'promise check --promise ".." [--title ..] [--script <file>] [--description <file>|".."] [--thumb-text ..]   exit 1 on drift',
     'package build "<idea>"|<idea:id> --promise ".." [--subject ..] [--stake ..] [--result ..] [--rounds 3] [--offline] [--root dir]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md; exit 1 when a gate fails',
     'package review --title ".." --thumb-text ".." [--elements ..]     title + thumbnail coherence',

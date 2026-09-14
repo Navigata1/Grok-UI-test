@@ -8,7 +8,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { wipWarnings } from '../../src/bank.js'
+import { ideaId, wipWarnings } from '../../src/bank.js'
+import { resolveProfilePath } from '../../src/profile.js'
 import { nextRunnable, overrideStage, runNext, runStage, applyStageResult, startWorkflow, type StageResult } from '../../src/runner.js'
 import type { WorkflowStatusDoc } from '../../src/schema.js'
 import type { Store } from '../../src/store.js'
@@ -116,7 +117,9 @@ function runWorkflow(slug: string | undefined, flags: Flags): number {
   const agent = str(flags, 'agent')
   const dryRun = bool(flags, 'dry-run')
   const stageFlag = str(flags, 'stage')
-  const options = { cwd: root, agent, dryRun, now: clock }
+  // Stage commands run as child processes: hand them this run's store and profile through the environment.
+  const env: NodeJS.ProcessEnv = { ...process.env, BOOSTER_DATA: path.resolve(store.root), BOOSTER_PROFILE: resolveProfilePath(str(flags, 'path')) }
+  const options = { cwd: root, agent, dryRun, now: clock, env }
 
   let result: StageResult | undefined
   let status: WorkflowStatusDoc
@@ -139,7 +142,7 @@ function runWorkflow(slug: string | undefined, flags: Flags): number {
 export const workflowModule: CommandModule = {
   verbs: ['workflow', 'cadence', 'week', 'calendar'],
   help: [
-    'workflow "<idea>" [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]',
+    'workflow "<idea>" [--promise ".."] [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]   the runbook + status document; the promise feeds the packaging stage',
     'workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--root dir] [--workflow packages/<slug>.json]',
     'workflow run <slug> --override --reason ".." --yes [--stage <id>]   a person overrides a gate; recorded, shown in the retro',
     'workflow status <slug>                                             stage status of one workflow',
@@ -158,7 +161,7 @@ export const workflowModule: CommandModule = {
         return 0
       }
       const idea = sub
-      if (!idea) throw new Error('usage: booster workflow "<idea>" [--format ..] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]')
+      if (!idea) throw new Error('usage: booster workflow "<idea>" [--promise ".."] [--format ..] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]')
       const format = (str(flags, 'format') ?? 'talking-head') as WorkflowFormat
       if (!WORKFLOW_FORMATS.includes(format)) throw new Error(`format must be one of ${WORKFLOW_FORMATS.join(', ')}`)
       const wf = generateWorkflow(idea, { format, days: num(flags, 'days') })
@@ -174,9 +177,13 @@ export const workflowModule: CommandModule = {
       }
       const store = getStore(flags)
       const existed = Boolean(store.get('workflows', wf.slug))
-      startWorkflow(store, wf, clockFrom(flags)())
+      const doc = startWorkflow(store, wf, clockFrom(flags)())
+      // The promise the package must keep travels with the workflow so `package build <slug>` (the packaging stage) has it: --promise, else the banked idea's.
+      const promise = str(flags, 'promise') ?? store.get('ideas', ideaId(idea))?.promise ?? doc.promise
+      if (promise && doc.promise !== promise) store.upsert('workflows', { ...doc, promise })
+      if (!promise) warn(`no promise for ${wf.slug}: the packaging stage needs one (booster workflow "<idea>" --promise ".." or bank the idea with --promise)`)
       warn(existed ? `status document for ${wf.slug} already exists; progress kept (booster workflow status ${wf.slug})` : `status document created: booster workflow run ${wf.slug} --next --agent <name>`)
-      out(wf, flags, () => md)
+      out({ ...wf, promise: promise ?? null }, flags, () => md)
       return 0
     }
     if (cmd === 'cadence' || cmd === 'week') {

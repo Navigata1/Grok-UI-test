@@ -478,10 +478,11 @@ export function runReviews(store: Store, options: RunReviewsOptions): RunReviews
     if (forced) return q.slug === options.slug && (options.bucket === undefined || q.bucket === options.bucket) && q.status !== 'applied'
     return q.status === 'ready'
   })
-  if (forced && targets.length === 0 && options.bucket !== undefined) {
+  if (forced) {
+    // A forced slug must exist: a typo must not read as a clean "nothing to review".
     const row = store.get('ledger', options.slug as string)
     if (!row) throw new Error(`no ledger row for "${options.slug}"`)
-    if (ageHours(row, now) < BUCKET_HOURS[options.bucket]) throw new Error(`${options.slug} is ${Math.round(ageHours(row, now))} h old; the ${options.bucket}-hour read is not due yet`)
+    if (targets.length === 0 && options.bucket !== undefined && ageHours(row, now) < BUCKET_HOURS[options.bucket]) throw new Error(`${options.slug} is ${Math.round(ageHours(row, now))} h old; the ${options.bucket}-hour read is not due yet`)
   }
   const rows = readLedger(store)
   const packagesDir = options.packagesDir ?? path.resolve('packages')

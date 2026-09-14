@@ -561,7 +561,7 @@ export function shotList(input: ShotListInput): ShotList {
     name: 'Payoff ladder',
     purpose: 'One shot per payoff moment: proof the video delivers, in story order.',
     shots: ladder.length === 0
-      ? [{ shot: 'No payoff moments in the story', framing: '—', notes: 'Run booster hook score first; a script with no payoff has nothing to shoot.' }]
+      ? [{ shot: 'No payoff moments in the story', framing: '—', notes: 'story.json has an empty payoffLadder: run booster ai retention-map --script <file> --out payoffs.json, then booster hook score --script <file> --slug <slug> --payoffs payoffs.json, then plan shots again.' }]
       : ladder.map((m, i) => ({
           shot: `${formatSec(m.atSec)} ${m.moment}`,
           framing: framingFor(m.moment),

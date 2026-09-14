@@ -167,6 +167,27 @@ describe('booster review', () => {
     expect(await fails(['review', 'run', '--bucket', '48'])).toMatch(/--bucket needs --slug/)
     expect(await fails(['review', 'run', '--slug', 'weak', '--bucket', '12'])).toMatch(/--bucket must be one of/)
     expect(await fails(['review', 'run', '--slug', 'weak', '--bucket', '168'])).toMatch(/168-hour read is not due yet/)
+    expect(await fails(['review', 'run', '--slug', 'typo'])).toMatch(/no ledger row for "typo"/)
+    expect(await fails(['review', 'run', '--agent', 'review bot'])).toMatch(/--agent must be letters, digits/)
+  })
+
+  it('run --slug --bucket refuses to pass the stage without numbers or on a WAIT, and passes an applied bucket', async () => {
+    writeFileSync(profile, JSON.stringify({ positioning: 'x', baselines: solidBaselines() }))
+    seedHistory()
+    seedRow('noread', 50)
+    const stageFile = path.join(tmp, 'packages', 'noread', 'review-48.json')
+    const { code, out } = await run(['review', 'run', '--slug', 'noread', '--bucket', '48'])
+    expect(code).toBe(1)
+    expect(out).toMatch(/Stage not passed: noread:48: no numbers yet/)
+    expect(out).toContain('booster set noread --bucket 48')
+    expect(existsSync(stageFile)).toBe(false)
+    const { out: jsonOut } = await run(['review', 'run', '--slug', 'noread', '--bucket', '48', '--json'])
+    expect(JSON.parse(jsonOut)).toMatchObject({ stageFile: null, blocked: expect.stringMatching(/no numbers yet/) })
+    // A person already applied this bucket: the stage is done and the file says so.
+    openStore(data).upsert('decisions', { id: 'noread:48', slug: 'noread', bucket: '48', decision: 'REPACKAGE', numbers: {}, approvedBy: 'jony', approvedAt: NOW, appliedAt: NOW, updatedAt: NOW, source: 'cli' })
+    const applied = await json(['review', 'run', '--slug', 'noread', '--bucket', '48'])
+    expect(applied.stageFile).toBe(stageFile)
+    expect(JSON.parse(readFileSync(stageFile, 'utf8'))).toMatchObject({ bucket: '48', pass: true, review: null, decision: { decision: 'REPACKAGE', appliedAt: NOW } })
   })
 })
 
@@ -234,6 +255,9 @@ describe('booster retro', () => {
     expect(openStore(data).read('rules').length).toBe(1)
 
     expect(await fails(['retro', '--accept-rule', rule, '--yes'])).toMatch(/--into is required/)
+    // The preview runs the same checks as the --yes run, so it never names a file that would be refused.
+    expect(await fails(['retro', '--accept-rule', rule, '--into', 'playbook/00-learned-rules.md'])).toMatch(/compiled by `booster rules compile`/)
+    expect(await fails(['retro', '--accept-rule', rule, '--into', 'missing.md'])).toMatch(/no such playbook file/)
     expect(await fails(['retro', '--accept-rule', rule, '--into', 'playbook/00-learned-rules.md', '--yes'])).toMatch(/compiled by `booster rules compile`/)
     expect(await fails(['retro', '--accept-rule', rule, '--into', '../channel.json', '--yes'])).toMatch(/outside the playbook folder|Markdown/)
     expect(await fails(['retro', '--accept-rule', rule, '--into', 'playbook/new-file.md', '--yes'])).toMatch(/no such playbook file/)
@@ -320,6 +344,25 @@ describe('booster decide approve | apply', () => {
     expect(await fails(['decide', 'approve', 'weak', '--bucket', '48', '--by', 'jony', '--yes'])).toMatch(/nothing to approve/)
   })
 
+  it('apply says so when repackage.json belongs to another decision and leaves it untouched', async () => {
+    seedDecision()
+    const planFile = path.join(tmp, 'packages', 'weak', 'repackage.json')
+    mkdirSync(path.dirname(planFile), { recursive: true })
+    writeFileSync(planFile, JSON.stringify({ slug: 'weak', decisionId: 'weak:168', applied: false }))
+    const { out, err } = await run(['decide', 'apply', 'weak', '--bucket', '48', '--by', 'jony', '--yes'])
+    expect(out).toContain(`${planFile}: NOT marked applied (belongs to decisions/weak:168, not weak:48`)
+    expect(out).not.toContain(`${planFile}: applied.`)
+    expect(err).toMatch(/belongs to decisions\/weak:168/)
+    expect(JSON.parse(readFileSync(planFile, 'utf8')).applied).toBe(false)
+    const doc = openStore(data).get('decisions', 'weak:48')!
+    expect(doc.appliedAt).toBe('2026-09-14T12:00:00.000Z')
+    // The JSON result reports the file as not applied too.
+    openStore(data).upsert('decisions', { ...doc, appliedAt: undefined })
+    const r = await json(['decide', 'apply', 'weak', '--bucket', '48', '--by', 'jony', '--yes'])
+    expect(r.repackageFile).toBeNull()
+    expect(r.repackageFileSkipped).toMatch(/belongs to decisions\/weak:168/)
+  })
+
   it('apply leaves the ledger row alone for a sequel and refuses WAIT', async () => {
     seedDecision('SEQUEL')
     const { out } = await run(['decide', 'apply', 'weak', '--bucket', '48', '--by', 'jony', '--yes'])
@@ -328,5 +371,9 @@ describe('booster decide approve | apply', () => {
     expect(openStore(data).get('ledger', 'weak')!.repackagedAt).toBeUndefined()
     openStore(data).upsert('decisions', { id: 'weak:48', slug: 'weak', bucket: '48', decision: 'WAIT', numbers: {}, updatedAt: NOW, source: 'cli' })
     expect(await fails(['decide', 'apply', 'weak', '--bucket', '48', '--by', 'jony', '--yes'])).toMatch(/is WAIT/)
+    // HOLD is a flip condition waiting for the next read: applying it would close the bucket for good.
+    openStore(data).upsert('decisions', { id: 'weak:48', slug: 'weak', bucket: '48', decision: 'HOLD', numbers: {}, flipCondition: 'CTR still under 4% at 168 h', updatedAt: NOW, source: 'cli' })
+    expect(await fails(['decide', 'apply', 'weak', '--bucket', '48', '--by', 'jony', '--yes'])).toMatch(/is HOLD: there is nothing to apply; the flip condition \(CTR still under 4% at 168 h\)/)
+    expect(openStore(data).get('decisions', 'weak:48')!.appliedAt).toBeUndefined()
   })
 })

@@ -212,6 +212,7 @@ async function runDecideApply(slug: string | undefined, flags: Flags): Promise<n
   const doc = recordedDecision(store, slug, bucket)
   if (doc.appliedAt) throw new Error(`decisions/${doc.id} was already applied at ${doc.appliedAt}`)
   if (doc.decision === 'WAIT') throw new Error(`decisions/${doc.id} is WAIT: there is nothing to apply until the next read`)
+  if (doc.decision === 'HOLD') throw new Error(`decisions/${doc.id} is HOLD: there is nothing to apply; the flip condition${doc.flipCondition ? ` (${doc.flipCondition})` : ''} is re-evaluated on the next read (booster review due)`)
   const swaps = doc.decision === 'REPACKAGE' || doc.decision === 'RE-TEST-TITLE'
   const row = store.get('ledger', slug)
   const planFile = path.join(rootFrom(flags), 'packages', slug, 'repackage.json')
@@ -228,19 +229,27 @@ async function runDecideApply(slug: string | undefined, flags: Flags): Promise<n
   const stamp = now.toISOString()
   const updated = store.upsert('decisions', { ...doc, approvedBy: doc.approvedBy ?? by, approvedAt: doc.approvedAt ?? stamp, appliedAt: stamp, updatedAt: stamp, source: 'cli' })
   if (swaps && row) store.upsert('ledger', { ...row, repackagedAt: stamp, updatedAt: stamp, source: 'cli' })
+  let planApplied = false
+  let planSkipped: string | undefined
   if (plan.repackageFile) {
     try {
       const raw = JSON.parse(readFileSync(plan.repackageFile, 'utf8')) as RepackageFile
-      if (raw.decisionId === undefined || raw.decisionId === doc.id) writeFileSync(plan.repackageFile, `${JSON.stringify({ ...raw, applied: true, appliedAt: stamp, appliedBy: by }, null, 2)}\n`)
+      if (raw.decisionId === undefined || raw.decisionId === doc.id) {
+        writeFileSync(plan.repackageFile, `${JSON.stringify({ ...raw, applied: true, appliedAt: stamp, appliedBy: by }, null, 2)}\n`)
+        planApplied = true
+      } else {
+        planSkipped = `belongs to decisions/${raw.decisionId}, not ${doc.id}; left untouched (re-run booster repackage prepare ${slug} --bucket ${bucket})`
+      }
     } catch {
-      warn(`${plan.repackageFile} is not valid JSON; left untouched`)
+      planSkipped = 'is not valid JSON; left untouched'
     }
+    if (planSkipped) warn(`${plan.repackageFile} ${planSkipped}`)
   }
-  out({ ...plan, applied: true, decision: updated }, flags, () => [
+  out({ ...plan, repackageFile: planApplied ? plan.repackageFile : null, repackageFileSkipped: planSkipped ?? null, applied: true, decision: updated }, flags, () => [
     `Applied decisions/${doc.id}: ${doc.decision} by ${by} at ${stamp}.`,
     ...(swaps && row ? [`Ledger row ${slug}: repackagedAt = ${stamp}.`] : []),
-    ...(plan.repackageFile ? [`${plan.repackageFile}: applied.`] : []),
-    doc.decision === 'SEQUEL' || doc.decision === 'EXPAND' ? `Next: booster bank sequels banks the follow-up; the 168 h lever on ${slug} feeds booster rules compile.` : `Next read decides whether it flipped: booster review due.`,
+    ...(planApplied ? [`${plan.repackageFile}: applied.`] : plan.repackageFile ? [`${plan.repackageFile}: NOT marked applied (${planSkipped}).`] : []),
+    doc.decision === 'SEQUEL' || doc.decision === 'EXPAND' ? `Next: booster bank sequels banks the follow-up; the 168 h lever on ${slug} feeds booster rules compile.` : doc.decision === 'PARK' ? `Next: the topic is parked; booster review due lists what is still open.` : `Next read shows whether the swap worked: booster review due.`,
   ].join('\n'))
   return 0
 }
@@ -310,7 +319,7 @@ export const reviewModule: CommandModule = {
     'postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]   diagnose typed Studio numbers; profile baselines unless --baseline-* is typed',
     'decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]         diagnose a ledger read with leave-one-out baselines and decide; --record stores decisions/<slug>:<bucket>',
     'decide approve <slug> --bucket 48|168|672 --by <name> --yes            a person stands behind a recorded decision (human-only gate 3)',
-    'decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir]  record that it was carried out; stamps repackagedAt on the ledger row for a swap (human-only gate 4)',
+    'decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir]  record that it was carried out (REPACKAGE, RE-TEST-TITLE, SEQUEL, EXPAND, PARK; WAIT and HOLD have nothing to apply); stamps repackagedAt on the ledger row for a swap (human-only gate 4)',
     'repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]   the swap plan from the recorded decision and package.json; prepares only, never applies',
   ],
   async run(cmd, sub, rest, flags) {
