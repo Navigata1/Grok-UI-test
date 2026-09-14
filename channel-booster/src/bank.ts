@@ -310,7 +310,7 @@ function lastEvidenceAt(doc: IdeaDoc): number {
 export function rescore(store: Store, ranked: ReadonlyArray<RescoreRow>, options: RescoreOptions = {}): RescoreReport {
   const now = options.now ?? new Date()
   const windowDays = options.windowDays ?? thresholds.demandWindowDays.value
-  const decayDays = options.decayDays ?? DEMAND_DECAY_DAYS
+  const decayDays = options.decayDays ?? thresholds.demandDecayDays.value
   const strongX = thresholds.demandMatchMultiplier.value
   const nowIso = now.toISOString()
 
@@ -406,7 +406,7 @@ export function sequelCandidates(store: Store, ledgerRows: LedgerRow[], options:
   for (const { row, multiple } of winners) {
     if (covered.has(row.slug)) continue
     covered.add(row.slug)
-    const s = SEQUEL_HUMAN_AXIS_SCORE
+    const s = thresholds.sequelHumanAxisScore.value
     created.push(addIdea(store, {
       idea: `Sequel: ${row.title}`,
       scores: { demand: 5, packaging: s, fit: s, angle: s, payoff: s, feasibility: s },

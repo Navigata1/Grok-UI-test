@@ -117,8 +117,8 @@ export function computeOutliers(rows: VideoRow[], options: OutlierOptionsV2 = {}
   const threshold = options.threshold ?? DEFAULT_OUTLIER_THRESHOLD
   const minAgeDays = options.minAgeDays ?? 0
   const sinceDays = options.sinceDays ?? thresholds.demandWindowDays.value
-  const freshMaxAge = options.freshMaxAgeDays ?? FRESH_MAX_AGE_DAYS
-  const freshVelocity = options.freshVelocityMultiplier ?? FRESH_VELOCITY_MULTIPLIER
+  const freshMaxAge = options.freshMaxAgeDays ?? thresholds.freshMaxAgeDays.value
+  const freshVelocity = options.freshVelocityMultiplier ?? thresholds.freshVelocityMultiplier.value
   const now = options.now ?? new Date()
 
   const byChannel = new Map<string, VideoRow[]>()
@@ -213,7 +213,7 @@ type LiftRow = { tier: OutlierTier; formats: ReadonlyArray<string> }
  */
 export function formatLift(rows: ReadonlyArray<LiftRow>, options: FormatLiftOptions = {}): FormatLift[] {
   if (rows.length === 0) return []
-  const minCount = options.minCount ?? FORMAT_LIFT_MIN_COUNT
+  const minCount = options.minCount ?? thresholds.formatLiftMinCount.value
   const alpha = options.alpha ?? 1
   const winners = rows.filter((r) => r.tier !== 'normal')
   const counts = new Map<string, { all: number; winners: number }>()

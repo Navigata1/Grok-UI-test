@@ -173,7 +173,7 @@ export function suggestDemand(topic: string, ranked: ReadonlyArray<DemandRow>, o
   const windowDays = options.windowDays ?? thresholds.demandWindowDays.value
   const now = options.now ?? new Date()
   const outlierX = thresholds.outlierMultiplier.value
-  const strongX = DEMAND_MATCH_MULTIPLIER
+  const strongX = thresholds.demandMatchMultiplier.value
   const want = topicTokens(topic)
   const required = Math.min(2, want.length)
   if (required === 0) {

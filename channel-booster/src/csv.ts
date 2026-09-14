@@ -6,6 +6,7 @@
 import { BUCKET_HOURS, type Bucket } from './buckets.js'
 import type { LedgerRead } from './schema.js'
 import type { VideoMetrics, VideoRow } from './types.js'
+import { thresholds } from './thresholds.js'
 
 type CoreField = 'title' | 'views' | 'published' | 'channel' | 'durationSec' | 'url' | 'videoId' | 'thumbnailUrl'
 type MetricField = keyof VideoMetrics
@@ -45,7 +46,6 @@ const METRIC_FIELDS: MetricField[] = ['impressions', 'ctr', 'avdSec', 'avpPct', 
  * and still count as that bucket. House default; belongs in src/thresholds.ts as
  * `bucketTolerance` once the thresholds owner adds it.
  */
-const BUCKET_TOLERANCE = 0.2
 
 function normalizeHeader(header: string): string {
   return header.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -264,7 +264,7 @@ export function ledgerReadFromRow(row: VideoRow, options: { at: Date | string })
 
 /**
  * The bucket (24/48/168/672 h after publish) whose hour mark a read taken at `at`
- * sits closest to, or undefined when the read is more than BUCKET_TOLERANCE
+ * sits closest to, or undefined when the read is more than thresholds.bucketTolerance
  * (20%) away from every mark, before publish, or the publish time cannot be parsed.
  */
 export function bucketFor(publishedAt: Date | string, at: Date | string): Bucket | undefined {
@@ -284,5 +284,5 @@ export function bucketFor(publishedAt: Date | string, at: Date | string): Bucket
     }
   }
   // Small epsilon so 28.8 h (exactly 20% past 24 h) is not rejected by floating-point error.
-  return bestDistance <= BUCKET_TOLERANCE + 1e-9 ? best : undefined
+  return bestDistance <= thresholds.bucketTolerance.value + 1e-9 ? best : undefined
 }

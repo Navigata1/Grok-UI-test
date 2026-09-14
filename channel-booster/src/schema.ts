@@ -45,6 +45,11 @@ export const IdeaDoc = z.object({
   series: z.string().optional(),
   sequelOf: z.string().optional(),
   parkedReason: z.string().optional(),
+  /** Lifecycle log: reopen notes, retire reasons, imports. */
+  notes: z.array(z.string()).optional(),
+  workingTitle: z.string().optional(),
+  thumbnailConcept: z.string().optional(),
+  angle: z.string().optional(),
   createdAt: ISO,
   updatedAt: ISO,
   source: SOURCE.default('cli'),
@@ -101,6 +106,8 @@ export const ProfileDoc = z.object({
   store: z.enum(['db', 'local']).default('local'),
   thresholds: z.record(z.string(), z.number()).default({}),
   baselines: Baselines.optional(),
+  /** The 7-day baselines (views, returning share) for the sequel gate. */
+  baselines168: Baselines.optional(),
   previousBaselines: Baselines.optional(),
   neverAgain: z.array(z.string()).default([]).describe('packaging patterns from the bottom quartile'),
   updatedAt: ISO.optional(),

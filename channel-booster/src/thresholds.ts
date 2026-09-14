@@ -74,6 +74,8 @@ export const DEFAULT_THRESHOLDS = {
   freshMaxAgeDays: { value: 21, evidence: 'house', note: 'a competitor video this young with high velocity is a fresh outlier (src/outliers.ts)' },
   freshVelocityMultiplier: { value: 3, evidence: 'house', note: 'views per day at this multiple of the channel median velocity is fresh (src/outliers.ts)' },
   formatLiftMinCount: { value: 3, evidence: 'house', note: 'a format cue needs this many videos before its lift is reported (src/outliers.ts)' },
+  demandDecayDays: { value: 180, evidence: 'house', note: 'an idea with no new evidence for this many days loses one point of demand per rescore' },
+  sequelHumanAxisScore: { value: 3, evidence: 'house', note: 'starting score of the five human axes on an auto-created sequel candidate' },
   demandMatchMultiplier: { value: 5, evidence: 'house', note: 'an outlier at this multiple of its channel median is a demand signal on its own (src/ideas.ts)' },
 } as const satisfies Record<string, Threshold>
 
