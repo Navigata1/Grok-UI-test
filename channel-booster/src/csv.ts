@@ -159,13 +159,8 @@ function resolveColumns(rawHeaders: string[]): Resolved {
     col[field] = found
     if (found >= 0) claimed.add(found)
   }
-  // "Video" alone is a title; it is only an id when a separate title column was found.
-  if (col.videoId >= 0 && headers[col.videoId] === 'video' && col.title < 0) {
-    claimed.delete(col.videoId)
-    col.title = col.videoId
-    col.videoId = -1
-    claimed.add(col.title)
-  }
+  // Note: `title` resolves before `videoId`, so a lone "Video" column is the title and only
+  // becomes the id when "Video title" already claimed the title slot.
   const unknownColumns = rawHeaders.filter((h, i) => !claimed.has(i) && h.trim() !== '')
   return { col, unknownColumns }
 }
@@ -201,9 +196,8 @@ function toVideoRow(r: string[], col: Columns): VideoRow | undefined {
 
 /** Average view duration arrives as hh:mm:ss, mm:ss, or plain seconds; decimals ("312.5") also accepted. */
 function parseAvd(value: string | undefined): number | undefined {
-  const d = parseDuration(value)
-  if (d !== undefined) return d
-  return parseNumber(value)
+  if (value !== undefined && /^\s*-?\d*\.\d+\s*$/.test(value)) return parseNumber(value)
+  return parseDuration(value)
 }
 
 interface MappedCsv {
@@ -288,5 +282,6 @@ export function bucketFor(publishedAt: Date | string, at: Date | string): Bucket
       bestDistance = distance
     }
   }
-  return bestDistance <= BUCKET_TOLERANCE ? best : undefined
+  // Small epsilon so 28.8 h (exactly 20% past 24 h) is not rejected by floating-point error.
+  return bestDistance <= BUCKET_TOLERANCE + 1e-9 ? best : undefined
 }
