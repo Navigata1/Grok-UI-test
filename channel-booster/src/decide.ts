@@ -20,7 +20,7 @@
  * person applies it. All gates live in src/thresholds.ts with evidence tags.
  */
 import { BUCKET_HOURS, BUCKETS, type Bucket } from './buckets.js'
-import { DecisionDoc, type Baselines, type LedgerRow } from './schema.js'
+import type { Baselines, DecisionDoc, LedgerRow } from './schema.js'
 import type { DiagnosisV2 } from './postmortem.js'
 import { tagged, thresholds } from './thresholds.js'
 
@@ -78,12 +78,12 @@ export function decide(input: DecideInput): DecisionDoc {
     baselineSource: base.source,
   }
   if (base.tier) numbers.baselineTier = base.tier
-  const finish = (decision: DecisionDoc['decision'], flipCondition: string): DecisionDoc => DecisionDoc.parse({
+  const finish = (decision: DecisionDoc['decision'], flipCondition: string): DecisionDoc => ({
     id: `${row.slug}:${bucket}`,
     slug: row.slug,
     bucket,
     decision,
-    numbers,
+    numbers: { ...numbers },
     flipCondition,
     updatedAt: now.toISOString(),
     source: input.source ?? 'cli',
