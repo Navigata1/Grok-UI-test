@@ -83,7 +83,7 @@ function describeRead(read: Partial<LedgerRead>): string {
 }
 
 function statLine(label: string, stat: Stat | undefined, suffix: string): string {
-  return stat ? `  ${label}: median ${n1(stat.median)}${suffix}, MAD ${stat.mad.toFixed(1)}, n=${stat.n}` : `  ${label}: not in the ledger`
+  return stat ? `  ${label}: median ${n1(stat.median)}${suffix}, MAD ${n1(stat.mad)}, n=${stat.n}` : `  ${label}: not in the ledger`
 }
 
 function renderBaselines(b: Baselines, extra: string[] = []): string {
