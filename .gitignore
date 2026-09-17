@@ -15,3 +15,9 @@ playwright-report/
 
 # Local demo-production project, raw captures, and rendered media.
 videos/
+
+# Channel Booster private working data (profile, ledger, packages, Studio exports).
+channel-booster/channel.json
+channel-booster/data/
+channel-booster/packages/
+channel-booster/inbox/

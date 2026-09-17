@@ -1,0 +1,42 @@
+{
+  "positioning": "Couples planning their first van build who want the real cost, the real mistakes, and a finished van they can copy, without the influencer gloss",
+  "persona": "Sam, 31, has a 2015 Sprinter on the driveway, a spreadsheet, and two weekends a month; watches every build episode twice and comments with the part number",
+  "series": [
+    {
+      "name": "Budget Build Diaries",
+      "promise": "One system per episode, finished and priced, from an empty cargo van to a legal camper",
+      "cadence": "one episode every two weeks",
+      "parentSlug": "empty-sprinter-to-camper-in-90-days"
+    },
+    {
+      "name": "Boondocking Tests",
+      "promise": "We live on the finished system for a week and show what broke",
+      "cadence": "once a month"
+    }
+  ],
+  "signature": {
+    "colors": ["yellow", "black"],
+    "facePolicy": "either",
+    "maxWords": 3,
+    "framing": "van interior fills the frame, subject in the lower third, one object held up to camera",
+    "typeface": "heavy condensed sans, all caps, yellow on black",
+    "notes": "the yellow tape-measure motif appears in every thumbnail"
+  },
+  "competitors": [
+    "Van Life Builds",
+    "The Indie Projects",
+    "Nate Murphy",
+    "Eamon and Bec"
+  ],
+  "maxPerWeek": 1,
+  "publishDay": "thu",
+  "solo": true,
+  "store": "local",
+  "thresholds": {},
+  "neverAgain": [
+    "titles that start with the vlog number",
+    "thumbnails of the whole van from outside with no subject",
+    "text on the thumbnail that repeats the title"
+  ],
+  "updatedAt": "2026-09-14T09:00:00.000Z"
+}
