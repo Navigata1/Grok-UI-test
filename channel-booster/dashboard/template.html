@@ -3,130 +3,167 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- @@FONTS@@ -->
 <style>
+  /* Dark wherever the Desk opens. The artifact viewer stamps data-theme on the root from the viewer's own
+     setting and the OS reports its own preference; neither decides here. Bare :root is the dark palette, and
+     the light one applies only when the person picks Light in the Desk's theme control (data-desk-theme).
+     Every colour below is one of these tokens. */
   :root {
-    color-scheme: light;
-    --bg: #F4F3EE;
-    --panel: #FFFFFF;
-    --panel-2: #ECEAE2;
-    --ink: #17181A;
-    --muted: #5E6068;
-    --line: #D9D6CC;
-    --accent: #E0A200;
-    --accent-ink: #17181A;
-    --accent-soft: #FFF1C2;
-    --good: #2A8C52;
-    --warn: #C77A00;
-    --bad: #C8423C;
-    --good-soft: #DFF3E6;
-    --warn-soft: #FFEACC;
-    --bad-soft: #FADAD8;
-    --shadow: 0 1px 2px rgba(23, 24, 26, .06), 0 6px 18px rgba(23, 24, 26, .06);
+    color-scheme: dark;
+    --bg: #0A0A0B;
+    --panel: #121214;
+    --panel-2: #1A1A1D;
+    --raised: #222226;
+    --ink: #F2F2F0;
+    --muted: #A0A0A8;
+    --line: rgba(255, 255, 255, .08);
+    --line-strong: rgba(255, 255, 255, .16);
+    --primary: #F2F2F0;
+    --primary-ink: #0A0A0B;
+    --primary-hover: #FFFFFF;
+    --accent: #F5B400;
+    --accent-ink: #0A0A0B;
+    --accent-soft: rgba(245, 180, 0, .14);
+    --good: #4CC27A;
+    --warn: #F0A82E;
+    --bad: #F06A63;
+    --good-soft: rgba(76, 194, 122, .14);
+    --warn-soft: rgba(240, 168, 46, .14);
+    --bad-soft: rgba(240, 106, 99, .14);
+    --backdrop: rgba(0, 0, 0, .64);
+    --shadow: 0 20px 60px rgba(0, 0, 0, .55);
     --display: 'Syne', 'Avenir Next', 'Segoe UI', sans-serif;
     --body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
     --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --bg: #111214; --panel: #1A1B1E; --panel-2: #222327; --ink: #ECEBE6; --muted: #A2A39E; --line: #2F3035;
-      --accent: #F5B400; --accent-ink: #111214; --accent-soft: #3A2E08;
-      --good: #4CC27A; --warn: #F0A82E; --bad: #F06A63; --good-soft: #163A24; --warn-soft: #3B2A0A; --bad-soft: #3F1A18;
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
-    }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #111214; --panel: #1A1B1E; --panel-2: #222327; --ink: #ECEBE6; --muted: #A2A39E; --line: #2F3035;
-    --accent: #F5B400; --accent-ink: #111214; --accent-soft: #3A2E08;
-    --good: #4CC27A; --warn: #F0A82E; --bad: #F06A63; --good-soft: #163A24; --warn-soft: #3B2A0A; --bad-soft: #3F1A18;
-    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  :root[data-desk-theme="light"] {
+    color-scheme: light;
+    --bg: #F4F3EE;
+    --panel: #FFFFFF;
+    --panel-2: #ECEAE2;
+    --raised: #E4E1D7;
+    --ink: #17181A;
+    --muted: #5E6068;
+    --line: #DEDBD1;
+    --line-strong: #C6C2B6;
+    --primary: #17181A;
+    --primary-ink: #FFFFFF;
+    --primary-hover: #34353A;
+    --accent: #E0A200;
+    --accent-ink: #17181A;
+    --accent-soft: #FFF1C2;
+    --good: #1B7340;
+    --warn: #8F5500;
+    --bad: #A63630;
+    --good-soft: #DFF3E6;
+    --warn-soft: #FFEACC;
+    --bad-soft: #FADAD8;
+    --backdrop: rgba(23, 24, 26, .45);
+    --shadow: 0 20px 60px rgba(23, 24, 26, .18);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.5; padding-inline: 16px; padding-block: 0 48px; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.55; padding-inline: 24px; padding-block: 0 56px; -webkit-font-smoothing: antialiased; }
   h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -.01em; }
-  h1 { font-size: 22px; font-weight: 800; }
-  h2 { font-size: 17px; font-weight: 700; }
-  h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  h1 { font-size: 20px; font-weight: 700; }
+  h2 { font-size: 19px; font-weight: 700; }
+  /* Card labels: uppercase mono, the way the rest of the chrome labels things. */
+  h3 { font-family: var(--mono); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
   p { margin: 0; }
   a { color: inherit; }
   button, input, select, textarea { font: inherit; color: inherit; }
+  ::placeholder { color: var(--muted); opacity: 1; }
+  /* One focus ring for every control: 2px of ink, set off from the control. */
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .wrap { max-width: 1240px; margin: 0 auto; }
-  header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding-block: 16px 12px; border-bottom: 1px solid var(--line); }
-  .brand { display: flex; align-items: center; gap: 10px; }
-  .brand .lamp { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
-  .brand small { display: block; color: var(--muted); font-size: 12px; }
-  .baseline { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-left: auto; align-items: center; }
+  header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding-block: 20px 16px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .lamp { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 4px var(--line-strong); }
+  .brand small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .baseline { display: flex; flex-wrap: wrap; flex: 1 1 360px; justify-content: flex-end; gap: 8px 12px; margin-left: auto; align-items: center; }
+  .baseline > .muted { flex: 1 1 240px; text-align: right; font-family: var(--mono); font-size: 12px; }
   .baseline label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-  .baseline input { width: 78px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-family: var(--mono); font-size: 12px; }
-  .store { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .store .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .baseline input { width: 78px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg); font-family: var(--mono); font-size: 12px; }
+  .store { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; padding: 3px 11px; border: 1px solid var(--line); border-radius: 999px; }
+  .store .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
   .store.shared .dot { background: var(--good); }
-  .layout { display: grid; grid-template-columns: 200px 1fr; gap: 20px; padding-top: 16px; }
-  nav.rail { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 12px; align-self: start; }
-  nav.rail button { text-align: left; padding: 9px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; cursor: pointer; display: flex; align-items: center; gap: 10px; }
-  nav.rail button .n { font-family: var(--mono); font-size: 11px; color: var(--muted); width: 16px; }
-  nav.rail button:hover { background: var(--panel-2); }
-  nav.rail button[aria-current="page"] { background: var(--panel); border-color: var(--line); box-shadow: var(--shadow); font-weight: 600; }
-  nav.rail button[aria-current="page"] .n { color: var(--accent); }
+  /* The theme control: Dark or Light, pressed state in aria-pressed. */
+  .theme { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); }
+  .theme button { padding: 4px 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--mono); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .1em; }
+  .theme button:hover { color: var(--ink); }
+  .theme button[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+  .layout { display: grid; grid-template-columns: 208px 1fr; gap: 28px; padding-top: 20px; }
+  nav.rail { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 16px; align-self: start; }
+  nav.rail button { text-align: left; padding: 8px 14px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  nav.rail button .n { font-family: var(--mono); font-size: 11px; color: var(--muted); width: 18px; }
+  nav.rail button:hover { background: var(--panel-2); color: var(--ink); }
+  nav.rail button[aria-current="page"] { background: var(--raised); border-color: var(--line); color: var(--ink); font-weight: 500; }
+  nav.rail button[aria-current="page"] .n { color: var(--ink); }
   nav.rail .count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
-  main { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-  section.stage { display: flex; flex-direction: column; gap: 14px; }
+  main { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+  section.stage { display: flex; flex-direction: column; gap: 16px; }
   section.stage[hidden] { display: none; }
-  .stage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+  .stage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
   .stage-head p { color: var(--muted); max-width: 68ch; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-  .card.lift { box-shadow: var(--shadow); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+  .card.lift { border-color: var(--line-strong); }
+  .card .card { background: var(--panel-2); border-radius: 14px; }
   .card > * { flex: 0 0 auto; }
   .grid2 > .card { align-self: start; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
-  .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 160px; }
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 160px; }
   .field.sm { flex: 0 1 120px; }
   .field.lg { flex: 2 1 320px; }
   .field label { font-size: 12px; color: var(--muted); }
-  .field input, .field select, .field textarea { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); min-width: 0; width: 100%; }
+  /* Inputs outside a .field (the three own titles, the bank's status select) get the same box. */
+  .field input, .field select, .field textarea, .stack input, td select { padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg); min-width: 0; width: 100%; }
+  td select { width: auto; padding-block: 5px; }
   .field textarea { min-height: 96px; font-family: var(--mono); font-size: 12px; resize: vertical; }
-  .field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-weight: 500; white-space: nowrap; }
-  .btn:hover { background: var(--panel-2); }
-  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
-  .btn.primary:hover { filter: brightness(1.05); }
-  .btn.ai { border-color: var(--accent); }
+  .field input[type=file] { padding: 5px 6px; font-size: 12px; }
+  input[type=file]::file-selector-button { margin-right: 10px; padding: 4px 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--panel-2); color: var(--ink); font: inherit; cursor: pointer; }
+  .btn { padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel-2); cursor: pointer; font-weight: 500; line-height: 1.3; white-space: nowrap; }
+  .btn:hover { background: var(--raised); }
+  .btn.primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; font-weight: 600; }
+  .btn.primary:hover { background: var(--primary-hover); }
+  /* Amber means a person decides here: the buttons that open a human gate, and the gate's own action. */
+  .btn.human { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+  .btn.human:hover { filter: brightness(1.08); }
+  .btn.ai { background: transparent; }
   .btn:disabled { opacity: .5; cursor: default; }
-  .btn.sm { padding: 4px 9px; font-size: 12px; }
+  .btn.sm { padding: 4px 11px; font-size: 12px; }
   .tablewrap { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 500; }
   td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; font-family: var(--mono); }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; font-family: var(--mono); }
   .pill.good { background: var(--good-soft); color: var(--good); }
   .pill.warn { background: var(--warn-soft); color: var(--warn); }
   .pill.bad { background: var(--bad-soft); color: var(--bad); }
   .pill.neutral { background: var(--panel-2); color: var(--muted); }
-  .verdict { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); }
+  .verdict { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); }
   .verdict .big { font-family: var(--display); font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
   .verdict.good { background: var(--good-soft); border-color: transparent; }
   .verdict.warn { background: var(--warn-soft); border-color: transparent; }
   .verdict.bad { background: var(--bad-soft); border-color: transparent; }
   ul.list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
   ul.plain { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-  .axes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .axes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 16px; }
   .axis { display: flex; flex-direction: column; gap: 4px; }
   .axis label { display: flex; justify-content: space-between; font-size: 12px; }
   .axis label b { font-family: var(--mono); font-weight: 500; }
-  .axis input[type=range] { width: 100%; accent-color: var(--accent); }
-  .axis small { color: var(--muted); font-size: 11px; line-height: 1.35; }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .axis input[type=range] { width: 100%; accent-color: var(--ink); }
+  .axis small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
   .muted { color: var(--muted); }
   .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--accent); }
+  .bar { height: 6px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--ink); }
   .lift-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
-  .lift-list .item { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .lift-list .item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
   .lift-list .item b { font-family: var(--mono); font-weight: 500; }
-  .empty { padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; }
-  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow); }
-  .concept { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .empty { padding: 22px; text-align: center; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: 14px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: calc(100vw - 32px); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 500; box-shadow: var(--shadow); }
+  .concept { border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .concept + .concept { margin-top: 10px; }
   .concept h4 { margin: 0; font-family: var(--display); font-size: 15px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .concept dl { margin: 0; display: grid; grid-template-columns: 90px 1fr; gap: 2px 8px; font-size: 12px; }
   .concept dt { color: var(--muted); }
@@ -134,26 +171,30 @@
   .runbook ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
   .runbook li b { font-family: var(--display); }
   .runbook .gate { color: var(--muted); font-size: 12px; }
-  .funnel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .funnel .step { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); font-size: 12px; }
+  .funnel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .funnel .step { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); font-size: 12px; }
   .funnel .step b { display: block; font-family: var(--display); font-size: 13px; }
   .funnel .step.hit { border-color: var(--bad); background: var(--bad-soft); }
   .funnel .step.ok { border-color: var(--good); }
-  pre { margin: 0; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 10px; border-radius: 8px; max-height: 320px; overflow: auto; }
-  footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; max-width: 70ch; }
+  pre { margin: 0; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--line); padding: 12px 14px; border-radius: 12px; max-height: 320px; overflow: auto; }
+  footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; max-width: 70ch; }
   @media (max-width: 760px) {
-    .layout { grid-template-columns: 1fr; }
-    nav.rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
-    nav.rail button { white-space: nowrap; }
+    body { padding-inline: 16px; }
+    .layout { grid-template-columns: 1fr; gap: 16px; }
+    nav.rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 6px; }
+    nav.rail button { white-space: nowrap; border-color: var(--line); }
     nav.rail .count { display: none; }
     .funnel { grid-template-columns: 1fr 1fr; }
-    .baseline { margin-left: 0; }
+    .baseline { margin-left: 0; justify-content: flex-start; }
+    .baseline > .muted { text-align: left; }
+    .card { padding: 16px; }
   }
-  @media (prefers-reduced-motion: no-preference) { .btn, nav.rail button { transition: background .12s ease; } }
+  @media (prefers-reduced-motion: no-preference) { .btn, nav.rail button, .theme button { transition: background-color .15s ease, color .15s ease, border-color .15s ease; } }
 
-  .chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--mono); background: var(--panel-2); color: var(--muted); }
-  .today { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-  .today .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .chip { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; font-family: var(--mono); background: var(--panel-2); color: var(--muted); }
+  .today { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .today .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .today .item .chip { white-space: nowrap; }
   .today .item:last-child { border-bottom: none; }
   .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 13px; }
   .kv dt { color: var(--muted); }
@@ -163,14 +204,10 @@
   .stack { display: flex; flex-direction: column; gap: 8px; }
   .copy { position: relative; }
   .copy button { position: absolute; top: 8px; right: 8px; }
-  /* Inputs outside a .field (the three own titles, the bank's status select) get the same box. */
-  .stack input, td select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); min-width: 0; }
-  .stack input:focus-visible, td select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .field input[type=file] { padding: 5px 6px; font-size: 12px; }
   /* The human gate: in-page, because a published artifact answers every native confirm dialog with false. */
-  dialog.gate { max-width: min(460px, calc(100vw - 32px)); padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
-  dialog.gate::backdrop { background: rgba(0, 0, 0, .45); }
-  dialog.gate form { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+  dialog.gate { max-width: min(460px, calc(100vw - 32px)); padding: 22px 24px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+  dialog.gate::backdrop { background: var(--backdrop); }
+  dialog.gate form { display: flex; flex-direction: column; gap: 14px; margin: 0; }
   dialog.gate .row { justify-content: flex-end; }
 </style>
 <div class="wrap">
@@ -183,7 +220,29 @@
       <span class="muted" id="base-summary">baseline: not computed yet</span>
       <span class="store" id="store-state"><span class="dot"></span><span>this browser only</span></span>
     </div>
+    <div class="theme" role="group" aria-label="Theme"><button type="button" data-desk-theme-choice="dark" aria-pressed="true">Dark</button><button type="button" data-desk-theme-choice="light" aria-pressed="false">Light</button></div>
   </header>
+  <script>
+  // The theme, set as soon as its control exists so a light choice never opens on a dark flash. Dark unless the
+  // person picked Light here; the pick is remembered in this browser only. The published Desk runs in a
+  // sandboxed frame where localStorage throws, so every read and write is guarded and the Desk stays dark there.
+  (() => {
+    const THEME_KEY = 'booster.desk.theme'
+    const choices = document.querySelectorAll('[data-desk-theme-choice]')
+    function setTheme(theme) {
+      document.documentElement.dataset.deskTheme = theme
+      choices.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.deskThemeChoice === theme)))
+    }
+    let saved = null
+    try { saved = localStorage.getItem(THEME_KEY) } catch {}
+    setTheme(saved === 'light' ? 'light' : 'dark')
+    choices.forEach((b) => b.addEventListener('click', () => {
+      const theme = b.dataset.deskThemeChoice === 'light' ? 'light' : 'dark'
+      setTheme(theme)
+      try { localStorage.setItem(THEME_KEY, theme) } catch {}
+    }))
+  })()
+  </script>
 
   <div class="layout">
     <nav class="rail" aria-label="Stages">
@@ -392,7 +451,7 @@
             <div class="field sm"><label for="pb-at">Published at</label><input id="pb-at" type="datetime-local"></div>
             <div class="field"><label for="pb-levers">Hypothesis: levers (comma separated)</label><input id="pb-levers" placeholder="stakes, first-person test"></div>
             <div class="field sm"><label for="pb-predict">Predicted CTR multiple</label><input id="pb-predict" type="number" step="0.1" value="1.0"></div>
-            <button class="btn primary" id="pb-confirm">Confirm published</button>
+            <button class="btn human" id="pb-confirm">Confirm published</button>
           </div>
           <p class="muted">This is a human-only gate: click it after the video is live in Studio with Test &amp; Compare on.</p>
         </div>
@@ -449,7 +508,7 @@
         <div class="stage-head"><h2>Sunday retro</h2><p>Which lever won, which lost, one rule for the playbook, next week's three ideas. Thirty minutes.</p></div>
         <div class="grid2">
           <div class="card"><h3>Last 7 days</h3><div id="retro-week"></div></div>
-          <div class="card"><h3>Rule for the playbook</h3><div class="field"><label for="retro-rule">Draft (edit before accepting)</label><textarea id="retro-rule"></textarea></div><div class="row"><button class="btn primary" id="retro-accept">Accept rule</button><span class="muted">Accepted rules are pinned. Rules compiled from the ledger are hypotheses under observation, not playbook.</span></div><ul class="list" id="retro-rules"></ul></div>
+          <div class="card"><h3>Rule for the playbook</h3><div class="field"><label for="retro-rule">Draft (edit before accepting)</label><textarea id="retro-rule"></textarea></div><div class="row"><button class="btn human" id="retro-accept">Accept rule</button><span class="muted">Accepted rules are pinned. Rules compiled from the ledger are hypotheses under observation, not playbook.</span></div><ul class="list" id="retro-rules"></ul></div>
         </div>
       </section>
 
@@ -490,7 +549,7 @@
   <form method="dialog">
     <h2 id="gate-title"></h2>
     <p id="gate-text"></p>
-    <div class="row"><button class="btn" value="cancel" id="gate-cancel">Cancel</button><button class="btn primary" value="ok" id="gate-ok"></button></div>
+    <div class="row"><button class="btn" value="cancel" id="gate-cancel">Cancel</button><button class="btn human" value="ok" id="gate-ok"></button></div>
   </form>
 </dialog>
 
@@ -547,6 +606,9 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
   // passed. This one is part of the page: it states the consequence and resolves true only on a click of
   // its action button; Cancel, Escape or a second gate while one is open resolve false.
   const gateBox = $('gate')
+  // The two buttons close the gate themselves: a frame sandboxed without allow-forms blocks the form's own
+  // method="dialog" submit, so there Cancel and the action button did nothing and the gate never closed.
+  for (const b of [$('gate-cancel'), $('gate-ok')]) b.addEventListener('click', (e) => { e.preventDefault(); gateBox.close(b.value) })
   function gate({ title, text, action }) {
     if (gateBox.open) return Promise.resolve(false)
     $('gate-title').textContent = title; $('gate-text').textContent = text; $('gate-ok').textContent = action
@@ -1019,7 +1081,7 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     const bucket = $('rv-bucket').value
     const doc = docs('decisions').find((x) => x.id === `${row.slug}:${bucket}`)
     if (!doc) { $('rv-decision').innerHTML = ''; return }
-    $('rv-decision').innerHTML = `<div class="card" style="margin-top:8px"><h3>Decision · ${bucket} h ${doc.approvedAt ? '<span class="chip">approved ' + esc(doc.approvedAt.slice(0, 10)) + '</span>' : '<span class="chip">awaiting you</span>'}</h3><pre>${esc(B.describeDecision(doc))}</pre><div class="row">${doc.approvedAt ? '' : `<button class="btn primary" id="rv-approve">Approve</button>`}${doc.decision === 'REPACKAGE' && doc.approvedAt && !doc.appliedAt ? `<button class="btn" id="rv-applied">Swap applied in Studio</button>` : ''}<button class="btn" data-jump="ledger">Ledger</button></div></div>`
+    $('rv-decision').innerHTML = `<div class="card" style="margin-top:8px"><h3>Decision · ${bucket} h ${doc.approvedAt ? '<span class="chip">approved ' + esc(doc.approvedAt.slice(0, 10)) + '</span>' : '<span class="chip">awaiting you</span>'}</h3><pre>${esc(B.describeDecision(doc))}</pre><div class="row">${doc.approvedAt ? '' : `<button class="btn human" id="rv-approve">Approve</button>`}${doc.decision === 'REPACKAGE' && doc.approvedAt && !doc.appliedAt ? `<button class="btn" id="rv-applied">Swap applied in Studio</button>` : ''}<button class="btn" data-jump="ledger">Ledger</button></div></div>`
     const ap = $('rv-approve'); if (ap) ap.addEventListener('click', async () => { if (!(await gate({ title: 'Approve the decision', text: `Approve ${doc.decision} for "${row.title || row.slug}"? An agent prepared it; you own it. The decision is stamped approved by you, now.`, action: `Approve ${doc.decision}` }))) return; await store.put('decisions', { ...doc, approvedAt: nowIso(), approvedBy: 'desk' }); toast('Decision approved.') })
     const al = $('rv-applied'); if (al) al.addEventListener('click', async () => { await store.put('decisions', { ...doc, appliedAt: nowIso() }); const r = docs('ledger').find((x) => x.slug === row.slug); if (r) await store.put('ledger', { ...r, repackagedAt: nowIso() }); toast('Repackage recorded; the ledger excludes this row from baselines from now on.') })
   }
