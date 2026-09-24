@@ -1,0 +1,1014 @@
+
+$ git rev-parse HEAD
+  (cwd /home/user/Grok-UI-test; exit 0)
+--- stdout
+84a73b83997eb0135f9a03cb211d52108dfec22c
+channel-booster package smoke (P0-G2), 2026-09-24T16:01:35.294Z
+
+$ npm --version
+  (cwd /tmp/channel-booster-smoke-hu4ajd; exit 0)
+--- stdout
+10.9.7
+repo /home/user/Grok-UI-test at 84a73b83997eb0135f9a03cb211d52108dfec22c; node v22.22.2; npm 10.9.7
+scratch folder /tmp/channel-booster-smoke-hu4ajd
+
+
+$ npm pack --json --pack-destination /tmp/channel-booster-smoke-hu4ajd/pack
+  (cwd /home/user/Grok-UI-test/channel-booster; exit 0)
+--- stdout
+dist/channel-booster.mjs written (579 KB, version 0.1.0); doctrine 2639082c9d77 embedded, 11 files
+[
+  {
+    "id": "channel-booster@0.1.0",
+    "name": "channel-booster",
+    "version": "0.1.0",
+    "size": 182853,
+    "unpackedSize": 636864,
+    "shasum": "96f4226c63e2b946fb440a9f68483d5b96f642b5",
+    "integrity": "sha512-AlGxrdKhS3AKcJxPeKSwLNxDn7IJSItLmy7KWhQ83MjltlrjsB3amT/RdUV1h1gV6O+wWrHhvMm53w9NL46ilQ==",
+    "filename": "channel-booster-0.1.0.tgz",
+    "files": [
+      {
+        "path": "AGENTS.md",
+        "size": 6485,
+        "mode": 420
+      },
+      {
+        "path": "LICENSE",
+        "size": 1066,
+        "mode": 420
+      },
+      {
+        "path": "NOTICE",
+        "size": 1517,
+        "mode": 420
+      },
+      {
+        "path": "README.md",
+        "size": 28711,
+        "mode": 420
+      },
+      {
+        "path": "bin/channel-booster.mjs",
+        "size": 1854,
+        "mode": 493
+      },
+      {
+        "path": "dist/channel-booster.mjs",
+        "size": 592807,
+        "mode": 420
+      },
+      {
+        "path": "examples/competitors.csv",
+        "size": 1253,
+        "mode": 420
+      },
+      {
+        "path": "examples/my-channel.csv",
+        "size": 466,
+        "mode": 420
+      },
+      {
+        "path": "examples/studio-content.csv",
+        "size": 1505,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 1200,
+        "mode": 420
+      }
+    ],
+    "entryCount": 10,
+    "bundled": []
+  }
+]
+--- stderr
+
+> channel-booster@0.1.0 prepack
+> tsx scripts/build.ts
+PASS pack: npm pack builds the bundle it packs, and holds the bin, the bundle, the examples, AGENTS.md and the notices, and no source: channel-booster-0.1.0.tgz, 10 files, 179 KB packed; dist/channel-booster.mjs written (579 KB, version 0.1.0); doctrine 2639082c9d77 embedded, 11 files
+
+$ npm install /tmp/channel-booster-smoke-hu4ajd/pack/channel-booster-0.1.0.tgz --no-audit --no-fund --prefix /tmp/channel-booster-smoke-hu4ajd/project
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project; exit 0)
+--- stdout
+
+added 9 packages in 2s
+PASS install: npm install <tarball> into an empty project: added 9 packages in 2s
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster help
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project; exit 0)
+--- stdout
+channel-booster 0.1.0: YouTube Channel Booster
+
+  init <dir> [--channel "<name>"] [--force]                          a channel workspace: booster-workspace.json, data/, packages/, inbox/, playbook/, channel.json; run commands inside it or pass --workspace <dir>
+  where [--json]                                                     every folder commands read and write, where each came from (flag, env, workspace, legacy, cwd), and the doctrine this build ships
+  profile init [--positioning ..] [--persona ..] [--colors "yellow,black"] [--face always|never|either] [--max-words 3] [--framing ..] [--typeface ..] [--competitors "A, B"] [--max-per-week 1] [--publish-day thu] [--solo|--team] [--store local|db] [--never-again "a; b"] [--force]
+  profile show [--path channel.json]                                  the channel profile and its baselines
+  profile refresh [--window 10] [--min-age-days 7] [--dry-run] [--yes]  recompute baselines from the ledger; moving an existing baseline needs --yes (human-only gate 6)
+  ingest <studio-content.csv> [--at ISO] [--bucket 24|48|168|672] [--lever ".." --yes] [--dry-run]   record a Studio export as ledger reads
+  set <slug> --bucket 48 [--ret30 n] [--returning n] [--sub-share n] [--browse-suggested n] [--impressions n] [--ctr n] [--avp n] [--views n] [--lever ".." --yes]   type the numbers Studio does not export
+  ledger add --slug <slug> --title ".." --published-at ISO [--video-id id] [--thumb-a ..] [--thumb-b ..] [--sequel-of slug]
+  ledger show [--slug <slug>] [--md]                                  the ledger, as text or the playbook table
+  ledger baseline [--bucket 48|168] [--exclude slug] [--window 10] [--min-age-days 7]   median and MAD from your own history
+  ledger levers | ledger winners [--multiplier 5] | ledger due        lever tally, own outliers, reads due
+  ledger export [--out file.json | --md [--out file.md]]              dump the ledger
+  fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]   Data API v3 upload list into the inbox (needs YOUTUBE_API_KEY)
+  thresholds [<key>]                                                  every gate as "key value [evidence] note"
+  outliers <csv> [--threshold 10] [--min-age-days 7] [--top 20]     rank videos by views / channel median
+     [--since 90] [--fresh] [--by topic] [--saturation]                demand window, momentum-only view, topic table, format saturation
+     [--diff <last-scan.json>] [--save [<path>]] [--now ISO]           what moved since the last scan; save this one (bare --save writes <data>/last-scan.json)
+     a bundled examples/*.csv reads as of the date it was written for, and says so; --now overrides. example:competitors names it from any folder; --csv <csv> works in place of <csv>
+  audit <csv> [--threshold 5] [--since 90] [--fresh] [--by topic]    audit your own uploads (same flags as outliers; bare --save writes <data>/last-audit.json)
+  idea questions                                                     the six scorecard questions
+  idea score "<idea>" --score "demand=4,packaging=3,fit=..."         verdict + fixes
+  idea score "<idea>" --score "demand=auto,..." --outliers <csv>     demand read from the scan [--since 90] [--min-age-days 7]; phrase the idea with the topic's two key nouns; --outliers example:competitors reads the bundled export
+  idea score <slug>|<idea:id> [--out file.json]                      axes from the bank row when --score is omitted; the scorecard carries its bank status (the workflow demand stage)
+  bank add "<idea>" --score "..." [--csv competitors.csv]            bank an idea (demand=auto reads --csv) [--series ..] [--promise ..]
+  bank list [--status banked,green,..] [--sort total|demand|..]      the bank with verdicts, sequels first [--no-sequel-first]
+  bank approve <id-or-text> --yes                                    banked -> green (human-only gate 1)
+  bank park <id-or-text> --reason ".."                               shelve it; a fresh >= 5x match reopens it
+  bank reject <id-or-text> --reason ".."                             retire it with one line on why
+  bank status <id-or-text> <status> [--reason ..]                    move it along the lifecycle
+  bank rescore <competitors.csv> [--own my-channel.csv]              append scan evidence, raise/decay demand [--since 90] [--decay-days 180]
+  bank sequels [--multiplier 5]                                      bank a sequel for every own winner in the ledger
+  bank import <ideas.json> [--source agent:idea-engine]              import booster ai idea-engine --json output
+  bank wip                                                           packaging/production caps as warnings
+  titles "<topic>" [--number ..] [--subject ..] [--audience ..]      the title formulas as shapes with a blank (no scores): write your own from them
+  titles score "<title>"                                             score one title (template fills are held under the gate)
+  thumbnail brief "<idea>" --title ".." [--subject ..] [--stake ..] [--result ..]
+  thumbnail qa --subject ".." --elements "a,b,c" [--emotion ..] [--text ..] [--background ..] [--colors "yellow,black"] [--title ..] [--no-signature]
+  thumbnail proof <slug> [--out ..] [--competitors "a|b|c"] [--images dir] [--root dir]   proof sheet at 120px beside the top three competitors
+  thumbnail render <slug> [--out ..] [--all] [--root dir]            one image prompt per ship-grade concept
+  thumbnail check <file>                                             delivered PNG/JPG: 1280x720, 16:9, under 2 MB
+  signature show                                                     the channel signature from channel.json
+  signature set --colors "yellow,black" [--face ..] [--max-words ..] [--framing ..] [--typeface ..] [--notes ..]
+  hook score --script <file> --slug <slug> [--title ..] [--promise ..] [--thumbnail-moment ..] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]   writes packages/<slug>/story.json (payoffLadder from --payoffs); exit 1
+... (6088 more characters)
+PASS (a) channel-booster help exits 0 with the command list: 71 command lines
+PASS (a) the installed bin starts with #!/usr/bin/env node
+
+$ npm ls tsx --all --json --prefix /tmp/channel-booster-smoke-hu4ajd/project
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project; exit 1)
+--- stdout
+{
+  "version": "0.0.0",
+  "name": "booster-smoke"
+}
+PASS (a) npm ls tsx finds nothing in the installed tree
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster init ws --channel "Smoke Test"
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project; exit 0)
+--- stdout
+Created a booster workspace for "Smoke Test" at /tmp/channel-booster-smoke-hu4ajd/project/ws
+  created   /tmp/channel-booster-smoke-hu4ajd/project/ws/booster-workspace.json
+  created   /tmp/channel-booster-smoke-hu4ajd/project/ws/data
+  created   /tmp/channel-booster-smoke-hu4ajd/project/ws/packages
+  created   /tmp/channel-booster-smoke-hu4ajd/project/ws/inbox
+  created   /tmp/channel-booster-smoke-hu4ajd/project/ws/playbook
+  created   /tmp/channel-booster-smoke-hu4ajd/project/ws/channel.json
+channel.json holds the default profile until you describe the channel (channel-booster profile init --positioning ".." --force --path /tmp/channel-booster-smoke-hu4ajd/project/ws/channel.json, or edit the file).
+
+Next, from inside /tmp/channel-booster-smoke-hu4ajd/project/ws (or from any folder with --workspace /tmp/channel-booster-smoke-hu4ajd/project/ws):
+  channel-booster outliers example:competitors --save
+  channel-booster bank add "I lived off a solar generator for 30 days" --score "demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4" --csv example:competitors --promise "thirty days on a solar generator, every failure shown"
+  channel-booster package build "I lived off a solar generator for 30 days" --offline
+PASS (b) init ws --channel "Smoke Test" makes the workspace
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster where --json
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+{
+  "bundled": true,
+  "version": "0.1.0",
+  "workspace": {
+    "root": "/tmp/channel-booster-smoke-hu4ajd/project/ws",
+    "source": "discovered"
+  },
+  "locations": {
+    "data": {
+      "path": "/tmp/channel-booster-smoke-hu4ajd/project/ws/data",
+      "source": "workspace"
+    },
+    "profile": {
+      "path": "/tmp/channel-booster-smoke-hu4ajd/project/ws/channel.json",
+      "source": "workspace"
+    },
+    "packagesRoot": {
+      "path": "/tmp/channel-booster-smoke-hu4ajd/project/ws",
+      "source": "workspace"
+    },
+    "inbox": {
+      "path": "/tmp/channel-booster-smoke-hu4ajd/project/ws/inbox",
+      "source": "workspace"
+    },
+    "playbook": {
+      "path": "/tmp/channel-booster-smoke-hu4ajd/project/ws/playbook",
+      "source": "workspace"
+    }
+  },
+  "doctrine": {
+    "hash": "2639082c9d77",
+    "files": [
+      "docs/02-strategist-playbook.md",
+      "playbook/README.md",
+      "playbook/channel-audit.md",
+      "playbook/first-30-seconds.md",
+      "playbook/idea-scorecard.md",
+      "playbook/packaging-ledger.md",
+      "playbook/packaging-review.md",
+      "playbook/post-mortem-template.md",
+      "playbook/publish-checklist.md",
+      "playbook/thumbnail-brief-template.md",
+      "playbook/title-formulas.md"
+    ]
+  }
+}
+PASS (b) where --json inside ws: the workspace is discovered and the doctrine is embedded: doctrine 2639082c9d77, 11 files
+
+$ /opt/node22/bin/node /home/user/Grok-UI-test/node_modules/tsx/dist/cli.mjs channel-booster/cli/booster.ts where --json
+  (cwd /home/user/Grok-UI-test; exit 0)
+--- stdout
+{
+  "bundled": false,
+  "version": "source",
+  "workspace": null,
+  "locations": {
+    "data": {
+      "path": "/home/user/Grok-UI-test/channel-booster/data",
+      "source": "legacy"
+    },
+    "profile": {
+      "path": "/home/user/Grok-UI-test/channel-booster/channel.json",
+      "source": "legacy"
+    },
+    "packagesRoot": {
+      "path": "/home/user/Grok-UI-test",
+      "source": "cwd"
+    },
+    "inbox": {
+      "path": "/home/user/Grok-UI-test/channel-booster/inbox",
+      "source": "legacy"
+    },
+    "playbook": {
+      "path": "/home/user/Grok-UI-test/channel-booster/playbook",
+      "source": "legacy"
+    }
+  },
+  "doctrine": {
+    "hash": "2639082c9d77",
+    "files": [
+      "docs/02-strategist-playbook.md",
+      "playbook/README.md",
+      "playbook/channel-audit.md",
+      "playbook/first-30-seconds.md",
+      "playbook/idea-scorecard.md",
+      "playbook/packaging-ledger.md",
+      "playbook/packaging-review.md",
+      "playbook/post-mortem-template.md",
+      "playbook/publish-checklist.md",
+      "playbook/thumbnail-brief-template.md",
+      "playbook/title-formulas.md"
+    ]
+  }
+}
+PASS (b) the source checkout ships the same doctrine, hash and files: 2639082c9d77
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster ai idea-engine --niche "budget solar power" --dry-run --json
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+{
+  "engine": "idea-engine",
+  "model": "claude-opus-5",
+  "effort": "high",
+  "doctrine": {
+    "hash": "2639082c9d77",
+    "files": [
+      "docs/02-strategist-playbook.md",
+      "playbook/README.md",
+      "playbook/channel-audit.md",
+      "playbook/first-30-seconds.md",
+      "playbook/idea-scorecard.md",
+      "playbook/packaging-ledger.md",
+      "playbook/packaging-review.md",
+      "playbook/post-mortem-template.md",
+      "playbook/publish-checklist.md",
+      "playbook/thumbnail-brief-template.md",
+      "playbook/title-formulas.md"
+    ]
+  },
+  "overlay": [],
+  "overlayDir": "/tmp/channel-booster-smoke-hu4ajd/project/ws/playbook",
+  "playbookFiles": [
+    "docs/02-strategist-playbook.md",
+    "playbook/README.md",
+    "playbook/channel-audit.md",
+    "playbook/first-30-seconds.md",
+    "playbook/idea-scorecard.md",
+    "playbook/packaging-ledger.md",
+    "playbook/packaging-review.md",
+    "playbook/post-mortem-template.md",
+    "playbook/publish-checklist.md",
+    "playbook/thumbnail-brief-template.md",
+    "playbook/title-formulas.md"
+  ],
+  "system": [
+    {
+      "text": "You are the strategist inside the YouTube Channel Booster. You reason the way a packaging-first YouTube strategist does: an idea is only real once it has a title, a thumbnail, and a demand signal; the video is judged per upload, so a first upload can win; the biggest mistake is producing before packaging. Work from the playbook below. Be specific to the channel described in the request, never generic. The compiled learned rules (00-learned-rules.md, each with its tests, wins, win rate and confidence) are observations under test from this channel's own small sample, not doctrine. They never override the doctrine: where one disagrees with it, follow the doctrine. Mention a learned rule only as a hypothesis worth testing, with its evidence count. Rules a person accepted (marked [accepted by ...] or [pinned], or listed under \"## Learned rules\" in a playbook file) are part of the playbook. A file named \"channel playbook/<file>\" comes from this channel's own playbook folder: its compiled 00-learned-rules.md follows docs/02, and its other files follow the shipped playbook. Every rule and figure in the doctrine carries an evidence tag: [sourced], [unverified] or [house]. Never state an [unverified] platform mechanic as fact; say it is unverified or reason without it. When you cite a threshold (a CTR band, a retention mark, a multiplier, a character count), name its tag next to the number, for example \"60% [unverified]\" or \"10x [house]\". Return only the structured object requested.",
+      "cache": false
+    },
+    {
+      "text": "<!-- docs/02-strategist-playbook.md -->\n# The strategist playbook\n\nThe rules the Channel Booster runs on, distilled from the 1of10 Podcast episode with Jake Bryant and from his and the host's public statements, with every rule tagged by evidence. This file is loaded into every Claude-powered engine as its doctrine, so the tags travel into the model's reasoning: an engine must never assert an unverified platform mechanic as fact.\n\nTags: **[sourced]** a listing, quote, or statement captured in `research/findings.json` and cited in `01-video-analysis.md` · **[unverified]** a widely repeated figure or mechanism the research could not confirm at source (the transcript was not capturable; see the evidence statement in `01-video-analysis.md`) · **[house]** a default this system chose; tune it in `channel.json` and it prints as `[house]` on every verdict.\n\n## The thirteen rules\n\n| Id | Rule | Evidence | Enforced by |\n| --- | --- | --- | --- |\n| R1 | Views are decided by packaging (title, thumbnail, first seconds) before content quality gets a vote. | [sourced] 1of10 doctrine: \"titles and thumbnails are arguably more important than your video because if no one clicks it doesn't matter how good your video is\"; the episode's description opener; chapter \"Content vs Packaging\". | Workflow order: no story stage until a package passes review. |\n| R2 | The biggest mistake is ignoring packaging: producing before packaging. | [sourced] 1of10's top mistakes list (\"Ignoring packaging\"); chapter \"The biggest mistake YouTubers make\". The phrasing \"producing before packaging\" is reconstruction. | Same gate as R1; `booster workflow` warns when no review is recorded for the slug. |\n| R3 | Ideas come from over-performing videos (outliers: views against the channel median), not from a blank page. | [sourced] 1of10: \"Coming up with an 'original idea' off the top of your head is a waste of time... study over performing videos\"; Mike Shake: \"don't reinvent the wheel, start with good ideas\". | Idea scorecard hard gate (demand at 1 or below is red); `suggestDemand()` attaches outlier evidence; the outlier scan feeds the bank. |\n| R4 | Packaging amplifies a good idea; it does not rescue a bad one. | [sourced] Mike Shake: \"great packaging can amplify good ideas\". | Scorecard weights (demand 25%, packaging 25%) and the red gate on either. |\n| R5 | Create your own identity: borrow the format, add the angle. | [sourced] Mike Shake: \"Create your own identity and leverage it. Don't try to be someone else.\" | The angle axis stays human-scored; a green idea is approved by a person; the signature registry keeps the channel's own look. |\n| R6 | Fewer, better-optimised uploads: improve titles, thumbnails, storytelling and positioning rather than frequency. | [sourced] Trech Media: \"growth on YouTube isn't about posting more\"; \"fewer, better-optimized uploads\". | Cadence governor warns above `maxPerWeek`; WIP caps in the bank. |\n| R7 | Returning-viewer loyalty is the growth engine. | [sourced] TubeLab profile of Jake Bryant: \"increasing loyal viewers who return to watch every upload\". | Returning share is a required 7-day input; the sequel decision keys on it. |\n| R8 | Clean thumbnails, one consistent format the audience recognises. | [sourced] he originated a format \"lots of cr
+... (25711 more characters)
+PASS (b) ai idea-engine --dry-run --json inside ws: the shipped doctrine and no overlay: doctrine 2639082c9d77, overlay []
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster outliers example:competitors --save
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+Outlier scan · threshold 10x · window 90d · 20 videos (8 stale, 0 fresh) · as of 2026-07-10
+Example data: scored as of 2026-07-10, the date it was written for; pass --now to override.
+
+  VanLifeCo: 10 videos (7 in window), median 46.5K views
+  OffGridLab: 10 videos (5 in window), median 34.0K views
+
+Rank  Mult   Tier     Vel    Flag   Views    Formats                     Title
+   1   57.6x outlier  14.6x  stale     1.9M  challenge,negative,first-person I Tried Every Portable Power Station So You Don't Have To
+   2   33.3x outlier  19.2x            1.1M  how-to,question,extreme     How I Built a Solar Generator for $300
+   3   19.4x outlier   6.8x  stale   640.0K  negative                    The Solar Mistake That Ruined My Batteries
+   4   17.6x outlier   5.5x  stale     2.4M  challenge,negative,money    I Lived in a Van for 30 Days (Here's What Broke)
+   5    8.8x strong   13.9x          290.0K  versus,question             Generator vs Solar: Which Is Cheaper?
+   6    5.7x strong    3.8x          780.0K  versus                      Cheap vs Expensive Van Build: Not Even Close
+   7    3.0x normal    1.6x          410.0K  question,negative           Why I Almost Quit Van Life
+   8    1.6x normal    2.0x          220.0K  extreme,money               $500 Van Kitchen Build
+   9    0.1x normal    1.4x           19.0K                              Morning routine in a van
+  10    1.1x normal    0.4x  stale    35.0K                              Battery comparison
+  11    1.0x normal    1.0x           33.0K  how-to                      Inverter guide
+  12    0.9x normal    0.3x  stale    30.0K  test                        Power station review: model X
+  13    0.8x normal    0.6x           28.0K                              Charging tests
+  14    0.8x normal    0.2x  stale    26.0K                              Wiring basics
+  15    0.6x normal    0.3x           21.0K                              Off-grid update
+  16    0.4x normal    0.2x           52.0K                              Solar setup explained
+  17    0.3x normal    0.1x  stale    41.0K                              Van tour 2026
+  18    0.2x normal    0.4x           22.0K                              Cooking in the van
+  19    0.1x normal    0.1x  stale    18.0K                              Weekly Q&A
+  20    0.1x normal    0.1x           15.0K                              Grocery haul
+
+Format lift among winners (smoothed lift: share in winners ÷ share overall, Laplace-smoothed; thin = fewer than 3 titles [house]):
+  negative        lift 2.20  (50% of winners, 20% overall, 3/4 titles)
+  money           lift 2.06  (33% of winners, 15% overall, 2/3 titles)
+  question        lift 2.06  (33% of winners, 15% overall, 2/3 titles)
+  challenge       lift 2.75  (33% of winners, 10% overall, 2/2 titles, thin)
+  first-person    lift 2.75  (33% of winners, 10% overall, 2/2 titles, thin)
+  versus          lift 2.75  (33% of winners, 10% overall, 2/2 titles, thin)
+  extreme         lift 1.83  (17% of winners, 10% overall, 1/2 titles, thin)
+  how-to          lift 1.83  (17% of winners, 10% overall, 1/2 titles, thin)
+
+Saved scan to /tmp/channel-booster-smoke-hu4ajd/project/ws/data/last-scan.json
+PASS (c) scan: outliers example:competitors --save
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster idea score "I lived off a solar generator for 30 days" --score demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4 --outliers example:competitors
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+Idea: I lived off a solar generator for 30 days
+Total 72/100 · verdict YELLOW
+  demand       ███·· 3/5
+  packaging    ████· 4/5
+  fit          ████· 4/5
+  angle        ███·· 3/5
+  payoff       ████· 4/5
+  feasibility  ████· 4/5
+
+Demand 3/5 (auto): 2 matches at >= 5x inside 90 days [house]
+    33.3x   66d  OffGridLab   How I Built a Solar Generator for $300
+     8.8x   24d  OffGridLab   Generator vs Solar: Which Is Cheaper?
+Example data: scored as of 2026-07-10, the date it was written for; pass --now to override.
+
+No axis below 3. Move it to the packaging sprint.
+PASS (c) idea score with demand=auto from example:competitors
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster bank add "I lived off a solar generator for 30 days" --score demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4 --csv example:competitors --promise "thirty days on a solar generator, every failure shown"
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+idea:mr19yl banked generator+solar total 72 weakest demand verdict YELLOW
+Demand 3/5 (auto): 2 matches at >= 5x inside 90 days [house]
+    33.3x   66d  OffGridLab   How I Built a Solar Generator for $300
+     8.8x   24d  OffGridLab   Generator vs Solar: Which Is Cheaper?
+Example data: scored as of 2026-07-10, the date it was written for; pass --now to override.
+PASS (c) bank add with --csv example:competitors
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster package build "I lived off a solar generator for 30 days" --offline
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 1)
+--- stdout
+Package · i-lived-off-a-solar-generator-for-30-days · GATES FAIL (offline generators, one round)
+Title: none yet (offline, the builder never picks one; a person writes it)
+A/B: The Result vs The Identity · A "The Result" is the strongest concept (QA 100); B "The Identity" pulls a different lever (identity vs result) at QA 100, so Test & Compare tests two ideas, not one twice.
+Hypothesis: levers result, identity · predicted CTR multiple 1. booster publish confirm registers them on the ledger row.
+  FAIL title: no title yet: offline, the builder never picks a formula fill; a person writes the title (AGENTS.md, human gate 2). Write one from the shapes on the sheet, check it with channel-booster titles score "<title>", then rebuild with --title "<title>"
+  PASS thumbnails: "The Result" (result) QA 100 and "The Identity" (identity) QA 100 ship with different levers
+  PASS overlap: no thumbnail text: nothing to repeat
+  FAIL promise: not checked on the title: there is no title until a person writes one
+Bank: idea:mr19yl stays banked, packageId i-lived-off-a-solar-generator-for-30-days.
+Wrote /tmp/channel-booster-smoke-hu4ajd/project/ws/packages/i-lived-off-a-solar-generator-for-30-days/package.json and /tmp/channel-booster-smoke-hu4ajd/project/ws/packages/i-lived-off-a-solar-generator-for-30-days/package.md.
+Next: write your title from the shapes in /tmp/channel-booster-smoke-hu4ajd/project/ws/packages/i-lived-off-a-solar-generator-for-30-days/package.md, check it with channel-booster titles score "<title>", then channel-booster package build i-lived-off-a-solar-generator-for-30-days --title "<your title>" --offline
+--- stderr
+idea idea:mr19yl is banked, not green: the package is built, but approve the idea before production (booster bank approve idea:mr19yl --yes)
+No title yet for i-lived-off-a-solar-generator-for-30-days: a person writes it, then channel-booster package build i-lived-off-a-solar-generator-for-30-days --title "<your title>" --offline
+PASS (c) package build "<idea>" --offline stops at the title gate
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster package build i-lived-off-a-solar-generator-for-30-days --title "Thirty Days on a Solar Generator, Every Failure" --offline
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+Package · i-lived-off-a-solar-generator-for-30-days · GATES PASS (offline generators, one round)
+Title: Thirty Days on a Solar Generator, Every Failure (yours, 73/100)
+A/B: The Result vs The Identity · A "The Result" is the strongest concept (QA 100); B "The Identity" pulls a different lever (identity vs result) at QA 100, so Test & Compare tests two ideas, not one twice.
+Hypothesis: levers result, identity · predicted CTR multiple 1. booster publish confirm registers them on the ledger row. Your title names no lever: rebuild with --lever "<the lever it pulls>" so rules compile counts the title too.
+  PASS title: title scores 73/100, at or above 60 [house], and is 47 characters, inside 30-55
+  PASS thumbnails: "The Result" (result) QA 100 and "The Identity" (identity) QA 100 ship with different levers
+  PASS overlap: no thumbnail text: nothing to repeat
+  PASS promise: the promise survives on the title and both thumbnail texts
+Wrote /tmp/channel-booster-smoke-hu4ajd/project/ws/packages/i-lived-off-a-solar-generator-for-30-days/package.json and /tmp/channel-booster-smoke-hu4ajd/project/ws/packages/i-lived-off-a-solar-generator-for-30-days/package.md.
+Next: channel-booster hook score --script <file> --slug i-lived-off-a-solar-generator-for-30-days. Rebuilds keep your title; --title replaces it.
+PASS (c) package build <slug> --title .. --offline
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster rules compile
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+Compiled 0 rules from 0 tested rows: 0 winning so far, 0 losing so far, 0 under test.
+No status changes since the last compile.
+Wrote /tmp/channel-booster-smoke-hu4ajd/project/ws/playbook/00-learned-rules.md (1256 chars). The booster ai engines load it from this workspace's playbook folder, /tmp/channel-booster-smoke-hu4ajd/project/ws/playbook, right after docs/02, as observations under test, not doctrine.
+PASS (c) rules compile
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster workflow "I lived off a solar generator for 30 days" --out packages
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+# Workflow: I lived off a solar generator for 30 days
+
+Format: talking-head · Cycle: 14 days · Slug: i-lived-off-a-solar-generator-for-30-days
+
+Drive it one stage at a time: `channel-booster workflow run i-lived-off-a-solar-generator-for-30-days --next --agent <name>`. Artifacts live in `packages/i-lived-off-a-solar-generator-for-30-days/`.
+
+| # | Stage | Owner | Due | Gate |
+| --- | --- | --- | --- | --- |
+| 1 | Demand check | strategist | day 0 | Idea scorecard is green and a person approved the idea; yellow with a named fix needs an override. |
+| 2 | Packaging sprint | strategist | day 1 | A title and a thumbnail concept exist that the strategist would click next to the top competing videos. |
+| 3 | Story spine | writer | day 2 | A cold reader can say what the video promises after reading the first 30 seconds. |
+| 4 | Shoot plan | creator | day 3 | Every payoff moment in the spine has a shot that shows it. |
+| 5 | Production | creator | day 6 | Footage covers the first 30 seconds, every payoff, and the thumbnail photos. |
+| 6 | Edit and retention pass | editor | day 8 | A cold viewer watches past the first 30 seconds without being asked to. |
+| 7 | Thumbnail production | designer | day 9 | At least two variants grade "ship" and look different from each other. |
+| 8 | Publish package | strategist | day 11 | Every line of the publish checklist is ticked. |
+| 9 | 48-hour review | analyst | day 13 | Diagnosis recorded and the repackage decision made. |
+| 10 | 7-day post-mortem | analyst | day 19 | One sentence of learning is written into the playbook. |
+
+## Demand check (strategist, day 0)
+
+Inputs: idea one-liner; competitor CSV exports; last 90 days of your own analytics
+
+Outputs: idea scorecard (six axes); three outlier references with multipliers; go / no-go
+
+- [ ] Run booster outliers on 2-3 adjacent channels; list every video >= 5x its channel median on this topic.
+- [ ] Score the idea on the six axes and bank it: booster bank add "<idea>" --score "demand=auto,packaging=..,fit=..,angle=..,payoff=..,feasibility=.." --csv <competitors.csv>.
+- [ ] A person approves the green: booster bank approve "<idea>" --yes (human-only gate 1).
+- [ ] Write the one-sentence promise a stranger would understand.
+
+Gate: Idea scorecard is green and a person approved the idea; yellow with a named fix needs an override.
+
+Run: `channel-booster idea score i-lived-off-a-solar-generator-for-30-days --out packages/i-lived-off-a-solar-generator-for-30-days/demand.json`
+
+Check: demand.json: verdict == "green" and demand.json: status in "green" | "packaging" | "production" | "published"
+
+## Packaging sprint (strategist, day 1)
+
+Inputs: idea scorecard; outlier references
+
+Outputs: 10 title candidates; chosen title; 3 thumbnail concepts; thumbnail brief
+
+- [ ] Write 10 titles of your own from the shapes booster titles prints, score them with booster titles score, and keep the two best and one wildcard.
+- [ ] A person picks the final title and passes it to booster package build with --title "<title>"; every rebuild keeps it, and offline the gate stays shut until then (human-only gate 2).
+- [ ] Build the thumbnail brief; sketch the three strongest concepts on paper at phone size.
+- [ ] Run the packaging review: title tells, thumbnail shows, neither repeats the other.
+
+Gate: A title and a thumbnail concept exist that the strategist would click next to the top competing videos.
+
+Run: `channel-booster package build i-lived-off-a-solar-generator-for-30-days`
+
+Check: package.json: gateReport.pass == true and package.md exists
+
+## Story spine (writer, day 2)
+
+Inputs: chosen title; thumbnail concept
+
+Outputs: first-30-seconds script; promise to payoff outline; rehook map (one every 60-90s)
+
+- [ ] Write the first 30 seconds word for word: promise, stake, why now.
+- [ ] List the payoff moments in order and mark which one the thumbnail shows.
+- [ ] Plan a rehook (new question, reveal, or escalation) every 60-90 seconds.
+
+Gate: A cold reader can say what the video promises after reading the first 30 seconds.
+
+Run: `channel-booster hook score --script packages/i-lived-off-a-solar-generator-for-30-days/script.txt --slug i-lived-off-a-solar-generator-for-30-days`
+
+Check: story.json: hookScore >= 70 and story.json: promiseInFirst25Words == true
+
+## Shoot plan (creator, day 3)
+
+Inputs: story spine; thumbnail brief
+
+Outputs: shot list; thumbnail photo list; props and locations
+
+- [ ] Add a dedicated thumbnail photo setup to the shot list (lighting, expression, props).
+- [ ] Mark every shot that proves a claim in the script.
+- [ ] Schedule the shoot so the ending is filmed before the open.
+
+Gate: Every payoff moment in the spine has a shot that shows it.
+
+Run: `channel-booster plan shots i-lived-off-a-solar-generator-for-30-days --format talking-head`
+
+Check: shots.md exists and story.json: payoffLadder.length >= 1
+
+## Production (creator, day 6)
+
+Inputs: shot list
+
+Outputs: footage; thumbnail photos (raw); audio
+
+- [ ] Record the first 30 seconds three times; pick the take that states the promise fastest.
+- [ ] Capture B-roll for every claim you make.
+- [ ] Shoot the thumbnail photos at the peak emotional moment, not at the end of the day.
+
+Gate: Footage covers the first 30 seconds, every payoff, and the thumbnail photos.
+
+Run: `human step; evidence: packages/i-lived-off-a-solar-generator-for-30-days/footage.txt`
+
+Check: footage.txt exists
+
+## Edit and retention pass (editor, day 8)
+
+Inputs: footage; story spine; rehook map
+
+Outputs: v1 cut; retention map with timestamps; chapter list
+
+- [ ] Cut every pause longer than 0.5s in the first minute.
+- [ ] Add on-screen text for the promise in the first 5 seconds.
+- [ ] Watch v1 as a stranger: mark every point you would leave and fix it.
+- [ ] Confirm the packaging promise is on screen in the first line.
+
+Gate: A cold viewer watches past the first 30 seconds without being asked to.
+
+Run: `human step; evidence: packages/i-lived-off-a-solar-generator-for-30-days/cut.txt`
+
+Check: cut.txt exist
+... (2849 more characters)
+--- stderr
+wrote packages/i-lived-off-a-solar-generator-for-30-days.md and .json
+status document created: channel-booster workflow run i-lived-off-a-solar-generator-for-30-days --next --agent <name>
+PASS (c) workflow "<idea>" --out packages
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster bank add "I ran a van fridge on solar for 30 days" --score demand=5,packaging=5,fit=5,angle=4,payoff=5,feasibility=5 --promise "a van fridge on solar alone for thirty days, every warm night shown"
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+idea:1o0xult banked fridge+solar total 97 weakest angle verdict GREEN
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster bank approve "I ran a van fridge on solar for 30 days" --yes
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+I ran a van fridge on solar for 30 days: green (approved by a person, 2026-09-24T16:01:41.566Z)
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster workflow "I ran a van fridge on solar for 30 days" --json
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+{
+  "idea": "I ran a van fridge on solar for 30 days",
+  "slug": "i-ran-a-van-fridge-on-solar-for-30-days",
+  "format": "talking-head",
+  "stages": [
+    {
+      "id": "demand",
+      "name": "Demand check",
+      "owner": "strategist",
+      "dueDay": 0,
+      "inputs": [
+        "idea one-liner",
+        "competitor CSV exports",
+        "last 90 days of your own analytics"
+      ],
+      "outputs": [
+        "idea scorecard (six axes)",
+        "three outlier references with multipliers",
+        "go / no-go"
+      ],
+      "checklist": [
+        "Run booster outliers on 2-3 adjacent channels; list every video >= 5x its channel median on this topic.",
+        "Score the idea on the six axes and bank it: booster bank add \"<idea>\" --score \"demand=auto,packaging=..,fit=..,angle=..,payoff=..,feasibility=..\" --csv <competitors.csv>.",
+        "A person approves the green: booster bank approve \"<idea>\" --yes (human-only gate 1).",
+        "Write the one-sentence promise a stranger would understand."
+      ],
+      "gate": "Idea scorecard is green and a person approved the idea; yellow with a named fix needs an override.",
+      "run": {
+        "kind": "command",
+        "command": [
+          "booster",
+          "idea",
+          "score",
+          "<slug>",
+          "--out",
+          "<dir>/demand.json"
+        ],
+        "artifact": "demand.json"
+      },
+      "check": {
+        "kind": "all-of",
+        "checks": [
+          {
+            "kind": "json-path-eq",
+            "path": "demand.json",
+            "jsonPath": "verdict",
+            "value": "green"
+          },
+          {
+            "kind": "json-path-in",
+            "path": "demand.json",
+            "jsonPath": "status",
+            "values": [
+              "green",
+              "packaging",
+              "production",
+              "published"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "packaging",
+      "name": "Packaging sprint",
+      "owner": "strategist",
+      "dueDay": 1,
+      "inputs": [
+        "idea scorecard",
+        "outlier references"
+      ],
+      "outputs": [
+        "10 title candidates",
+        "chosen title",
+        "3 thumbnail concepts",
+        "thumbnail brief"
+      ],
+      "checklist": [
+        "Write 10 titles of your own from the shapes booster titles prints, score them with booster titles score, and keep the two best and one wildcard.",
+        "A person picks the final title and passes it to booster package build with --title \"<title>\"; every rebuild keeps it, and offline the gate stays shut until then (human-only gate 2).",
+        "Build the thumbnail brief; sketch the three strongest concepts on paper at phone size.",
+        "Run the packaging review: title tells, thumbnail shows, neither repeats the other."
+      ],
+      "gate": "A title and a thumbnail concept exist that the strategist would click next to the top competing videos.",
+      "run": {
+        "kind": "command",
+        "command": [
+          "booster",
+          "package",
+          "build",
+          "<slug>"
+        ],
+        "artifact": "package.json"
+      },
+      "check": {
+        "kind": "all-of",
+        "checks": [
+          {
+            "kind": "json-path-eq",
+            "path": "package.json",
+            "jsonPath": "gateReport.pass",
+            "value": true
+          },
+          {
+            "kind": "file-exists",
+            "path": "package.md"
+          }
+        ]
+      }
+    },
+    {
+      "id": "story",
+      "name": "Story spine",
+      "owner": "writer",
+      "dueDay": 2,
+      "inputs": [
+        "chosen title",
+        "thumbnail concept"
+      ],
+      "outputs": [
+        "first-30-seconds script",
+        "promise to payoff outline",
+        "rehook map (one every 60-90s)"
+      ],
+      "checklist": [
+        "Write the first 30 seconds word for word: promise, stake, why now.",
+        "List the payoff moments in order and mark which one the thumbnail shows.",
+        "Plan a rehook (new question, reveal, or escalation) every 60-90 seconds."
+      ],
+      "gate": "A cold reader can say what the video promises after reading the first 30 seconds.",
+      "run": {
+        "kind": "command",
+        "command": [
+          "booster",
+          "hook",
+          "score",
+          "--script",
+          "<dir>/script.txt",
+          "--slug",
+          "<slug>"
+        ],
+        "artifact": "story.json"
+      },
+      "check": {
+        "kind": "all-of",
+        "checks": [
+          {
+            "kind": "json-path-min",
+            "path": "story.json",
+            "jsonPath": "hookScore",
+            "min": 70
+          },
+          {
+            "kind": "json-path-eq",
+            "path": "story.json",
+            "jsonPath": "promiseInFirst25Words",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "plan",
+      "name": "Shoot plan",
+      "owner": "creator",
+      "dueDay": 3,
+      "inputs": [
+        "story spine",
+        "thumbnail brief"
+      ],
+      "outputs": [
+        "shot list",
+        "thumbnail photo list",
+        "props and locations"
+      ],
+      "checklist": [
+        "Add a dedicated thumbnail photo setup to the shot list (lighting, expression, props).",
+        "Mark every shot that proves a claim in the script.",
+        "Schedule the shoot so the ending is filmed before the open."
+      ],
+      "gate": "Every payoff moment in the spine has a shot that shows it.",
+      "run": {
+        "kind": "command",
+        "command": [
+          "booster",
+          "plan",
+          "shots",
+          "<slug>",
+          "--format",
+          "talking-head"
+        ],
+        "artifact": "shots.md"
+      },
+      "check": {
+        "kind": "all-of",
+        "checks": [
+          {
+            "kind": "file-exists",
+            "path": "shots.md"
+          },
+          {
+            "kind": "json-path-min",
+            "path": "story.json",
+            "jsonPath": "payoffLadder.length",
+       
+... (7014 more characters)
+--- stderr
+wrote /tmp/channel-booster-smoke-hu4ajd/project/ws/packages/i-ran-a-van-fridge-on-solar-for-30-days.md and .json
+status document created: channel-booster workflow run i-ran-a-van-fridge-on-solar-for-30-days --next --agent <name>
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster workflow run i-ran-a-van-fridge-on-solar-for-30-days --stage demand --isolate --agent smoke --json
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 1)
+--- stdout
+{
+  "slug": "i-ran-a-van-fridge-on-solar-for-30-days",
+  "root": "/tmp/channel-booster-smoke-hu4ajd/project/ws",
+  "stageId": "demand",
+  "dryRun": false,
+  "result": {
+    "stageId": "demand",
+    "kind": "command",
+    "command": [
+      "booster",
+      "idea",
+      "score",
+      "i-ran-a-van-fridge-on-solar-for-30-days",
+      "--out",
+      "packages/i-ran-a-van-fridge-on-solar-for-30-days/demand.json"
+    ],
+    "dryRun": false,
+    "exitCode": 97,
+    "stdout": "",
+    "stderr": "",
+    "gate": {
+      "pass": false,
+      "detail": "FAIL: command exited 97; FAIL: missing demand.json; FAIL: missing demand.json",
+      "checks": [
+        {
+          "pass": false,
+          "detail": "missing demand.json"
+        },
+        {
+          "pass": false,
+          "detail": "missing demand.json"
+        }
+      ]
+    },
+    "status": "failed",
+    "startedAt": "2026-09-24T16:01:41.893Z",
+    "finishedAt": "2026-09-24T16:01:41.928Z",
+    "agent": "smoke"
+  },
+  "status": {
+    "id": "i-ran-a-van-fridge-on-solar-for-30-days",
+    "slug": "i-ran-a-van-fridge-on-solar-for-30-days",
+    "idea": "I ran a van fridge on solar for 30 days",
+    "format": "talking-head",
+    "promise": "a van fridge on solar alone for thirty days, every warm night shown",
+    "stages": [
+      {
+        "id": "demand",
+        "status": "failed",
+        "startedAt": "2026-09-24T16:01:41.893Z",
+        "finishedAt": "2026-09-24T16:01:41.928Z",
+        "gateResult": "FAIL: command exited 97; FAIL: missing demand.json; FAIL: missing demand.json",
+        "agent": "smoke"
+      },
+      {
+        "id": "packaging",
+        "status": "pending"
+      },
+      {
+        "id": "story",
+        "status": "pending"
+      },
+      {
+        "id": "plan",
+        "status": "pending"
+      },
+      {
+        "id": "production",
+        "status": "pending"
+      },
+      {
+        "id": "edit",
+        "status": "pending"
+      },
+      {
+        "id": "thumbnail",
+        "status": "pending"
+      },
+      {
+        "id": "publish",
+        "status": "pending"
+      },
+      {
+        "id": "review48",
+        "status": "pending"
+      },
+      {
+        "id": "postmortem",
+        "status": "pending"
+      }
+    ],
+    "updatedAt": "2026-09-24T16:01:41.928Z",
+    "source": "cli"
+  },
+  "done": false
+}
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster workflow run i-ran-a-van-fridge-on-solar-for-30-days --next --agent smoke --json
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project/ws; exit 0)
+--- stdout
+{
+  "slug": "i-ran-a-van-fridge-on-solar-for-30-days",
+  "root": "/tmp/channel-booster-smoke-hu4ajd/project/ws",
+  "stageId": "demand",
+  "dryRun": false,
+  "result": {
+    "stageId": "demand",
+    "kind": "command",
+    "command": [
+      "booster",
+      "idea",
+      "score",
+      "i-ran-a-van-fridge-on-solar-for-30-days",
+      "--out",
+      "packages/i-ran-a-van-fridge-on-solar-for-30-days/demand.json"
+    ],
+    "dryRun": false,
+    "exitCode": 0,
+    "stdout": "Idea: I ran a van fridge on solar for 30 days\nTotal 97/100 · verdict GREEN\n  demand       █████ 5/5\n  packaging    █████ 5/5\n  fit          █████ 5/5\n  angle        ████· 4/5\n  payoff       █████ 5/5\n  feasibility  █████ 5/5\n\nNo axis below 3. Move it to the packaging sprint.\nBank: idea:1o0xult is green.\nWrote /tmp/channel-booster-smoke-hu4ajd/project/ws/packages/i-ran-a-van-fridge-on-solar-for-30-days/demand.json\n",
+    "stderr": "",
+    "gate": {
+      "pass": true,
+      "detail": "ok: demand.json: verdict is \"green\"; ok: demand.json: status is \"green\"",
+      "checks": [
+        {
+          "pass": true,
+          "detail": "demand.json: verdict is \"green\""
+        },
+        {
+          "pass": true,
+          "detail": "demand.json: status is \"green\""
+        }
+      ]
+    },
+    "status": "passed",
+    "startedAt": "2026-09-24T16:01:42.091Z",
+    "finishedAt": "2026-09-24T16:01:42.096Z",
+    "agent": "smoke"
+  },
+  "status": {
+    "id": "i-ran-a-van-fridge-on-solar-for-30-days",
+    "slug": "i-ran-a-van-fridge-on-solar-for-30-days",
+    "idea": "I ran a van fridge on solar for 30 days",
+    "format": "talking-head",
+    "promise": "a van fridge on solar alone for thirty days, every warm night shown",
+    "stages": [
+      {
+        "id": "demand",
+        "status": "passed",
+        "startedAt": "2026-09-24T16:01:42.091Z",
+        "finishedAt": "2026-09-24T16:01:42.096Z",
+        "gateResult": "ok: demand.json: verdict is \"green\"; ok: demand.json: status is \"green\"",
+        "agent": "smoke"
+      },
+      {
+        "id": "packaging",
+        "status": "pending"
+      },
+      {
+        "id": "story",
+        "status": "pending"
+      },
+      {
+        "id": "plan",
+        "status": "pending"
+      },
+      {
+        "id": "production",
+        "status": "pending"
+      },
+      {
+        "id": "edit",
+        "status": "pending"
+      },
+      {
+        "id": "thumbnail",
+        "status": "pending"
+      },
+      {
+        "id": "publish",
+        "status": "pending"
+      },
+      {
+        "id": "review48",
+        "status": "pending"
+      },
+      {
+        "id": "postmortem",
+        "status": "pending"
+      }
+    ],
+    "updatedAt": "2026-09-24T16:01:42.096Z",
+    "source": "cli"
+  },
+  "done": false
+}
+PASS (c) workflow run <slug> --next runs an approved green idea's demand stage in the bin's own process, and it passes: stage demand passed in this process (ok: demand.json: verdict is "green"; ok: demand.json: status is "green"); with --isolate its child exited 97
+
+$ /tmp/channel-booster-smoke-hu4ajd/project/node_modules/.bin/channel-booster bank list
+  (cwd /tmp/channel-booster-smoke-hu4ajd/project; exit 1)
+--- stderr
+channel-booster: No channel workspace for the store. Create one with `channel-booster init <folder>` and run commands inside it, pass --workspace <folder> or set BOOSTER_HOME, or give the location itself with --data.
+PASS (d) a store command outside any workspace fails with the init hint and exit 1
+
+Files inside ws after the run:
+  booster-workspace.json
+  channel.json
+  data/ideas.jsonl
+  data/last-scan.json
+  data/rules.jsonl
+  data/workflows.jsonl
+  packages/i-lived-off-a-solar-generator-for-30-days.json
+  packages/i-lived-off-a-solar-generator-for-30-days.md
+  packages/i-lived-off-a-solar-generator-for-30-days/package.json
+  packages/i-lived-off-a-solar-generator-for-30-days/package.md
+  packages/i-ran-a-van-fridge-on-solar-for-30-days.json
+  packages/i-ran-a-van-fridge-on-solar-for-30-days.md
+  packages/i-ran-a-van-fridge-on-solar-for-30-days/demand.json
+  playbook/00-learned-rules.md
+PASS (c) nothing was written outside ws: not the project, not node_modules/channel-booster, not HOME: 14 files written, all inside ws
+
+PASS package smoke: 19 checks

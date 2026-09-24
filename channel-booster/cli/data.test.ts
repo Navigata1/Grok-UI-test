@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +27,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   resetThresholds()
   if (savedKey === undefined) delete process.env.YOUTUBE_API_KEY
   else process.env.YOUTUBE_API_KEY = savedKey
@@ -209,7 +211,7 @@ describe('booster profile', () => {
   })
 
   it('rejects an unknown subcommand with the usage line', async () => {
-    expect((await fails(['profile', 'bogus'])).message).toContain('usage: booster profile init|show|refresh')
+    expect((await fails(['profile', 'bogus'])).message).toContain('usage: npm run booster -- profile init|show|refresh')
   })
 })
 
@@ -346,7 +348,7 @@ describe('booster ingest', () => {
     expect(forced.recorded[0]).toMatchObject({ slug: 'went-wrong', bucket: '48', ageHours: 60 })
     expect((await fails(['ingest', studio, '--bucket', '96'])).message).toContain('--bucket must be one of 24|48|168|672')
     expect((await fails(['ingest', path.join(tmp, 'missing.csv')])).message).toContain('not found')
-    expect((await fails(['ingest'])).message).toContain('usage: booster ingest')
+    expect((await fails(['ingest'])).message).toContain('usage: npm run booster -- ingest')
     expect((await fails(['ingest', studio, '--at', 'noon'])).message).toContain('--at must be an ISO date')
   })
 })
@@ -369,7 +371,7 @@ describe('booster set', () => {
   })
 
   it('validates the slug, bucket and numbers', async () => {
-    expect((await fails(['set'])).message).toContain('usage: booster set')
+    expect((await fails(['set'])).message).toContain('usage: npm run booster -- set')
     expect((await fails(['set', 'x', '--ctr', '5'])).message).toContain('--bucket is required')
     expect((await fails(['set', 'x', '--bucket', '48', '--ctr', '5'])).message).toContain('no ledger row for "x"')
     await addRow('x', 'X', '2026-05-31T12:00:00Z')
@@ -477,7 +479,7 @@ describe('booster ledger baseline / levers / winners / due / export', () => {
   })
 
   it('rejects an unknown ledger subcommand', async () => {
-    expect((await fails(['ledger', 'bogus'])).message).toContain('usage: booster ledger add|show|baseline|levers|winners|due|export')
+    expect((await fails(['ledger', 'bogus'])).message).toContain('usage: npm run booster -- ledger add|show|baseline|levers|winners|due|export')
   })
 })
 
@@ -497,11 +499,40 @@ describe('booster fetch channel', () => {
     process.env.YOUTUBE_API_KEY = '   '
     expect((await fails(['fetch', 'channel', '@VanLifeCo'])).message).toContain('YOUTUBE_API_KEY is not set')
     process.env.YOUTUBE_API_KEY = 'AIza-secret-key-value'
-    expect((await fails(['fetch', 'channel'])).message).toContain('usage: booster fetch channel')
-    expect((await fails(['fetch', 'videos', '@VanLifeCo'])).message).toContain('usage: booster fetch channel')
+    expect((await fails(['fetch', 'channel'])).message).toContain('usage: npm run booster -- fetch channel')
+    expect((await fails(['fetch', 'videos', '@VanLifeCo'])).message).toContain('usage: npm run booster -- fetch channel')
     const blank = await fails(['fetch', 'channel', '   '])
     expect(blank.message).toContain('a handle (@name) or a channel id (UC...) is required')
     expect(blank.message).not.toContain('AIza-secret-key-value')
+  })
+
+  it('writes to the workspace inbox when a workspace is in use, to --inbox when given, else to <--root or the working directory>/inbox as always', async () => {
+    vi.stubEnv('YOUTUBE_API_KEY', 'stub-key')
+    vi.stubEnv('BOOSTER_HOME', '')
+    vi.stubGlobal('fetch', async (url: string | URL) => ({ ok: true, status: 200, text: async () => JSON.stringify(youtubeStub(String(url))) }))
+    const root = realpathSync(tmp)
+    const ws = path.join(root, 'ws')
+    expect((await run(['init', ws])).code).toBe(0)
+    // With a workspace the list is an inbox file, even when --root moves the packages somewhere else.
+    const inWorkspace = await json(['fetch', 'channel', '@stubchannel', '--workspace', ws, '--root', path.join(root, 'packages-elsewhere')])
+    expect(inWorkspace.out).toBe(path.join(ws, 'inbox', 'stubchannel.csv'))
+    expect(readFileSync(inWorkspace.out, 'utf8').split('\n')[0]).toBe(CSV_HEADER.join(','))
+    expect(existsSync(path.join(root, 'packages-elsewhere'))).toBe(false)
+    // --inbox names the inbox as it does for review run and brief, and the usage says so.
+    expect((await json(['fetch', 'channel', '@stubchannel', '--inbox', path.join(root, 'drop')])).out).toBe(path.join(root, 'drop', 'stubchannel.csv'))
+    expect((await fails(['fetch', 'channel'])).message).toBe('usage: npm run booster -- fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]')
+    expect((await run(['help'])).out).toContain('  fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir] ')
+    // No workspace and no --inbox: where fetch has always written.
+    expect((await json(['fetch', 'channel', '@stubchannel', '--root', path.join(root, 'old')])).out).toBe(path.join(root, 'old', 'inbox', 'stubchannel.csv'))
+    const cwd = process.cwd()
+    const plain = path.join(root, 'plain')
+    mkdirSync(plain)
+    process.chdir(plain)
+    try {
+      expect((await json(['fetch', 'channel', '@stubchannel'])).out).toBe(path.join(plain, 'inbox', 'stubchannel.csv'))
+    } finally {
+      process.chdir(cwd)
+    }
   })
 
   it('writes the competitor CSV shape the scanner reads', () => {
@@ -511,6 +542,13 @@ describe('booster fetch channel', () => {
     expect(csv).toBe('title,views,published,channel,duration,url,videoId\n"Van, ""Life""",180000,2026-09-10,VanLifeCo,720,https://www.youtube.com/watch?v=aB3dEfGh1jK,aB3dEfGh1jK\n')
   })
 })
+
+/** Canned YouTube Data API bodies for the three calls `fetch channel` makes. */
+function youtubeStub(url: string): unknown {
+  if (url.includes('/channels')) return { items: [{ id: 'UCstub', snippet: { title: 'Stub' }, contentDetails: { relatedPlaylists: { uploads: 'UUstub' } } }] }
+  if (url.includes('/playlistItems')) return { items: [{ contentDetails: { videoId: 'aB3dEfGh1jK' } }] }
+  return { items: [{ id: 'aB3dEfGh1jK', snippet: { title: 'Stub video', publishedAt: '2026-07-01T00:00:00Z', channelTitle: 'Stub' }, statistics: { viewCount: '1000' }, contentDetails: { duration: 'PT10M' } }] }
+}
 
 describe('booster thresholds', () => {
   it('prints every entry as "key value [evidence] note"', async () => {

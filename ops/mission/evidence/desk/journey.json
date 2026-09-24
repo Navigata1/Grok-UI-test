@@ -1,0 +1,987 @@
+{
+  "gate": "P1-G2",
+  "script": "channel-booster/scripts/desk-runtime.mjs",
+  "desk": "channel-booster/dashboard/index.html",
+  "deskSha256": "281c256d70f0c4d14cb125c8ff56bb9d914f33f270ecf9f2f83f9c3ceeb138a8",
+  "ranAt": "2026-09-24T16:02:45.976Z",
+  "browser": "Chromium 141.0.7390.37",
+  "result": "PASS",
+  "evidence": [
+    "desktop-dark.png",
+    "desktop-light.png",
+    "phone-dark.png",
+    "phone-light.png",
+    "gate-dialog.png",
+    "artifact-frame.png",
+    "trace.zip"
+  ],
+  "checks": [
+    {
+      "id": "a1",
+      "name": "opens dark by default with the OS set to light",
+      "result": "PASS",
+      "measured": {
+        "deskTheme": "dark",
+        "hostTheme": null,
+        "colorScheme": "dark",
+        "bodyBackground": "rgb(10, 10, 11)",
+        "pressed": {
+          "dark": "true",
+          "light": "false"
+        }
+      }
+    },
+    {
+      "id": "a2",
+      "name": "the inlined fonts load (Syne, IBM Plex Sans, IBM Plex Mono)",
+      "result": "PASS",
+      "measured": {
+        "loaded": [
+          "Syne",
+          "IBM Plex Sans",
+          "IBM Plex Mono"
+        ]
+      }
+    },
+    {
+      "id": "a3",
+      "name": "no console errors on the desktop page",
+      "result": "PASS",
+      "measured": {
+        "consoleErrors": []
+      }
+    },
+    {
+      "id": "a4",
+      "name": "no request outside file: and data:",
+      "result": "PASS",
+      "measured": {
+        "offsite": []
+      }
+    },
+    {
+      "id": "b1",
+      "name": "Light switches the Desk to the light palette and stores the pick",
+      "result": "PASS",
+      "measured": {
+        "deskTheme": "light",
+        "hostTheme": null,
+        "colorScheme": "light",
+        "bodyBackground": "rgb(244, 243, 238)",
+        "pressed": {
+          "dark": "false",
+          "light": "true"
+        },
+        "stored": "light"
+      }
+    },
+    {
+      "id": "b2",
+      "name": "the light pick survives a reload",
+      "result": "PASS",
+      "measured": {
+        "deskTheme": "light",
+        "hostTheme": null,
+        "colorScheme": "light",
+        "bodyBackground": "rgb(244, 243, 238)",
+        "pressed": {
+          "dark": "false",
+          "light": "true"
+        }
+      }
+    },
+    {
+      "id": "b3",
+      "name": "Dark switches back, and that pick survives a reload too",
+      "result": "PASS",
+      "measured": {
+        "afterClick": {
+          "deskTheme": "dark",
+          "hostTheme": null,
+          "colorScheme": "dark",
+          "bodyBackground": "rgb(10, 10, 11)",
+          "pressed": {
+            "dark": "true",
+            "light": "false"
+          }
+        },
+        "afterReload": {
+          "deskTheme": "dark",
+          "hostTheme": null,
+          "colorScheme": "dark",
+          "bodyBackground": "rgb(10, 10, 11)",
+          "pressed": {
+            "dark": "true",
+            "light": "false"
+          }
+        },
+        "stored": "dark"
+      }
+    },
+    {
+      "id": "c1-light",
+      "name": "artifact frame, host data-theme light: the Desk renders dark",
+      "result": "PASS",
+      "measured": {
+        "deskTheme": "dark",
+        "hostTheme": "light",
+        "colorScheme": "dark",
+        "bodyBackground": "rgb(10, 10, 11)",
+        "pressed": {
+          "dark": "true",
+          "light": "false"
+        },
+        "storage": "throws SecurityError"
+      }
+    },
+    {
+      "id": "c2-light",
+      "name": "artifact frame, host light: delete gate opens in the page, Cancel keeps the idea, Delete idea removes it",
+      "result": "PASS",
+      "measured": {
+        "gate": {
+          "open": true,
+          "modal": true,
+          "title": "Delete an idea",
+          "action": "Delete idea",
+          "focus": "gate-cancel",
+          "actionBackground": "rgb(245, 180, 0)"
+        },
+        "keptAfterCancel": 1,
+        "leftAfterDelete": 0
+      }
+    },
+    {
+      "id": "c3-light",
+      "name": "artifact frame, host light: approve-green gate, Cancel leaves it banked, Approve green marks it",
+      "result": "PASS",
+      "measured": {
+        "gate": {
+          "open": true,
+          "modal": true,
+          "title": "Approve a green idea",
+          "action": "Approve green",
+          "focus": "gate-cancel",
+          "actionBackground": "rgb(245, 180, 0)"
+        },
+        "before": "banked",
+        "afterCancel": "banked",
+        "afterApprove": "green"
+      }
+    },
+    {
+      "id": "c1-dark",
+      "name": "artifact frame, host data-theme dark: the Desk renders dark",
+      "result": "PASS",
+      "measured": {
+        "deskTheme": "dark",
+        "hostTheme": "dark",
+        "colorScheme": "dark",
+        "bodyBackground": "rgb(10, 10, 11)",
+        "pressed": {
+          "dark": "true",
+          "light": "false"
+        },
+        "storage": "throws SecurityError"
+      }
+    },
+    {
+      "id": "c2-dark",
+      "name": "artifact frame, host dark: delete gate opens in the page, Cancel keeps the idea, Delete idea removes it",
+      "result": "PASS",
+      "measured": {
+        "gate": {
+          "open": true,
+          "modal": true,
+          "title": "Delete an idea",
+          "action": "Delete idea",
+          "focus": "gate-cancel",
+          "actionBackground": "rgb(245, 180, 0)"
+        },
+        "keptAfterCancel": 1,
+        "leftAfterDelete": 0
+      }
+    },
+    {
+      "id": "c3-dark",
+      "name": "artifact frame, host dark: approve-green gate, Cancel leaves it banked, Approve green marks it",
+      "result": "PASS",
+      "measured": {
+        "gate": {
+          "open": true,
+          "modal": true,
+          "title": "Approve a green idea",
+          "action": "Approve green",
+          "focus": "gate-cancel",
+          "actionBackground": "rgb(245, 180, 0)"
+        },
+        "before": "banked",
+        "afterCancel": "banked",
+        "afterApprove": "green"
+      }
+    },
+    {
+      "id": "c1-none",
+      "name": "artifact frame, host data-theme none: the Desk renders dark",
+      "result": "PASS",
+      "measured": {
+        "deskTheme": "dark",
+        "hostTheme": null,
+        "colorScheme": "dark",
+        "bodyBackground": "rgb(10, 10, 11)",
+        "pressed": {
+          "dark": "true",
+          "light": "false"
+        },
+        "storage": "throws SecurityError"
+      }
+    },
+    {
+      "id": "c2-none",
+      "name": "artifact frame, host none: delete gate opens in the page, Cancel keeps the idea, Delete idea removes it",
+      "result": "PASS",
+      "measured": {
+        "gate": {
+          "open": true,
+          "modal": true,
+          "title": "Delete an idea",
+          "action": "Delete idea",
+          "focus": "gate-cancel",
+          "actionBackground": "rgb(245, 180, 0)"
+        },
+        "keptAfterCancel": 1,
+        "leftAfterDelete": 0
+      }
+    },
+    {
+      "id": "c3-none",
+      "name": "artifact frame, host none: approve-green gate, Cancel leaves it banked, Approve green marks it",
+      "result": "PASS",
+      "measured": {
+        "gate": {
+          "open": true,
+          "modal": true,
+          "title": "Approve a green idea",
+          "action": "Approve green",
+          "focus": "gate-cancel",
+          "actionBackground": "rgb(245, 180, 0)"
+        },
+        "before": "banked",
+        "afterCancel": "banked",
+        "afterApprove": "green"
+      }
+    },
+    {
+      "id": "c4",
+      "name": "no native dialog opened: every gate stayed in the page",
+      "result": "PASS",
+      "measured": {
+        "nativeDialogs": []
+      }
+    },
+    {
+      "id": "c5",
+      "name": "no console errors and no request outside file: and data: across journeys a-c",
+      "result": "PASS",
+      "measured": {
+        "offsite": [],
+        "consoleErrors": [],
+        "nativeDialogs": []
+      }
+    },
+    {
+      "id": "d-probe",
+      "name": "phone: the sideways measure catches a 600px element, so the checks below can fail",
+      "result": "PASS",
+      "measured": {
+        "before": {
+          "scrollWidth": 390,
+          "bodyScrollWidth": 390,
+          "clientWidth": 390,
+          "innerWidth": 390
+        },
+        "injected": {
+          "scrollWidth": 616,
+          "bodyScrollWidth": 616,
+          "clientWidth": 390,
+          "innerWidth": 616
+        },
+        "after": {
+          "scrollWidth": 390,
+          "bodyScrollWidth": 390,
+          "clientWidth": 390,
+          "innerWidth": 390
+        }
+      }
+    },
+    {
+      "id": "d-dark",
+      "name": "phone 390x844, dark: no stage scrolls sideways",
+      "result": "PASS",
+      "measured": {
+        "theme": {
+          "deskTheme": "dark",
+          "hostTheme": null,
+          "colorScheme": "dark",
+          "bodyBackground": "rgb(10, 10, 11)",
+          "pressed": {
+            "dark": "true",
+            "light": "false"
+          }
+        },
+        "widths": [
+          {
+            "stage": "today",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "scan",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "ideas",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "package",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "thumb",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "story",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "workflow",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "publish",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "review",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "ledger",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "retro",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "profile",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          }
+        ]
+      }
+    },
+    {
+      "id": "d-light",
+      "name": "phone 390x844, light: no stage scrolls sideways",
+      "result": "PASS",
+      "measured": {
+        "theme": {
+          "deskTheme": "light",
+          "hostTheme": null,
+          "colorScheme": "light",
+          "bodyBackground": "rgb(244, 243, 238)",
+          "pressed": {
+            "dark": "false",
+            "light": "true"
+          }
+        },
+        "widths": [
+          {
+            "stage": "today",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "scan",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "ideas",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "package",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "thumb",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "story",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "workflow",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "publish",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "review",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "ledger",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "retro",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          },
+          {
+            "stage": "profile",
+            "scrollWidth": 390,
+            "bodyScrollWidth": 390,
+            "clientWidth": 390,
+            "innerWidth": 390
+          }
+        ]
+      }
+    },
+    {
+      "id": "d-verdict",
+      "name": "phone: every verdict keeps its explanation at least 200px wide",
+      "result": "PASS",
+      "measured": {
+        "verdicts": [
+          {
+            "stage": "ideas",
+            "in": "idea-verdict",
+            "label": "60",
+            "width": 324,
+            "textWidth": 217,
+            "textHeight": 65
+          },
+          {
+            "stage": "package",
+            "in": "pr-out",
+            "label": "85",
+            "width": 324,
+            "textWidth": 217,
+            "textHeight": 43
+          },
+          {
+            "stage": "thumb",
+            "in": "tq-out",
+            "label": "100",
+            "width": 324,
+            "textWidth": 290,
+            "textHeight": 43
+          },
+          {
+            "stage": "story",
+            "in": "st-out",
+            "label": "30",
+            "width": 324,
+            "textWidth": 217,
+            "textHeight": 87
+          },
+          {
+            "stage": "review",
+            "in": "rv-out",
+            "label": "PACKAGING · REPACKAGE",
+            "width": 324,
+            "textWidth": 290,
+            "textHeight": 130
+          }
+        ]
+      }
+    },
+    {
+      "id": "f-phone",
+      "name": "phone: every control reached by Tab shows its whole focus ring, never cut off by a scrolling box",
+      "result": "PASS",
+      "measured": {
+        "reached": 61,
+        "railButtons": 12,
+        "bad": []
+      }
+    },
+    {
+      "id": "d-select",
+      "name": "phone: every select is wide enough for its longest option, so none reads cut off",
+      "result": "PASS",
+      "measured": {
+        "clipped": []
+      }
+    },
+    {
+      "id": "d-copy",
+      "name": "phone: the publish pack's Copy button sits clear of the pack, covering none of its text",
+      "result": "PASS",
+      "measured": {
+        "copy": {
+          "button": {
+            "left": 305,
+            "top": 1166,
+            "right": 357,
+            "bottom": 1192
+          },
+          "pack": {
+            "left": 33,
+            "top": 1200,
+            "right": 357,
+            "bottom": 1520
+          },
+          "overlaps": false
+        }
+      }
+    },
+    {
+      "id": "d-clean",
+      "name": "phone: no console errors and no request outside file: and data:",
+      "result": "PASS",
+      "measured": {
+        "offsite": [],
+        "consoleErrors": [],
+        "nativeDialogs": []
+      }
+    },
+    {
+      "id": "e-tokens-dark",
+      "name": "dark: every text token meets 4.5:1 on its surface",
+      "result": "PASS",
+      "measured": {
+        "pairs": [
+          {
+            "pair": "ink on bg",
+            "fg": "#F2F2F0",
+            "bg": "#0A0A0B",
+            "ratio": 17.65,
+            "defined": true
+          },
+          {
+            "pair": "ink on panel",
+            "fg": "#F2F2F0",
+            "bg": "#121214",
+            "ratio": 16.69,
+            "defined": true
+          },
+          {
+            "pair": "ink on panel-2",
+            "fg": "#F2F2F0",
+            "bg": "#1A1A1D",
+            "ratio": 15.49,
+            "defined": true
+          },
+          {
+            "pair": "ink on raised",
+            "fg": "#F2F2F0",
+            "bg": "#222226",
+            "ratio": 14.14,
+            "defined": true
+          },
+          {
+            "pair": "muted on bg",
+            "fg": "#A0A0A8",
+            "bg": "#0A0A0B",
+            "ratio": 7.62,
+            "defined": true
+          },
+          {
+            "pair": "muted on panel",
+            "fg": "#A0A0A8",
+            "bg": "#121214",
+            "ratio": 7.21,
+            "defined": true
+          },
+          {
+            "pair": "muted on panel-2",
+            "fg": "#A0A0A8",
+            "bg": "#1A1A1D",
+            "ratio": 6.69,
+            "defined": true
+          },
+          {
+            "pair": "muted on raised",
+            "fg": "#A0A0A8",
+            "bg": "#222226",
+            "ratio": 6.11,
+            "defined": true
+          },
+          {
+            "pair": "primary-ink on primary",
+            "fg": "#0A0A0B",
+            "bg": "#F2F2F0",
+            "ratio": 17.65,
+            "defined": true
+          },
+          {
+            "pair": "accent-ink on accent",
+            "fg": "#0A0A0B",
+            "bg": "#F5B400",
+            "ratio": 10.75,
+            "defined": true
+          },
+          {
+            "pair": "good on good-soft over panel",
+            "fg": "#4CC27A",
+            "bg": "#1A2B22",
+            "ratio": 6.61,
+            "defined": true
+          },
+          {
+            "pair": "warn on warn-soft over panel",
+            "fg": "#F0A82E",
+            "bg": "#312718",
+            "ratio": 7.21,
+            "defined": true
+          },
+          {
+            "pair": "bad on bad-soft over panel",
+            "fg": "#F06A63",
+            "bg": "#311E1F",
+            "ratio": 5.18,
+            "defined": true
+          },
+          {
+            "pair": "ink on good-soft over panel",
+            "fg": "#F2F2F0",
+            "bg": "#1A2B22",
+            "ratio": 13.31,
+            "defined": true
+          },
+          {
+            "pair": "ink on warn-soft over panel",
+            "fg": "#F2F2F0",
+            "bg": "#312718",
+            "ratio": 13.06,
+            "defined": true
+          },
+          {
+            "pair": "ink on bad-soft over panel",
+            "fg": "#F2F2F0",
+            "bg": "#311E1F",
+            "ratio": 13.98,
+            "defined": true
+          },
+          {
+            "pair": "good on panel",
+            "fg": "#4CC27A",
+            "bg": "#121214",
+            "ratio": 8.29,
+            "defined": true
+          },
+          {
+            "pair": "bad on panel",
+            "fg": "#F06A63",
+            "bg": "#121214",
+            "ratio": 6.19,
+            "defined": true
+          },
+          {
+            "pair": "bg on ink",
+            "fg": "#0A0A0B",
+            "bg": "#F2F2F0",
+            "ratio": 17.65,
+            "defined": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-page-dark",
+      "name": "dark: every visible text on every stage meets its WCAG AA ratio",
+      "result": "PASS",
+      "measured": {
+        "checked": 1296,
+        "failing": [],
+        "lowest": {
+          "stage": "today",
+          "text": "REPACKAGE",
+          "tag": "span.pill.bad",
+          "fg": "#F06A63",
+          "bg": "#311E1F",
+          "ratio": 5.18,
+          "need": 4.5
+        }
+      }
+    },
+    {
+      "id": "e-tokens-light",
+      "name": "light: every text token meets 4.5:1 on its surface",
+      "result": "PASS",
+      "measured": {
+        "pairs": [
+          {
+            "pair": "ink on bg",
+            "fg": "#17181A",
+            "bg": "#F4F3EE",
+            "ratio": 15.99,
+            "defined": true
+          },
+          {
+            "pair": "ink on panel",
+            "fg": "#17181A",
+            "bg": "#FFFFFF",
+            "ratio": 17.77,
+            "defined": true
+          },
+          {
+            "pair": "ink on panel-2",
+            "fg": "#17181A",
+            "bg": "#ECEAE2",
+            "ratio": 14.75,
+            "defined": true
+          },
+          {
+            "pair": "ink on raised",
+            "fg": "#17181A",
+            "bg": "#E4E1D7",
+            "ratio": 13.58,
+            "defined": true
+          },
+          {
+            "pair": "muted on bg",
+            "fg": "#5E6068",
+            "bg": "#F4F3EE",
+            "ratio": 5.64,
+            "defined": true
+          },
+          {
+            "pair": "muted on panel",
+            "fg": "#5E6068",
+            "bg": "#FFFFFF",
+            "ratio": 6.27,
+            "defined": true
+          },
+          {
+            "pair": "muted on panel-2",
+            "fg": "#5E6068",
+            "bg": "#ECEAE2",
+            "ratio": 5.21,
+            "defined": true
+          },
+          {
+            "pair": "muted on raised",
+            "fg": "#5E6068",
+            "bg": "#E4E1D7",
+            "ratio": 4.79,
+            "defined": true
+          },
+          {
+            "pair": "primary-ink on primary",
+            "fg": "#FFFFFF",
+            "bg": "#17181A",
+            "ratio": 17.77,
+            "defined": true
+          },
+          {
+            "pair": "accent-ink on accent",
+            "fg": "#17181A",
+            "bg": "#E0A200",
+            "ratio": 7.9,
+            "defined": true
+          },
+          {
+            "pair": "good on good-soft over panel",
+            "fg": "#1B7340",
+            "bg": "#DFF3E6",
+            "ratio": 5.07,
+            "defined": true
+          },
+          {
+            "pair": "warn on warn-soft over panel",
+            "fg": "#8F5500",
+            "bg": "#FFEACC",
+            "ratio": 5.16,
+            "defined": true
+          },
+          {
+            "pair": "bad on bad-soft over panel",
+            "fg": "#A63630",
+            "bg": "#FADAD8",
+            "ratio": 5.04,
+            "defined": true
+          },
+          {
+            "pair": "ink on good-soft over panel",
+            "fg": "#17181A",
+            "bg": "#DFF3E6",
+            "ratio": 15.31,
+            "defined": true
+          },
+          {
+            "pair": "ink on warn-soft over panel",
+            "fg": "#17181A",
+            "bg": "#FFEACC",
+            "ratio": 15.14,
+            "defined": true
+          },
+          {
+            "pair": "ink on bad-soft over panel",
+            "fg": "#17181A",
+            "bg": "#FADAD8",
+            "ratio": 13.61,
+            "defined": true
+          },
+          {
+            "pair": "good on panel",
+            "fg": "#1B7340",
+            "bg": "#FFFFFF",
+            "ratio": 5.88,
+            "defined": true
+          },
+          {
+            "pair": "bad on panel",
+            "fg": "#A63630",
+            "bg": "#FFFFFF",
+            "ratio": 6.58,
+            "defined": true
+          },
+          {
+            "pair": "bg on ink",
+            "fg": "#F4F3EE",
+            "bg": "#17181A",
+            "ratio": 15.99,
+            "defined": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-page-light",
+      "name": "light: every visible text on every stage meets its WCAG AA ratio",
+      "result": "PASS",
+      "measured": {
+        "checked": 1296,
+        "failing": [],
+        "lowest": {
+          "stage": "today",
+          "text": "1",
+          "tag": "span#count-today.count",
+          "fg": "#5E6068",
+          "bg": "#E4E1D7",
+          "ratio": 4.79,
+          "need": 4.5
+        }
+      }
+    },
+    {
+      "id": "f",
+      "name": "every control reached by Tab shows a 2px ink focus ring with an offset, never cut off",
+      "result": "PASS",
+      "measured": {
+        "reached": 60,
+        "bad": []
+      }
+    },
+    {
+      "id": "g",
+      "name": "reduced motion turns the transitions off",
+      "result": "PASS",
+      "measured": {
+        "reduce": {
+          ".btn": "0s",
+          "nav.rail button": "0s",
+          ".theme button": "0s"
+        },
+        "noPreference": {
+          ".btn": "0.15s, 0.15s, 0.15s",
+          "nav.rail button": "0.15s, 0.15s, 0.15s",
+          ".theme button": "0.15s, 0.15s, 0.15s"
+        }
+      }
+    },
+    {
+      "id": "e-select",
+      "name": "desktop: every select is wide enough for its longest option, so none reads cut off",
+      "result": "PASS",
+      "measured": {
+        "clipped": []
+      }
+    },
+    {
+      "id": "e-clean",
+      "name": "contrast pages: no console errors and no request outside file: and data:",
+      "result": "PASS",
+      "measured": {
+        "offsite": [],
+        "consoleErrors": [],
+        "nativeDialogs": []
+      }
+    }
+  ]
+}

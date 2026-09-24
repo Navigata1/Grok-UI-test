@@ -10,5 +10,6 @@ import { publishModule } from './publish.js'
 import { aiModule } from './ai.js'
 import { directionModule } from './direction.js'
 import { learnModule } from './learn.js'
+import { workspaceModule } from './workspace.js'
 
-export const MODULES: CommandModule[] = [dataModule, scanModule, ideasModule, packageModule, workflowModule, directionModule, publishModule, reviewModule, learnModule, aiModule]
+export const MODULES: CommandModule[] = [workspaceModule, dataModule, scanModule, ideasModule, packageModule, workflowModule, directionModule, publishModule, reviewModule, learnModule, aiModule]

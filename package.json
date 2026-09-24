@@ -58,7 +58,9 @@
     "verify": "npm run check && npm test && npm run build && npm run release:check",
     "prepare": "npm run build",
     "prepack": "npm run verify",
-    "booster": "tsx channel-booster/cli/booster.ts"
+    "booster": "tsx channel-booster/cli/booster.ts",
+    "booster:build": "npm run build --prefix channel-booster",
+    "test:booster-package": "node channel-booster/scripts/package-smoke.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",

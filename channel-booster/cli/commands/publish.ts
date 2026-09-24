@@ -27,12 +27,13 @@ import { thresholds } from '../../src/thresholds.js'
 import { scoreTitle, titleThumbnailOverlap } from '../../src/titles.js'
 import { qaThumbnail } from '../../src/thumbnails.js'
 import type { ThumbnailQa, ThumbnailSpec } from '../../src/types.js'
-import { bool, getProfile, getStore, list, need, needVideoId, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { cliName } from '../../src/build-info.js'
+import { bool, getProfile, getStore, list, need, needVideoId, nowFrom, num, out, packagesRoot, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_PACK = 'booster publish pack <slug> [--title ..] [--promise ..] [--story packages/<slug>/story.json] [--thumb-a <name> --thumb-b <name>] [--sequel-question ..] [--related <title|url>] [--profile channel.json] [--out packages/<slug>/publish.md] [--root dir]'
-const USAGE_CHECK = 'booster publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--window-confirmed] [--review-scheduled] [--root dir]'
-const USAGE_CONFIRM = 'booster publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a <name> --thumb-b <name>] [--levers "a,b"] [--predicted-ctr 1.3] --yes [--root dir]'
-const USAGE_JUDGE = 'booster test judge --slug <slug> --a "<impressions>,<ctr>[,<sharePct>[,<avdSec>]]" --b ".." [--c ".."] --hours <h> [--cold-start] [--min-impressions <n>] [--min-hours <h>] [--drop-pct <n>] [--n 1] [--record]'
+const USAGE_PACK = `${cliName()} publish pack <slug> [--title ..] [--promise ..] [--story packages/<slug>/story.json] [--thumb-a <name> --thumb-b <name>] [--sequel-question ..] [--related <title|url>] [--profile channel.json] [--out packages/<slug>/publish.md] [--root dir]`
+const USAGE_CHECK = `${cliName()} publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--window-confirmed] [--review-scheduled] [--root dir]`
+const USAGE_CONFIRM = `${cliName()} publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a <name> --thumb-b <name>] [--levers "a,b"] [--predicted-ctr 1.3] --yes [--root dir]`
+const USAGE_JUDGE = `${cliName()} test judge --slug <slug> --a "<impressions>,<ctr>[,<sharePct>[,<avdSec>]]" --b ".." [--c ".."] --hours <h> [--cold-start] [--min-impressions <n>] [--min-hours <h>] [--drop-pct <n>] [--n 1] [--record]`
 
 /** The fields of packages/<slug>/package.json this module reads (section 2.5); every field optional. */
 interface PackageFile {
@@ -51,12 +52,8 @@ interface StoryFile {
   payoffLadder?: Array<{ atSec?: number; moment?: string; text?: string; line?: string; strength?: number }>
 }
 
-function rootFrom(flags: Flags): string {
-  return path.resolve(str(flags, 'root') ?? process.cwd())
-}
-
 function packageDir(flags: Flags, slug: string): string {
-  return path.join(rootFrom(flags), 'packages', slug)
+  return path.join(packagesRoot(flags), 'packages', slug)
 }
 
 function readJson<T>(file: string): T | undefined {

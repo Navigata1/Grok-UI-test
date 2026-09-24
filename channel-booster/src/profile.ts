@@ -1,6 +1,6 @@
 /**
- * The channel profile: one JSON document (`channel-booster/channel.json`, or
- * `BOOSTER_PROFILE`) that says who the channel serves, what it looks like,
+ * The channel profile: one JSON document (`channel.json` in the channel's
+ * workspace, `channel-booster/channel.json` from source, or `BOOSTER_PROFILE`) that says who the channel serves, what it looks like,
  * who it competes with, how often it publishes, which thresholds it overrides,
  * and the baselines computed from its own ledger. Replaces the free-text
  * `--channel` flag on the AI engines and the typed `--baseline-*` flags on
@@ -13,18 +13,15 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { baselineFrom } from './ledger.js'
 import { ProfileDoc, type Baselines, type Bucket, type LedgerRow, type Signature, type Stat } from './schema.js'
 import { applyOverrides, thresholds, type ThresholdKey } from './thresholds.js'
 import type { PostMortemInput } from './types.js'
+import { resolveProfileFile } from './workspace.js'
 
-const here = path.dirname(fileURLToPath(import.meta.url))
-
-/** The profile path: an explicit path, else `BOOSTER_PROFILE`, else `channel-booster/channel.json`. */
+/** The profile path: an explicit path, else `BOOSTER_PROFILE`, else `<workspace>/channel.json`, else `channel-booster/channel.json` from source (src/workspace.ts). */
 export function resolveProfilePath(profilePath?: string): string {
-  const env = process.env.BOOSTER_PROFILE
-  return path.resolve(profilePath ?? (env && env.trim() ? env : path.resolve(here, '..', 'channel.json')))
+  return profilePath !== undefined ? path.resolve(profilePath) : resolveProfileFile({}).path
 }
 
 /** A profile with every default and nothing described: what `loadProfile()` returns before `profile init` runs. */

@@ -11,3 +11,5 @@ description: Audit a YouTube channel from an export of its uploads - proven form
 4. When the channel has a profile and a ledger, run `npm run booster -- audit <csv> --save` first (a bare `--save` writes `<data>/last-audit.json`), then `npm run booster -- direction --scan last-audit.json`, which prints the positioning page from evidence: proven formats from own winners and the scan, each series with its returning-viewer trend, the never-again findings from the bottom quartile, three bets. Use it as the input to the audit, not a replacement for reading the numbers.
 
 With an API key: `npm run booster -- ai channel-audit --csv <csv> --channel ".."`.
+
+Outside this repository, run the same commands as `channel-booster <command>` inside the channel's workspace (see `/booster`).

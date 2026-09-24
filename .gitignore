@@ -16,6 +16,10 @@ playwright-report/
 # Local demo-production project, raw captures, and rendered media.
 videos/
 
+# Channel Booster's packaged bundle (npm run booster:build) and its own installs.
+channel-booster/dist/
+channel-booster/node_modules/
+
 # Channel Booster private working data (profile, ledger, packages, Studio exports).
 channel-booster/channel.json
 channel-booster/data/
@@ -31,3 +35,6 @@ channel-booster/playbook/00-learned-rules.md
 /data/
 /channel.json
 /ideas.json
+
+# Playwright traces from the mission gates run to several MB; the screenshots and journey.json carry the evidence.
+ops/mission/evidence/**/trace.zip

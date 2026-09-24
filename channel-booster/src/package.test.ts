@@ -1,12 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { shippedDoctrine } from './ai/doctrine.js'
 import {
   DEFAULT_COLOR_PAIR,
   DEFAULT_ROUNDS,
   NO_TITLE_OFFLINE,
-  PACKAGE_FIX_PROMPT_PATH,
   buildPackage,
   conceptToSpec,
   readPackage,
@@ -620,11 +620,21 @@ describe('writePackage / readPackage', () => {
 })
 
 describe('renderFixPrompt', () => {
-  it('ships a template with both placeholders', () => {
-    const template = readFileSync(PACKAGE_FIX_PROMPT_PATH, 'utf8')
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('ships a template with both placeholders in the doctrine', () => {
+    const template = shippedDoctrine().packageFixTemplate
     expect(template).toContain('{{fixes}}')
     expect(template).toContain('{{previous}}')
     expect(template).toMatch(/^# Package fix-round prompt/)
+  })
+
+  it('fills the template the build ships, never a file next to the code', () => {
+    // The packaged bin embeds the doctrine as __BOOSTER_DOCTRINE__; stubbing it stands in for the bundle.
+    vi.stubGlobal('__BOOSTER_DOCTRINE__', { files: [], hash: 'embedded', packageFixTemplate: 'EMBEDDED {{fixes}} / {{previous}}' })
+    expect(renderFixPrompt(['cut text'], 'round 1')).toBe('EMBEDDED - cut text / round 1')
   })
 
   it('fills the placeholders from the fixes and the previous round', () => {

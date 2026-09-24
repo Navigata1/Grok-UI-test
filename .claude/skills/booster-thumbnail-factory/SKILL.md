@@ -18,3 +18,5 @@ The factory produces concepts as structured specs so they can be scored before a
 If the user shares an existing thumbnail image, describe it as a spec first, then QA it the same way.
 
 With an API key: `npm run booster -- ai thumbnail-factory --idea ".." --title ".." --channel ".."`.
+
+Outside this repository, run the same commands as `channel-booster <command>` inside the channel's workspace (see `/booster`).

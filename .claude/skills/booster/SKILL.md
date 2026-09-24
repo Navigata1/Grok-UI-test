@@ -33,15 +33,16 @@ Every skill: run the deterministic command first when it applies (it is fast and
 
 ## Operate the system
 
-`npm run booster -- help` lists every command. The loop for one video is `workflow "<idea>" --out packages` once, then `workflow run <slug> --next --agent <name>` until a human stage stops it. The unattended jobs are `review run` (every six hours), `brief --week` (Monday) and `rules compile && retro --since 7d` (Sunday); `channel-booster/docs/routines.md` has the schedules. Human-only gates take `--yes`: run the command without it first, show the person what it prints, and let them re-run it.
+`npm run booster -- help` lists every command. The skills write commands as `npm run booster -- <command>`, which works in this repository. Outside it, the same commands run as `channel-booster <command>` inside the channel's workspace, or from any folder with `--workspace <folder>`. In this repository, `npm run booster` starts at the repository root, so name the channel's workspace with `--workspace <folder>` or `BOOSTER_HOME` when it has one. When unsure which folders a command will read or write, run `where --json` first. Never create a workspace (`init`) for the person. The loop for one video is `workflow "<idea>"` once (in a workspace the runbook goes to its `packages/`; with no workspace, add `--out packages`), then `workflow run <slug> --next --agent <name>` until a human stage stops it. The unattended jobs are `review run` (every six hours), `brief --week` (Monday) and `rules compile && retro --since 7d` (Sunday); `channel-booster/docs/routines.md` has the schedules. Human-only gates take `--yes`: run the command without it first, show the person what it prints, and let them re-run it.
 
 ## Human-only gates
 
-An agent prepares; a person decides. Stop and ask at these points: approving a green idea; writing three own titles and picking the final title and A/B pair; writing, shooting, editing; clicking publish, starting Test & Compare, applying a repackage swap; typing the numbers Studio does not export; writing the lever learned at 7 days and accepting a playbook rule. Never simulate a review pass, never invent a lever to unblock a 7-day read, never edit `playbook/*.md` except through `booster retro --accept-rule`, never scrape YouTube. The compiled `playbook/00-learned-rules.md` holds hypotheses under observation, not doctrine: never present one as a rule to follow; mention it as a hypothesis worth testing, with its tests and wins. The full list is in `channel-booster/AGENTS.md`.
+An agent prepares; a person decides. Stop and ask at these points: approving a green idea; writing three own titles and picking the final title and A/B pair; writing, shooting, editing; clicking publish, starting Test & Compare, applying a repackage swap; typing the numbers Studio does not export; writing the lever learned at 7 days and accepting a playbook rule. Never simulate a review pass, never invent a lever to unblock a 7-day read, never edit `playbook/*.md` except through `booster retro --accept-rule`, never scrape YouTube. The compiled `00-learned-rules.md` in the channel's playbook folder holds hypotheses under observation, not doctrine: never present one as a rule to follow; mention it as a hypothesis worth testing, with its tests and wins. The full list is in `channel-booster/AGENTS.md`.
 
 ## Files
 
-- `channel-booster/README.md` - system overview and commands
+- `channel-booster/README.md` - system overview, commands, the workspace and the packaged tool
+- `channel-booster/AGENTS.md` - the contract for any agent host: the loop, how to run it, the human-only gates
 - `channel-booster/playbook/*.md` - the rules each stage runs on
 - `channel-booster/docs/` - the video analysis, the strategist playbook, the architecture
-- `channel-booster/examples/*.csv` - the export shape the commands expect (title, views, published, channel, duration)
+- `channel-booster/examples/*.csv` - the export shape the commands expect (title, views, published, channel, duration); `example:<name>` names them from any folder

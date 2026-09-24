@@ -1,10 +1,22 @@
 /**
  * Shared helpers for every booster command module: argument parsing,
- * output, time, and the store/profile handles.
+ * output, time, the store/profile handles, and where a channel's files live.
  */
+import { writeErr, writeOut } from '../src/io.js'
 import { openStore, type Store } from '../src/store.js'
 import { loadProfile, applyProfileThresholds } from '../src/profile.js'
 import type { ProfileDoc } from '../src/schema.js'
+import {
+  findWorkspace,
+  resolveDataDir,
+  resolveInboxDir,
+  resolvePackagesRoot,
+  resolvePlaybookDir,
+  resolveProfileFile,
+  type Workspace,
+} from '../src/workspace.js'
+
+export { writeErr, writeOut }
 
 export interface Args {
   positional: string[]
@@ -17,6 +29,7 @@ export const BOOLEAN_FLAGS = new Set([
   'json', 'help', 'md', 'offline', 'record', 'dry-run', 'fresh', 'solo', 'team', 'next', 'override', 'week', 'today',
   'force', 'all', 'verbose', 'quiet', 'no-save', 'apply', 'pinned', 'accept', 'cold-start', 'by-topic', 'stale', 'open',
   'thumb-files-ok', 'window-confirmed', 'review-scheduled', 'no-sequel-first', 'no-signature', 'saturation', 'confirm', 'yes',
+  'no-doctrine', 'isolate',
 ])
 
 export function parseArgs(argv: string[]): Args {
@@ -83,13 +96,14 @@ export function nowFrom(flags: Flags): Date {
   return d
 }
 
+/** Print a command's result: JSON with --json, else the rendered text. Goes through src/io.ts so an in-process stage can keep it. */
 export function out(value: unknown, flags: Flags, render: () => string): void {
-  if (flags.json) process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
-  else process.stdout.write(`${render()}\n`)
+  if (flags.json) writeOut(`${JSON.stringify(value, null, 2)}\n`)
+  else writeOut(`${render()}\n`)
 }
 
 export function warn(message: string): void {
-  process.stderr.write(`${message}\n`)
+  writeErr(`${message}\n`)
 }
 
 export function fmt(n: number): string {
@@ -113,14 +127,44 @@ export function needVideoId(flags: Flags, usage: string): string {
   return videoId
 }
 
-/** The JSONL store, honouring --data <dir> and BOOSTER_DATA. */
-export function getStore(flags: Flags): Store {
-  return openStore(str(flags, 'data'))
+/** The channel workspace in use (--workspace, BOOSTER_HOME, or the marker at or above the working directory), or undefined. */
+export function activeWorkspace(flags: Flags): Workspace | undefined {
+  return findWorkspace(flags)
 }
 
-/** The channel profile, honouring --path <channel.json> and BOOSTER_PROFILE; applies its threshold overrides. */
+/** The store folder: --data, BOOSTER_DATA, <workspace>/data, or channel-booster/data from source. */
+export function dataDir(flags: Flags): string {
+  return resolveDataDir(flags).path
+}
+
+/** channel.json: --path, BOOSTER_PROFILE, <workspace>/channel.json, or channel-booster/channel.json from source. */
+export function profilePath(flags: Flags): string {
+  return resolveProfileFile(flags).path
+}
+
+/** The folder that holds packages/<slug>/: --root, the workspace root, or the working directory. */
+export function packagesRoot(flags: Flags): string {
+  return resolvePackagesRoot(flags).path
+}
+
+/** The inbox review run and brief read: --inbox, <workspace>/inbox, or channel-booster/inbox from source. */
+export function inboxDir(flags: Flags): string {
+  return resolveInboxDir(flags).path
+}
+
+/** Where rules compile and retro --accept-rule write: --playbook, <workspace>/playbook, or channel-booster/playbook from source. */
+export function playbookDir(flags: Flags): string {
+  return resolvePlaybookDir(flags).path
+}
+
+/** The JSONL store at dataDir(flags). */
+export function getStore(flags: Flags): Store {
+  return openStore(dataDir(flags))
+}
+
+/** The channel profile at profilePath(flags); applies its threshold overrides. */
 export function getProfile(flags: Flags): ProfileDoc {
-  const profile = loadProfile(str(flags, 'path'))
+  const profile = loadProfile(profilePath(flags))
   applyProfileThresholds(profile)
   return profile
 }

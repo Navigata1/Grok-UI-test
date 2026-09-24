@@ -5,7 +5,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { main } from '../cli/booster.js'
+import { cliName } from '../src/build-info.js'
 import { PackageDocSchema } from '../src/package.js'
+import { shellQuote } from '../src/shell.js'
 import { openStore } from '../src/store.js'
 import { resetThresholds } from '../src/thresholds.js'
 
@@ -63,15 +65,22 @@ async function json(argv: string[]): Promise<{ code: number; parsed: any }> {
 /** The repository root: `npm run booster --` runs cli/booster.ts through tsx from here. */
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
+/** How the CLI names itself in the lines it prints for a person to paste (`npm run booster --` from source). */
+const CLI = cliName()
+
 /**
- * Run a `booster ...` line the CLI printed, word for word, the way a person pastes it after
- * `npm run booster --`: a new process in `cwd`, with only the environment given (no scoped() flags).
- * Double-quoted words are JSON strings, as the CLI prints them; `<your title>` becomes `title`.
+ * Run a line the CLI printed, word for word, the way a person pastes it: a new process in `cwd`
+ * (`npm run booster --` is cli/booster.ts through tsx), with only the environment given (no
+ * scoped() flags). Double-quoted words are JSON strings, as the CLI prints them; `<your title>`
+ * becomes `title`.
  */
 function runPrinted(line: string, title: string, cwd: string, env: NodeJS.ProcessEnv): { status: number | null; stdout: string; stderr: string } {
-  const words = (line.match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((w) => (w.startsWith('"') ? JSON.parse(w) as string : w))
-  expect(words[0]).toBe('booster')
-  const argv = words.slice(1).map((w) => (w === '<your title>' ? title : w))
+  expect(line.startsWith(`${CLI} `)).toBe(true)
+  // Split the way a person's shell does, with the title typed in, so a quoting mistake shows up as a wrong argument.
+  const typed = line.slice(CLI.length + 1).replace('"<your title>"', shellQuote(title))
+  const split = spawnSync('sh', ['-c', `printf '%s\\0' ${typed}`], { encoding: 'utf8' })
+  expect(split.status, split.stderr).toBe(0)
+  const argv = split.stdout.split('\0').slice(0, -1)
   const r = spawnSync(process.execPath, [path.join(REPO, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(REPO, 'channel-booster', 'cli', 'booster.ts'), ...argv], { cwd, env, encoding: 'utf8' })
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
 }
@@ -114,12 +123,13 @@ describe('booster package build', () => {
     expect(bare.parsed.bank).toBeNull()
     const text = await run(['package', 'build', IDEA, '--promise', PROMISE, ...opts, '--offline'])
     expect(text.out).toMatch(/^Package · i-lived-off-a-300-solar-generator-for-30-days · GATES FAIL \(offline generators, one round\)\nTitle: none yet/)
-    const rebuild = `booster package build ${SLUG} --title "<your title>" --subject "me" --stake "the fridge dying" --result "a full month on $300 of solar"`
+    // Single-quoted: inside double quotes a shell would read "$300" as $3 followed by 00.
+    const rebuild = `${CLI} package build ${SLUG} --title "<your title>" --subject me --stake 'the fridge dying' --result 'a full month on $300 of solar'`
     expect(text.out).toContain(`then ${rebuild}`)
     // stderr carries it too: it is what the workflow runner shows for a failed stage.
     expect(text.err).toContain(`No title yet for ${SLUG}: a person writes it, then ${rebuild}`)
     // The directories this run used are repeated as absolute paths, so the line works from any directory.
-    expect(text.err).toContain(` --root ${JSON.stringify(tmp)} --data ${JSON.stringify(data)} --path ${JSON.stringify(profile)} --offline\n`)
+    expect(text.err).toContain(` --root ${shellQuote(tmp)} --data ${shellQuote(data)} --path ${shellQuote(profile)} --offline\n`)
     expect(text.code).toBe(1)
 
     // The person writes the title and rebuilds by slug: the stored idea and promise come back with it.
@@ -252,10 +262,10 @@ describe('booster package build', () => {
     // Offline and no title yet: the stage fails and its stderr (which the runner prints) says who writes the title.
     const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
     expect(first.parsed.result.stageId).toBe('packaging')
-    expect(first.parsed.result.command).toEqual(['npm', 'run', 'booster', '--', 'package', 'build', SLUG])
+    expect(first.parsed.result.command).toEqual(['booster', 'package', 'build', SLUG])
     expect(first.parsed.result.kind).toBe('command')
     expect(first.parsed.result.status).toBe('failed')
-    expect(first.parsed.result.stderr).toContain(`No title yet for ${SLUG}: a person writes it, then booster package build ${SLUG} --title "<your title>"`)
+    expect(first.parsed.result.stderr).toContain(`No title yet for ${SLUG}: a person writes it, then ${CLI} package build ${SLUG} --title "<your title>"`)
     expect(first.code).toBe(1)
     expect(existsSync(path.join(tmp, 'packages', SLUG, 'package.json'))).toBe(true)
     expect(JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'package.json'), 'utf8')).chosenTitle).toBe('')
@@ -284,12 +294,12 @@ describe('booster package build', () => {
     await run(['workflow', 'run', SLUG, '--override', '--reason', 'demand confirmed', '--yes'])
     const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
     expect(first.parsed.result).toMatchObject({ stageId: 'packaging', status: 'failed' })
-    const printed = /No title yet for [a-z0-9-]+: a person writes it, then (booster package build [^\n]+)/.exec(first.parsed.result.stderr)?.[1]
+    const printed = new RegExp(`No title yet for [a-z0-9-]+: a person writes it, then (${CLI.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} package build [^\\n]+)`).exec(first.parsed.result.stderr)?.[1]
     expect(printed).toBeDefined()
-    expect(printed).toContain(`--root ${JSON.stringify(root)}`)
+    expect(printed).toContain(`--root ${shellQuote(root)}`)
 
     // The person's shell has neither BOOSTER_DATA nor BOOSTER_PROFILE (the runner set both for its stage): the line stands alone.
-    expect(printed).toContain(`--data ${JSON.stringify(data)} --path ${JSON.stringify(profile)}`)
+    expect(printed).toContain(`--data ${shellQuote(data)} --path ${shellQuote(profile)}`)
     const env: NodeJS.ProcessEnv = { ...process.env }
     for (const k of ['ANTHROPIC_API_KEY', 'BOOSTER_DATA', 'BOOSTER_PROFILE']) delete env[k]
     const pasted = runPrinted(printed!, TITLE, elsewhere, env)
@@ -308,8 +318,8 @@ describe('booster package build', () => {
     expect(await fails(['package', 'build', 'idea:nope', '--promise', PROMISE, '--offline'])).toMatch(/no idea "idea:nope" in the bank/)
     expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--rounds', 'many', '--offline'])).toMatch(/--rounds must be a number/)
     expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--predicted-ctr', 'double', '--offline'])).toMatch(/--predicted-ctr must be a number/)
-    expect(await fails(['package', 'build'])).toMatch(/usage: booster package build/)
-    expect(await fails(['package', 'nope'])).toMatch(/usage: booster package build/)
+    expect(await fails(['package', 'build'])).toMatch(/usage: npm run booster -- package build/)
+    expect(await fails(['package', 'nope'])).toMatch(/usage: npm run booster -- package build/)
   })
 
   it('feeds the story and the shot list: hook score reads the package title and promise, plan shots reads both files', async () => {

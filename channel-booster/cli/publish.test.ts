@@ -174,7 +174,7 @@ describe('the thumbnail -> publish stages through the workflow runner', () => {
     const bad = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
     expect(bad.parsed.result).toMatchObject({ stageId: 'publish', status: 'failed' })
     const failed = JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'publish-check.json'), 'utf8'))
-    // The runner spawns the stage from the root, so the file prints as a path relative to it.
+    // The runner runs the stage from the packages root (in-process, it changes directory for the stage), so the file prints relative to it.
     expect(failed.items.filter((i: any) => !i.ok).map((i: any) => i.detail)).toEqual([`packages/${SLUG}/thumb-B.png fails booster thumbnail check: 800x450 is smaller than 1280x720`])
     exportThumbs()
     const good = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])

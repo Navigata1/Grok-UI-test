@@ -15,3 +15,5 @@ To review a pair:
 4. Ask the user to log the pair and verdict in `channel-booster/playbook/packaging-ledger.md`.
 
 With an API key: `npm run booster -- ai package-review --title ".." --thumb ".."`.
+
+Outside this repository, run the same commands as `channel-booster <command>` inside the channel's workspace (see `/booster`).

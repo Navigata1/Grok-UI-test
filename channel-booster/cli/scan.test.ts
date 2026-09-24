@@ -253,7 +253,7 @@ describe('booster outliers (v2)', () => {
   })
 
   it('still requires a csv', async () => {
-    await expect(main(['outliers'])).rejects.toThrow(/usage: booster outliers <csv>/)
+    await expect(main(['outliers'])).rejects.toThrow(/usage: npm run booster -- outliers <csv>/)
   })
 })
 

@@ -14,5 +14,6 @@
     "noUnusedParameters": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "cli/**/*.ts"]
+  "include": ["src/**/*.ts", "cli/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }

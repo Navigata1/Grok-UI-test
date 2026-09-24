@@ -15,19 +15,20 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Bucket } from '../../src/buckets.js'
+import { cliName } from '../../src/build-info.js'
 import { decide, describeDecision } from '../../src/decide.js'
 import { ageHours, baselineFrom, readAgeHours, readLedger } from '../../src/ledger.js'
 import { diagnose, type DiagnosisMode, type DiagnosisV2, type PostMortemInputV2 } from '../../src/postmortem.js'
 import { baselineInputFrom, baselinesForBucket, describeBaselineInput, diagnoseBaseline } from '../../src/profile.js'
 import { describeRepackage, prepareRepackage, type PackagedThumbnail, type PackagedTitle, type RepackagePackage } from '../../src/repackage.js'
 import type { LedgerRead, ProfileDoc } from '../../src/schema.js'
-import { bool, getProfile, getStore, need, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { bool, getProfile, getStore, need, nowFrom, num, out, packagesRoot, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_POSTMORTEM = 'booster postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]'
-const USAGE_DECIDE = 'booster decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]'
-const USAGE_APPROVE = 'booster decide approve <slug> --bucket 48|168|672 --by <name> --yes [--now ISO]'
-const USAGE_APPLY = 'booster decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir] [--now ISO]'
-const USAGE_PREPARE = 'booster repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]'
+const USAGE_POSTMORTEM = `${cliName()} postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]`
+const USAGE_DECIDE = `${cliName()} decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]`
+const USAGE_APPROVE = `${cliName()} decide approve <slug> --bucket 48|168|672 --by <name> --yes [--now ISO]`
+const USAGE_APPLY = `${cliName()} decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir] [--now ISO]`
+const USAGE_PREPARE = `${cliName()} repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]`
 
 const ALL_BUCKETS: readonly Bucket[] = ['24', '48', '168', '672']
 const DECIDE_BUCKETS: readonly Bucket[] = ['48', '168', '672']
@@ -46,11 +47,6 @@ function modeFrom(flags: Flags): DiagnosisMode | undefined {
   if (v === undefined) return undefined
   if (!(MODES as readonly string[]).includes(v)) throw new Error(`--mode must be established or cold-start, got "${v}". Usage: ${USAGE_POSTMORTEM}`)
   return v as DiagnosisMode
-}
-
-/** `--root dir` (default cwd): packages/<slug>/ is resolved against it. */
-function rootFrom(flags: Flags): string {
-  return path.resolve(str(flags, 'root') ?? process.cwd())
 }
 
 /**
@@ -218,7 +214,7 @@ async function runDecideApply(slug: string | undefined, flags: Flags): Promise<n
   if (doc.decision === 'HOLD') throw new Error(`decisions/${doc.id} is HOLD: there is nothing to apply; the flip condition${doc.flipCondition ? ` (${doc.flipCondition})` : ''} is re-evaluated on the next read (booster review due)`)
   const swaps = doc.decision === 'REPACKAGE' || doc.decision === 'RE-TEST-TITLE'
   const row = store.get('ledger', slug)
-  const planFile = path.join(rootFrom(flags), 'packages', slug, 'repackage.json')
+  const planFile = path.join(packagesRoot(flags), 'packages', slug, 'repackage.json')
   const plan = { action: 'apply', id: doc.id, decision: doc.decision, by, approvedBy: doc.approvedBy ?? by, stampsRepackagedAt: swaps && Boolean(row), repackageFile: swaps && existsSync(planFile) ? planFile : null, applied: false, needs: '--yes' }
   if (!bool(flags, 'yes')) {
     out(plan, flags, () => [
@@ -292,7 +288,7 @@ async function runRepackagePrepare(slug: string | undefined, flags: Flags): Prom
   const store = getStore(flags)
   const decision = store.get('decisions', `${slug}:${bucket}`)
   if (!decision) throw new Error(`no recorded decision for "${slug}" at ${bucket} h: run booster decide --slug ${slug} --bucket ${bucket} --record first`)
-  const dir = path.join(rootFrom(flags), 'packages', slug)
+  const dir = path.join(packagesRoot(flags), 'packages', slug)
   const pkgFile = path.join(dir, 'package.json')
   if (!existsSync(pkgFile)) throw new Error(`${pkgFile} not found: build the package first (booster package "${slug}") or pass --root`)
   let raw: PackageFile
@@ -337,6 +333,6 @@ export const reviewModule: CommandModule = {
       if (sub === 'prepare') return runRepackagePrepare(rest[0] ?? str(flags, 'slug'), flags)
       throw new Error(`unknown repackage command "${sub ?? ''}". Usage: ${USAGE_PREPARE}`)
     }
-    throw new Error(`unknown command "${cmd}". Run booster help.`)
+    throw new Error(`unknown command "${cmd}". Run ${cliName()} help.`)
   },
 }

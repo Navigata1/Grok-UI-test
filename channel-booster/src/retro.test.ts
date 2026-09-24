@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { addIdea, setStatus } from './bank.js'
 import { addRow, recordRead } from './ledger.js'
-import { LEARNED_RULES_HEADING, acceptRule, buildRetro, draftRule, formatRuleLine, renderRetroMarkdown, resolvePlaybookFile } from './retro.js'
+import { LEARNED_RULES_HEADING, acceptRule, buildRetro, channelFileHeader, draftRule, formatRuleLine, planPlaybookWrite, renderRetroMarkdown, resolvePlaybookFile } from './retro.js'
 import { LEARNED_RULES_FILE } from './rules.js'
 import { ProfileDoc, WorkflowStatusDoc } from './schema.js'
 import { openStore, type Store } from './store.js'
@@ -232,5 +232,65 @@ describe('acceptRule', () => {
     expect(existsSync(path.join(playbook, 'missing.md'))).toBe(false)
     expect(resolvePlaybookFile(playbook, 'title-formulas.md')).toBe(path.join(playbook, 'title-formulas.md'))
     expect(resolvePlaybookFile(playbook, path.join(playbook, 'title-formulas.md'))).toBe(path.join(playbook, 'title-formulas.md'))
+  })
+})
+
+describe('accepting into a channel playbook folder', () => {
+  const rule = 'Numbers in the title beat adjectives'
+  const shippedFiles = ['title-formulas.md', 'first-30-seconds.md']
+
+  it('starts this channel\'s copy of a shipped file with one header line naming it, then appends to it', () => {
+    const file = path.join(playbook, 'first-30-seconds.md')
+    expect(planPlaybookWrite(playbook, 'first-30-seconds.md', { shippedFiles })).toEqual({ file, extends: 'playbook/first-30-seconds.md' })
+    expect(existsSync(file)).toBe(false)
+    expect(acceptRule(playbook, 'first-30-seconds.md', rule, { slugs: ['win'], now, shippedFiles })).toBe(file)
+    expect(channelFileHeader('playbook/first-30-seconds.md')).toBe('# Accepted rules for this channel, extending the shipped playbook/first-30-seconds.md')
+    expect(readFileSync(file, 'utf8')).toBe(`${channelFileHeader('playbook/first-30-seconds.md')}\n\n${LEARNED_RULES_HEADING}\n\n- 2026-09-14: ${rule} (win)\n`)
+    expect(planPlaybookWrite(playbook, 'first-30-seconds.md', { shippedFiles })).toEqual({ file })
+    acceptRule(playbook, 'first-30-seconds.md', 'Promise inside ten seconds', { now, shippedFiles })
+    const text = readFileSync(file, 'utf8')
+    expect(text.match(/^# /gm)).toHaveLength(1)
+    expect(text.endsWith(`- 2026-09-14: ${rule} (win)\n- 2026-09-14: Promise inside ten seconds\n`)).toBe(true)
+    expect(existsSync(`${file}.tmp`)).toBe(false)
+  })
+
+  it('creates a missing channel folder, and knows the shipped file names from the shipped doctrine', () => {
+    const fresh = path.join(root, 'fresh', 'playbook')
+    const written = acceptRule(fresh, 'title-formulas.md', rule, { now })
+    expect(written).toBe(path.join(fresh, 'title-formulas.md'))
+    expect(readFileSync(written, 'utf8').split('\n')[0]).toBe(channelFileHeader('playbook/title-formulas.md'))
+  })
+
+  it('refuses a new file the build does not ship, and any missing file in the legacy layout', () => {
+    expect(() => planPlaybookWrite(playbook, 'brand-new.md', { shippedFiles })).toThrow(/no such playbook file: .*brand-new\.md\. Accept the rule into a file this channel's playbook already has, or into a shipped playbook file to start this channel's copy of it: title-formulas.md, first-30-seconds.md$/)
+    // The legacy source layout: the folder is the shipped playbook itself, written in place as before and never extended.
+    const legacy = { shippedFiles, shippedDir: playbook, bundled: false }
+    expect(() => planPlaybookWrite(playbook, 'first-30-seconds.md', legacy)).toThrow(/^no such playbook file: .*first-30-seconds\.md$/)
+    expect(planPlaybookWrite(playbook, 'title-formulas.md', legacy)).toEqual({ file: path.join(playbook, 'title-formulas.md') })
+    const written = acceptRule(playbook, 'title-formulas.md', rule, { now, ...legacy })
+    expect(readFileSync(written, 'utf8')).toBe(`# Title formulas\n\nNumbers beat adjectives.\n\n${LEARNED_RULES_HEADING}\n\n- 2026-09-14: ${rule}\n`)
+    expect(existsSync(path.join(playbook, 'first-30-seconds.md'))).toBe(false)
+  })
+
+  it('treats a symlink to the shipped folder as the legacy layout', () => {
+    const link = path.join(root, 'pb-link')
+    symlinkSync(playbook, link, 'dir')
+    const legacy = { shippedFiles, shippedDir: playbook, bundled: false }
+    expect(() => planPlaybookWrite(link, 'first-30-seconds.md', legacy)).toThrow(/^no such playbook file: .*first-30-seconds\.md$/)
+    expect(planPlaybookWrite(link, 'title-formulas.md', legacy)).toEqual({ file: path.join(link, 'title-formulas.md') })
+    expect(existsSync(path.join(playbook, 'first-30-seconds.md'))).toBe(false)
+  })
+
+  it('never writes into the playbook inside the installed package', () => {
+    const before = readFileSync(path.join(playbook, 'title-formulas.md'), 'utf8')
+    const refused = /^refusing to write into the installed package \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
+    expect(() => acceptRule(playbook, 'title-formulas.md', rule, { now, shippedDir: playbook, bundled: true })).toThrow(refused)
+    // A symlink to the package's folder (a linked install, or one typed by hand) is the same folder.
+    const link = path.join(root, 'pkgpb-link')
+    symlinkSync(playbook, link, 'dir')
+    expect(() => acceptRule(link, 'title-formulas.md', rule, { now, shippedDir: playbook, bundled: true })).toThrow(refused)
+    expect(readFileSync(path.join(playbook, 'title-formulas.md'), 'utf8')).toBe(before)
+    // The packaged bin writes a channel folder anywhere else.
+    expect(planPlaybookWrite(playbook, 'title-formulas.md', { bundled: true })).toEqual({ file: path.join(playbook, 'title-formulas.md') })
   })
 })
