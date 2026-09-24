@@ -13,9 +13,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import path from 'node:path'
 import { shippedDoctrine } from './ai/doctrine.js'
 import { listIdeas, type BankRow } from './bank.js'
-import { BUNDLED, cliName } from './build-info.js'
 import { leverTally, ownOutliers, readLedger } from './ledger.js'
-import { isShippedPlaybookDir, LEARNED_RULES_FILE } from './rules.js'
+import { isShippedPlaybookDir, LEARNED_RULES_FILE, refuseInstalledPlaybook, type PlaybookWriteOptions } from './rules.js'
 import type { LedgerRow, ProfileDoc } from './schema.js'
 import type { Store } from './store.js'
 
@@ -219,13 +218,10 @@ export interface AcceptRuleOptions extends PlaybookFileOptions {
   now?: Date
 }
 
-export interface PlaybookFileOptions {
-  /** The shipped playbook folder; a `playbookDir` equal to it is the legacy source layout, written in place. Defaults to channel-booster/playbook. */
-  shippedDir?: string
+/** `shippedDir` (a `playbookDir` equal to it is the legacy source layout, written in place) and `bundled`, as for every playbook write. */
+export interface PlaybookFileOptions extends PlaybookWriteOptions {
   /** The shipped playbook file names (`title-formulas.md`, ...) a channel file may extend; defaults to the shipped doctrine's. */
   shippedFiles?: string[]
-  /** Whether this is the packaged bin, which never writes into its own package; defaults to the build (src/build-info.ts). */
-  bundled?: boolean
 }
 
 /** Where an accepted rule goes. */
@@ -243,9 +239,7 @@ export interface PlaybookTarget {
  */
 export function resolvePlaybookFile(playbookDir: string, file: string, options: PlaybookFileOptions = {}): string {
   const root = path.resolve(playbookDir)
-  if ((options.bundled ?? BUNDLED) && isShippedPlaybookDir(root, options.shippedDir)) {
-    throw new Error(`refusing to write into the installed package's playbook (${root}): accept rules into a channel workspace (${cliName(true)} init <folder>) or pass --playbook <folder>`)
-  }
+  refuseInstalledPlaybook(root, options)
   const target = path.resolve(root, file)
   const rel = path.relative(root, target)
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error(`refusing to write outside the playbook folder: ${file}`)

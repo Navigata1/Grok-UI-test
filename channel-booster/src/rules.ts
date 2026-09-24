@@ -20,8 +20,9 @@
  * "losing so far" under observation instead. Only a person moves a rule into
  * the playbook, with `booster retro --accept-rule`.
  */
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { BUNDLED, cliName } from './build-info.js'
 import { baselineFrom, readLedger } from './ledger.js'
 import { isProtected, noEffectPromoteChance, ruleEvidence, ruleSentence, ruleText, smoothedWinRate } from './rules-core.js'
 import { RuleDoc, stableId, type DecisionDoc, type LedgerRow } from './schema.js'
@@ -42,9 +43,43 @@ export const LEARNED_RULES_FILE = '00-learned-rules.md'
  */
 export const SHIPPED_PLAYBOOK_DIR = path.join(CODE_ROOT, 'playbook')
 
-/** True when dir is the shipped playbook folder itself: the legacy source layout. */
+/** A folder's real path when it exists (symlinks followed), otherwise its resolved path. */
+function realFolder(dir: string): string {
+  const resolved = path.resolve(dir)
+  try {
+    return realpathSync(resolved)
+  } catch {
+    return resolved
+  }
+}
+
+/**
+ * True when dir is the shipped playbook folder itself: the legacy source
+ * layout. Real paths are compared, so a symlink to the shipped folder (or a
+ * node_modules path that links to the installed package) counts as it.
+ */
 export function isShippedPlaybookDir(dir: string, shippedDir: string = SHIPPED_PLAYBOOK_DIR): boolean {
-  return path.resolve(dir) === path.resolve(shippedDir)
+  return realFolder(dir) === realFolder(shippedDir)
+}
+
+/** What a write into a playbook folder is checked against. */
+export interface PlaybookWriteOptions {
+  /** The shipped playbook folder; a folder equal to it is the legacy source layout. Defaults to channel-booster/playbook (the package's own in the packaged bin). */
+  shippedDir?: string
+  /** Whether this is the packaged bin, which never writes into its own package; defaults to the build (src/build-info.ts). */
+  bundled?: boolean
+}
+
+/**
+ * Refuse a write into the playbook folder inside the installed package: the
+ * packaged bin never writes into its own package, so compiled and accepted
+ * rules go to a channel's folder. From source that folder is the legacy
+ * layout and is written as before.
+ */
+export function refuseInstalledPlaybook(dir: string, options: PlaybookWriteOptions = {}): void {
+  if ((options.bundled ?? BUNDLED) && isShippedPlaybookDir(dir, options.shippedDir)) {
+    throw new Error(`refusing to write into the installed package's playbook (${path.resolve(dir)}): keep this channel's rules in a channel workspace (${cliName(true)} init <folder>) or pass --playbook with a folder outside the installed package`)
+  }
 }
 
 /** Hard cap on the compiled file so it never crowds the doctrine out of the system prompt. */
@@ -362,10 +397,12 @@ export function renderLearnedRules(rules: RuleDoc[], options: { now?: Date; half
 
 /**
  * Write `00-learned-rules.md` into the playbook folder (atomic: temp file then
- * rename). Refuses content over the cap so the loader never truncates doctrine.
+ * rename). Refuses content over the cap so the loader never truncates doctrine,
+ * and (in the packaged bin) the playbook folder inside the installed package.
  * Returns the path written.
  */
-export function writeLearnedRules(playbookDir: string, content: string): string {
+export function writeLearnedRules(playbookDir: string, content: string, options: PlaybookWriteOptions = {}): string {
+  refuseInstalledPlaybook(playbookDir, options)
   if (content.length > LEARNED_RULES_MAX_CHARS) throw new Error(`learned rules are ${content.length} characters; the cap is ${LEARNED_RULES_MAX_CHARS}. Render with renderLearnedRules().`)
   const dir = path.resolve(playbookDir)
   mkdirSync(dir, { recursive: true })

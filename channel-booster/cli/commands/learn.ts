@@ -24,9 +24,9 @@ import { BUCKETS, type Bucket } from '../../src/buckets.js'
 import { readLedger } from '../../src/ledger.js'
 import { acceptRule, buildRetro, formatRuleLine, planPlaybookWrite, renderRetroMarkdown } from '../../src/retro.js'
 import { dueReviews, renderDigest, runReviews } from '../../src/review.js'
-import { compileRules, describeRule, isProtected, renderLearnedRules, sortRules, statusLabel, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
+import { compileRules, describeRule, isProtected, refuseInstalledPlaybook, renderLearnedRules, sortRules, statusLabel, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
 import { stableId, type RuleDoc } from '../../src/schema.js'
-import { resolvePlaybookDir } from '../../src/workspace.js'
+import { resolvePlaybookDir, type Located } from '../../src/workspace.js'
 import { bool, getProfile, getStore, inboxDir, list, need, nowFrom, num, out, packagesRoot, playbookDir, str, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_REVIEW = 'booster review due [--now ISO] | booster review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>] [--now ISO]'
@@ -247,15 +247,18 @@ const OBSERVATION_NOTE = `Compiled rules are hypotheses under observation from t
 /**
  * Where the ai engines pick up what `rules compile` wrote: they read the
  * channel playbook folder from the same flags and workspace, so name the
- * folder and how a run reaches it again.
+ * folder (`where`, as resolvePlaybookDir() found it) and how a run reaches
+ * it again.
  */
-function enginesLoad(flags: Flags): string {
-  const where = resolvePlaybookDir(flags)
+export function enginesLoad(where: Located): string {
   const how = where.source === 'flag' ? `when they run with --playbook ${where.path}` : where.source === 'workspace' ? `from this workspace's playbook folder, ${where.path}` : `from ${where.path}`
   return `The booster ai engines load it ${how}, right after docs/02, as observations under test, not doctrine.`
 }
 
 async function rulesCompile(flags: Flags): Promise<number> {
+  const where = resolvePlaybookDir(flags)
+  // Before the compile touches the store, so a refused write leaves nothing half done.
+  refuseInstalledPlaybook(where.path)
   const now = nowFrom(flags)
   const store = getStore(flags)
   const options = {
@@ -271,7 +274,7 @@ async function rulesCompile(flags: Flags): Promise<number> {
   }
   const result = compileRules(store, options)
   const content = renderLearnedRules(result.rules, options)
-  const written = writeLearnedRules(playbookDir(flags), content)
+  const written = writeLearnedRules(where.path, content)
   const accepted = result.rules.filter(isProtected)
   const observed = result.rules.filter((r) => !isProtected(r))
   const count = (status: RuleDoc['status']): number => observed.filter((r) => r.status === status).length
@@ -280,7 +283,7 @@ async function rulesCompile(flags: Flags): Promise<number> {
     ...(observed.length ? [OBSERVATION_NOTE] : []),
     ...(result.changes.length ? ['Changes:', ...result.changes.map((c) => `  ${c.lever}: ${statusLabel(c.from)} -> ${statusLabel(c.to)}`)] : ['No status changes since the last compile.']),
     ...[...accepted, ...observed.filter((r) => r.status === 'promoted')].map(ruleLine),
-    `Wrote ${written} (${content.length} chars). ${enginesLoad(flags)}`,
+    `Wrote ${written} (${content.length} chars). ${enginesLoad(where)}`,
   ].join('\n'))
   return 0
 }

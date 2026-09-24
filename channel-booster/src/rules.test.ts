@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -15,6 +15,7 @@ import {
   isShippedPlaybookDir,
   leverKey,
   noEffectPromoteChance,
+  refuseInstalledPlaybook,
   renderLearnedRules,
   rowWon,
   ruleId,
@@ -39,6 +40,25 @@ describe('the shipped playbook folder', () => {
     expect(isShippedPlaybookDir(path.join(CODE_ROOT, 'playbook', 'sub'))).toBe(false)
     expect(isShippedPlaybookDir('/ws/playbook')).toBe(false)
     expect(isShippedPlaybookDir('/ws/playbook', '/ws/playbook/')).toBe(true)
+  })
+
+  it('follows symlinks, so a linked path to the shipped folder is the shipped folder', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'booster-rules-link-'))
+    try {
+      // What a person types when the package is linked (npm link, pnpm): a path whose real path is the shipped folder.
+      const link = path.join(dir, 'pb-link')
+      symlinkSync(SHIPPED_PLAYBOOK_DIR, link, 'dir')
+      expect(isShippedPlaybookDir(link)).toBe(true)
+      const own = path.join(dir, 'playbook')
+      mkdirSync(own)
+      const ownLink = path.join(dir, 'own-link')
+      symlinkSync(own, ownLink, 'dir')
+      expect(isShippedPlaybookDir(ownLink)).toBe(false)
+      expect(isShippedPlaybookDir(ownLink, own)).toBe(true)
+      expect(isShippedPlaybookDir(own, ownLink)).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -361,6 +381,25 @@ describe('rules: render and write', () => {
     expect(readFileSync(target, 'utf8')).toBe('no newline\n')
     expect(() => writeLearnedRules(dir, 'x'.repeat(LEARNED_RULES_MAX_CHARS + 1))).toThrow(/cap is 8000/)
     expect(readFileSync(target, 'utf8')).toBe('no newline\n')
+  })
+
+  it('never writes into the playbook inside the installed package, however the path reaches it', () => {
+    const pkg = path.join(root, 'pkg', 'playbook')
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(path.join(pkg, 'title-formulas.md'), '# Title formulas\n')
+    const link = path.join(root, 'pkgpb-link')
+    symlinkSync(pkg, link, 'dir')
+    const refused = /^refusing to write into the installed package's playbook \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
+    for (const dir of [pkg, `${pkg}${path.sep}`, link]) {
+      expect(() => writeLearnedRules(dir, renderLearnedRules([]), { shippedDir: pkg, bundled: true })).toThrow(refused)
+      expect(() => refuseInstalledPlaybook(dir, { shippedDir: pkg, bundled: true })).toThrow(refused)
+    }
+    expect(existsSync(path.join(pkg, LEARNED_RULES_FILE))).toBe(false)
+    // From source the shipped folder is the legacy layout and is written as before; the packaged bin writes any other folder.
+    expect(writeLearnedRules(link, 'legacy', { shippedDir: pkg, bundled: false })).toBe(path.join(link, LEARNED_RULES_FILE))
+    expect(readFileSync(path.join(pkg, LEARNED_RULES_FILE), 'utf8')).toBe('legacy\n')
+    const channel = path.join(root, 'ws', 'playbook')
+    expect(writeLearnedRules(channel, 'channel', { shippedDir: pkg, bundled: true })).toBe(path.join(channel, LEARNED_RULES_FILE))
   })
 })
 

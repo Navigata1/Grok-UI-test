@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import os from 'node:os'
 import path from 'node:path'
 import { main } from '../cli/booster.js'
+import { enginesLoad } from './commands/learn.js'
 import { DOCTRINE_FILE, shippedDoctrine } from '../src/ai/doctrine.js'
 import { captureIo } from '../src/io.js'
 import { addRow, recordRead } from '../src/ledger.js'
@@ -364,6 +365,13 @@ describe('booster rules', () => {
   it('show says what to do on an empty store', async () => {
     const { out } = await run(['rules', 'show'])
     expect(out).toContain('No rules yet')
+  })
+
+  it('compile names where the ai engines load the file, from the flag, the workspace or the legacy default', () => {
+    const tail = 'right after docs/02, as observations under test, not doctrine.'
+    expect(enginesLoad({ path: '/r/channel-booster/playbook', source: 'legacy' })).toBe(`The booster ai engines load it from /r/channel-booster/playbook, ${tail}`)
+    expect(enginesLoad({ path: '/ws/playbook', source: 'workspace' })).toBe(`The booster ai engines load it from this workspace's playbook folder, /ws/playbook, ${tail}`)
+    expect(enginesLoad({ path: '/elsewhere/playbook', source: 'flag' })).toBe(`The booster ai engines load it when they run with --playbook /elsewhere/playbook, ${tail}`)
   })
 })
 

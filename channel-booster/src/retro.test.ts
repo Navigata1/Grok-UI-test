@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -272,9 +272,23 @@ describe('accepting into a channel playbook folder', () => {
     expect(existsSync(path.join(playbook, 'first-30-seconds.md'))).toBe(false)
   })
 
+  it('treats a symlink to the shipped folder as the legacy layout', () => {
+    const link = path.join(root, 'pb-link')
+    symlinkSync(playbook, link, 'dir')
+    const legacy = { shippedFiles, shippedDir: playbook, bundled: false }
+    expect(() => planPlaybookWrite(link, 'first-30-seconds.md', legacy)).toThrow(/^no such playbook file: .*first-30-seconds\.md$/)
+    expect(planPlaybookWrite(link, 'title-formulas.md', legacy)).toEqual({ file: path.join(link, 'title-formulas.md') })
+    expect(existsSync(path.join(playbook, 'first-30-seconds.md'))).toBe(false)
+  })
+
   it('never writes into the playbook inside the installed package', () => {
     const before = readFileSync(path.join(playbook, 'title-formulas.md'), 'utf8')
-    expect(() => acceptRule(playbook, 'title-formulas.md', rule, { now, shippedDir: playbook, bundled: true })).toThrow(/^refusing to write into the installed package's playbook \(.+\): accept rules into a channel workspace \(channel-booster init <folder>\) or pass --playbook <folder>$/)
+    const refused = /^refusing to write into the installed package's playbook \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
+    expect(() => acceptRule(playbook, 'title-formulas.md', rule, { now, shippedDir: playbook, bundled: true })).toThrow(refused)
+    // A symlink to the package's folder (a linked install, or one typed by hand) is the same folder.
+    const link = path.join(root, 'pkgpb-link')
+    symlinkSync(playbook, link, 'dir')
+    expect(() => acceptRule(link, 'title-formulas.md', rule, { now, shippedDir: playbook, bundled: true })).toThrow(refused)
     expect(readFileSync(path.join(playbook, 'title-formulas.md'), 'utf8')).toBe(before)
     // The packaged bin writes a channel folder anywhere else.
     expect(planPlaybookWrite(playbook, 'title-formulas.md', { bundled: true })).toEqual({ file: path.join(playbook, 'title-formulas.md') })

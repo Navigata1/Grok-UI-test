@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { main } from '../../cli/main.js'
 import { captureIo } from '../io.js'
+import { SHIPPED_PLAYBOOK_DIR } from '../rules.js'
 import { WORKSPACE_MARKER } from '../workspace.js'
 import { doctrineHash, shippedDoctrine, type ShippedDoctrine } from './doctrine.js'
 import * as ai from './index.js'
@@ -127,6 +128,22 @@ describe('ai <engine> --dry-run', () => {
     expect(dry.overlayDir).toBe(overlay)
     expect(dry.system).toHaveLength(2)
     expect(dry.user).toContain('Idea: Van build')
+  })
+
+  it('--json reports the effort a real run would send, and refuses one the API does not accept', async () => {
+    expect(JSON.parse(await run('title-lab', { idea: 'Van build', 'dry-run': true, json: true, effort: 'low' })).effort).toBe('low')
+    await expect(run('title-lab', { idea: 'Van build', 'dry-run': true, json: true, effort: 'bogus' })).rejects.toThrow('--effort must be one of low, medium, high, xhigh, max; got "bogus"')
+  })
+
+  it('--playbook through a symlink to the shipped folder loads the shipped playbook once, as the folder itself does', async () => {
+    const link = path.join(tmp, 'pb-link')
+    symlinkSync(SHIPPED_PLAYBOOK_DIR, link, 'dir')
+    const direct = JSON.parse(await run('title-lab', { idea: 'Van build', 'dry-run': true, json: true, playbook: SHIPPED_PLAYBOOK_DIR }))
+    const viaLink = JSON.parse(await run('title-lab', { idea: 'Van build', 'dry-run': true, json: true, playbook: link }))
+    expect(viaLink.playbookFiles).toEqual(direct.playbookFiles)
+    expect(viaLink.playbookFiles.filter((f: string) => f.startsWith('channel playbook/'))).toEqual([])
+    expect(viaLink.overlay).toEqual(direct.overlay)
+    expect(viaLink.system).toEqual(direct.system)
   })
 
   it('prints the doctrine hash, its file count and the overlay files in the text view', async () => {

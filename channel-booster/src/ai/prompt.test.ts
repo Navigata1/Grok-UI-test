@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   assemblePrompt, describeDoctrine, describeOverlay, formatDryRun, loadPlaybook, parseEffort, outlierContext, renderPackageFixUser,
@@ -69,6 +70,15 @@ describe('loadPlaybook', () => {
     expect(loaded.text).not.toContain('never loaded')
   })
 
+  it('tells the model where the channel playbook files sit in the order it loads them', () => {
+    expect(SYSTEM_PREAMBLE).toContain('A file named "channel playbook/<file>" comes from this channel\'s own playbook folder: its compiled 00-learned-rules.md follows docs/02, and its other files follow the shipped playbook.')
+    const { files } = loadPlaybook(CHANNEL, { fs: channelFs, doctrine: SHIPPED })
+    expect(files.indexOf('channel playbook/00-learned-rules.md')).toBe(files.indexOf(DOCTRINE_FILE) + 1)
+    const lastShipped = Math.max(...SHIPPED.files.map((f) => files.indexOf(f.name)))
+    const others = files.filter((f) => f.startsWith('channel playbook/') && !f.endsWith('/00-learned-rules.md'))
+    for (const f of others) expect(files.indexOf(f)).toBeGreaterThan(lastShipped)
+  })
+
   it('takes only the compiled rules from the shipped folder itself (the legacy source layout)', () => {
     const shippedDir = '/r/playbook'
     const fs = fakeFs(
@@ -79,6 +89,24 @@ describe('loadPlaybook', () => {
     expect(loaded.files).toEqual([DOCTRINE_FILE, LEARNED_RULES_FILE, 'playbook/README.md', 'playbook/ideation.md'])
     expect(loaded.overlay).toEqual([LEARNED_RULES_FILE])
     expect(loaded.text).not.toContain('THE COPY ON DISK')
+  })
+
+  it('treats a symlink to the shipped folder as the shipped folder', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'booster-prompt-'))
+    try {
+      const shippedDir = path.join(dir, 'playbook')
+      mkdirSync(shippedDir)
+      writeFileSync(path.join(shippedDir, '00-learned-rules.md'), '# Learned')
+      writeFileSync(path.join(shippedDir, 'ideation.md'), 'THE COPY ON DISK')
+      const link = path.join(dir, 'pb-link')
+      symlinkSync(shippedDir, link, 'dir')
+      const viaLink = loadPlaybook(link, { doctrine: SHIPPED, shippedDir })
+      expect(viaLink.files).toEqual([DOCTRINE_FILE, LEARNED_RULES_FILE, 'playbook/README.md', 'playbook/ideation.md'])
+      expect(viaLink.overlay).toEqual([LEARNED_RULES_FILE])
+      expect(viaLink.text).toBe(loadPlaybook(shippedDir, { doctrine: SHIPPED, shippedDir }).text)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('reads the doctrine from shippedDoctrine(), never from a folder on disk', () => {
@@ -165,6 +193,21 @@ describe('the legacy source layout', () => {
       expect(after.files.length).toBeGreaterThanOrEqual(withLearned ? 12 : 11)
       expect(after.overlay).toEqual(withLearned ? [LEARNED_RULES_FILE] : [])
       expect(after.doctrine).toEqual({ hash: shippedDoctrine().hash, files: shippedDoctrine().files.map((f) => f.name) })
+    }
+  })
+
+  it('builds the same prompt through a symlink to the checkout\'s playbook folder, never loading the shipped files twice', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'booster-prompt-'))
+    try {
+      const link = path.join(dir, 'pb-link')
+      symlinkSync(shippedDir, link, 'dir')
+      const direct = loadPlaybook(shippedDir, { fs: checkout(false) })
+      const viaLink = loadPlaybook(link, { fs: checkout(false) })
+      expect(viaLink.files).toEqual(direct.files)
+      expect(viaLink.text).toBe(direct.text)
+      expect(viaLink.overlay).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
