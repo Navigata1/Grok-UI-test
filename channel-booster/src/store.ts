@@ -1,17 +1,15 @@
 /**
- * JSONL store under channel-booster/data/ (or BOOSTER_DATA). One file per
+ * JSONL store under the channel's data folder (src/workspace.ts: --data,
+ * BOOSTER_DATA, <workspace>/data, or channel-booster/data from source). One file per
  * collection, one document per line, validated on read and write against
  * src/schema.ts. Last writer wins by id; the file is rewritten on every
  * upsert, which is fine at the scale of one channel.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { COLLECTIONS, type CollectionName } from './schema.js'
-
-const here = path.dirname(fileURLToPath(import.meta.url))
-export const DEFAULT_DATA_DIR = process.env.BOOSTER_DATA ?? path.resolve(here, '..', 'data')
+import { resolveDataDir } from './workspace.js'
 
 type DocOf<C extends CollectionName> = z.infer<(typeof COLLECTIONS)[C]>
 
@@ -25,7 +23,8 @@ export interface Store {
   writeAll<C extends CollectionName>(collection: C, docs: DocOf<C>[]): void
 }
 
-export function openStore(root: string = DEFAULT_DATA_DIR): Store {
+/** Open the store at root; without one, where src/workspace.ts resolves it (read when called, not at import). */
+export function openStore(root: string = resolveDataDir({}).path): Store {
   const file = (collection: CollectionName) => path.join(root, `${collection}.jsonl`)
 
   function read<C extends CollectionName>(collection: C): DocOf<C>[] {

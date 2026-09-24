@@ -17,7 +17,7 @@ import { addRow, ageHours, baselineFrom, dueReads, leverTally, ownOutliers, read
 import { initProfile, loadProfile, movedMetrics, profileExists, refreshBaselines, renderProfileText, resolveProfilePath, saveProfile } from '../../src/profile.js'
 import type { Baselines, LedgerRead, LedgerRow, ProfileDoc, Stat } from '../../src/schema.js'
 import { DEFAULT_THRESHOLDS, thresholds, type ThresholdKey } from '../../src/thresholds.js'
-import { bool, getStore, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
+import { bool, getStore, need, nowFrom, num, out, str, writeOut, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_PROFILE = 'booster profile init|show|refresh [--path channel.json]'
 const USAGE_INGEST = 'booster ingest <studio-content.csv> [--at ISO] [--bucket 24|48|168|672] [--lever ".." --yes] [--dry-run]'
@@ -411,7 +411,7 @@ async function runLedger(sub: string | undefined, flags: Flags): Promise<number>
       return 0
     }
     if (flags.json) out(rows, flags, () => '')
-    else process.stdout.write(text)
+    else writeOut(text)
     return 0
   }
   throw new Error(`usage: ${USAGE_LEDGER}`)

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0",
+  "id": "idea-booster-standalone",
+  "frozenAt": "2026-09-24T12:10:00Z",
+  "frozenBy": "claude-code for Navigata1",
+  "problem": {
+    "statement": "The Channel Booster only runs inside the Grok UI fork: its CLI needs tsx and this repo's package.json, its AI engines lose the playbook once moved, a creator's data is spread over the code folder, and nothing installable contains it.",
+    "successCriteria": [
+      "A packed channel-booster tarball installed into an empty folder runs with plain node, loads the whole playbook, and keeps one channel's data inside one workspace folder",
+      "The booster verifies on its own in a folder that holds only its own files, with no Grok UI code or config",
+      "Every command documented before this mission still works from the repo root with the same flags and environment variables",
+      "The Desk opens dark and Grok-style by default, with a light option, and its human gates still work in the artifact viewer"
+    ]
+  },
+  "domain": { "id": 6, "letter": "F", "name": "Elite Software Craft" },
+  "definitionOfDone": [
+    {
+      "claim": "The installed bin runs under plain node with a node shebang; tsx is not needed at runtime",
+      "falsifiedBy": "channel-booster/scripts/package-smoke.mjs: npm pack, install the tarball into an empty temp folder, run node_modules/.bin/channel-booster help; a non-zero exit, empty help, a tsx shebang, or tsx in the installed tree falsifies"
+    },
+    {
+      "claim": "The playbook is built in: the installed bin run from a folder outside the repo sends the same doctrine files and hash as the source CLI",
+      "falsifiedBy": "package-smoke runs `ai ideas --dry-run` from the temp folder and compares the doctrine file list and hash with the source run; any difference, or a zero-file doctrine that does not throw, falsifies"
+    },
+    {
+      "claim": "One workspace folder per channel: with a workspace, every file a command writes lands inside that folder",
+      "falsifiedBy": "package-smoke runs init, scan (bundled example), idea add, package build --offline and rules compile inside a temp workspace and snapshots the temp parent and the installed package; any new or changed file outside the workspace falsifies"
+    },
+    {
+      "claim": "Workflow stages run in-process; no child process or tsx is needed to run a booster stage, and stored `npm run booster -- ...` stage commands still run",
+      "falsifiedBy": "runner tests stub child_process to throw and still complete a command stage; a stored legacy-prefixed stage command runs to the same result"
+    },
+    {
+      "claim": "Old runbooks still work: --data, --path, --root, --inbox, --playbook, BOOSTER_DATA and BOOSTER_PROFILE resolve exactly as before when no workspace is given",
+      "falsifiedBy": "the full existing test suite fails, or the legacy-resolution tests in src/workspace.test.ts show a location different from the pre-mission default"
+    },
+    {
+      "claim": "The booster verifies standalone in the layout the private repo will use",
+      "falsifiedBy": "channel-booster/scripts/standalone-check.mjs copies only the booster's files into a temp folder with the split template root, runs npm install and npm run verify there; a non-zero exit falsifies"
+    },
+    {
+      "claim": "The Desk is dark and Grok-style by default in every host theme, offers a light option, and keeps its in-page gates, zero network requests and a 390px layout without horizontal scroll",
+      "falsifiedBy": "channel-booster/scripts/desk-runtime.mjs drives the built Desk in Chromium (desktop, 390x844 phone, sandboxed artifact frame, host data-theme light and dark); a light default, a failed gate, a network request, a console error, horizontal overflow or a text contrast below 4.5:1 falsifies"
+    },
+    {
+      "claim": "The booster lives in a private repo with its history, and every later change reaches main through the gates workflow",
+      "falsifiedBy": "in the new repo, `git log -- channel-booster` has fewer commits than in Grok-UI-test at the split point, Grok UI paths exist, or a merged PR has no passing verify check"
+    }
+  ],
+  "confidence": {
+    "score": 7,
+    "biggestRisk": "The private repo cannot be created from this session, so the split waits on the owner; the in-process runner can also change stage output in ways the old subprocess tests did not pin.",
+    "nextAction": "Land the seam contracts (workspace, io, doctrine, build info), then run the four cut-the-ties lanes and the Desk lane in parallel."
+  },
+  "rejectedAlternatives": [
+    { "idea": "Split into the new repo first, then cut the ties there", "reason": "The session cannot create repositories; cutting the ties first also follows the Blueprint's order and lets the split be rehearsed in a temp folder before it is real." },
+    { "idea": "Commit a generated doctrine module and keep it in sync with a test", "reason": "A person accepting a rule edits the playbook in place in the repo, which would fail the sync test on their machine; embedding at bundle time keeps one source of truth." },
+    { "idea": "Bundle zod and the Anthropic SDK into the bin", "reason": "Bundled dependencies disappear from npm audit; they stay declared runtime dependencies and external to the bundle." }
+  ]
+}
