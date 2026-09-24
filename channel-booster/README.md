@@ -103,7 +103,7 @@ booster review due | review run [--slug <slug> --bucket 48]                  the
 ```
 booster brief [--week | --today]                                              the Monday page
 booster retro [--since 7d] | retro --accept-rule ".." --into playbook/<file>.md --yes   the retro; the only writer to playbook/*.md
-booster rules compile | rules show                                            playbook/00-learned-rules.md from the ledger
+booster rules compile | rules show                                            playbook/00-learned-rules.md from the ledger: hypotheses under observation
 booster ai <engine> ...                                                       see below
 ```
 
@@ -122,7 +122,7 @@ booster ai postmortem        --title ".." --ctr .. [--impressions ..] [--avp ..]
 booster ai channel-audit     --csv my-channel.csv [--channel ".."]
 ```
 
-They need `ANTHROPIC_API_KEY` (or an `ant auth login` profile). The default model is `claude-opus-5`; override with `--model` or `BOOSTER_MODEL`, and reasoning depth with `--effort low|medium|high|xhigh|max`. `--dry-run` prints the exact system blocks and user message and stops; `--out file.json` keeps the result (`booster bank import` reads the idea engine's). Every engine loads the doctrine in a fixed order as its cached system prompt: `docs/02-strategist-playbook.md`, then `playbook/00-learned-rules.md` when it exists, then the other `playbook/*.md` files; without `--channel`, the channel line comes from `channel.json`. The model returns a structured answer and the deterministic scorer then runs over it, so a concept that breaks a rule is flagged even when the model liked it. `booster package build` uses the same engines as its generators and feeds every failed gate back through `package-fix` for up to three rounds; without a key it runs the offline generators once. Tests never call the network.
+They need `ANTHROPIC_API_KEY` (or an `ant auth login` profile). The default model is `claude-opus-5`; override with `--model` or `BOOSTER_MODEL`, and reasoning depth with `--effort low|medium|high|xhigh|max`. `--dry-run` prints the exact system blocks and user message and stops; `--out file.json` keeps the result (`booster bank import` reads the idea engine's). Every engine loads the doctrine in a fixed order as its cached system prompt: `docs/02-strategist-playbook.md`, then `playbook/00-learned-rules.md` when it exists (the channel's compiled rules, which the system prompt calls observations under test from a small sample that never override the doctrine), then the other `playbook/*.md` files; without `--channel`, the channel line comes from `channel.json`. The model returns a structured answer and the deterministic scorer then runs over it, so a concept that breaks a rule is flagged even when the model liked it. `booster package build` uses the same engines as its generators and feeds every failed gate back through `package-fix` for up to three rounds; without a key it runs the offline generators once. Tests never call the network.
 
 In Claude Code, the same engines are skills: `/booster` routes, and `/booster-idea-engine`, `/booster-title-lab`, `/booster-thumbnail-factory`, `/booster-packaging-review`, `/booster-retention-map`, `/booster-workflow`, `/booster-postmortem`, `/booster-channel-audit` each run one stage. For other assistants, [`prompts/`](prompts/) has the same prompts as copy-paste text.
 

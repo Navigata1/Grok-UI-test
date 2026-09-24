@@ -37,7 +37,7 @@ Every skill: run the deterministic command first when it applies (it is fast and
 
 ## Human-only gates
 
-An agent prepares; a person decides. Stop and ask at these points: approving a green idea; writing three own titles and picking the final title and A/B pair; writing, shooting, editing; clicking publish, starting Test & Compare, applying a repackage swap; typing the numbers Studio does not export; writing the lever learned at 7 days and accepting a playbook rule. Never simulate a review pass, never invent a lever to unblock a 7-day read, never edit `playbook/*.md` except through `booster retro --accept-rule`, never scrape YouTube. The full list is in `channel-booster/AGENTS.md`.
+An agent prepares; a person decides. Stop and ask at these points: approving a green idea; writing three own titles and picking the final title and A/B pair; writing, shooting, editing; clicking publish, starting Test & Compare, applying a repackage swap; typing the numbers Studio does not export; writing the lever learned at 7 days and accepting a playbook rule. Never simulate a review pass, never invent a lever to unblock a 7-day read, never edit `playbook/*.md` except through `booster retro --accept-rule`, never scrape YouTube. The compiled `playbook/00-learned-rules.md` holds hypotheses under observation, not doctrine: never present one as a rule to follow; mention it as a hypothesis worth testing, with its tests and wins. The full list is in `channel-booster/AGENTS.md`.
 
 ## Files
 

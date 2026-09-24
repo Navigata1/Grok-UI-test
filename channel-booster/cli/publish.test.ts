@@ -162,7 +162,7 @@ describe('the flywheel: package build -> publish confirm -> 7-day read -> rules 
     }
     expect(readFileSync(path.join(playbook, '00-learned-rules.md'), 'utf8')).not.toContain('none yet: 0 levers under test')
     const shown = await run(['rules', 'show', '--playbook', playbook])
-    expect(shown.out).toMatch(/is under test on this channel \(n=1/)
+    expect(shown.out).toMatch(/ {2}under test: "[^"]+" \(1 test, /)
   })
 
   it('takes --levers and --predicted-ctr over the package, and never rewrites a registered hypothesis', async () => {

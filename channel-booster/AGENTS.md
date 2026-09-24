@@ -34,7 +34,7 @@ Never simulate a review pass, never invent a lever to unblock a 7-day read, neve
 - `data/*.jsonl`: ideas, ledger, experiments, decisions, rules, workflows. Schema in `src/schema.ts`. Ignored by git; export with `booster ledger export`.
 - `packages/<slug>/`: package.json, story.json, shots.md, publish.md, thumb-A.png, thumb-B.png, proof-sheet.html.
 - `inbox/`: drop Studio exports here; `booster review run` ingests everything in it, and `booster ingest <file.csv>` takes one by path.
-- `playbook/`: the rules. `playbook/00-learned-rules.md` is compiled from evidence; do not edit by hand.
+- `playbook/`: the rules. `playbook/00-learned-rules.md` is compiled from evidence; do not edit by hand. Its compiled rules are hypotheses under observation from the channel's own small sample, not doctrine: never present one to the user as a rule to follow, mention it as a hypothesis worth testing with its tests and wins, and let only `booster retro --accept-rule` (a person) move a rule into the playbook.
 
 ## Evidence discipline
 

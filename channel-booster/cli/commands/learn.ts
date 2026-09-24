@@ -9,7 +9,8 @@
  * is the Monday page. `retro` drafts the weekly retro and, with
  * --accept-rule, is the only writer to playbook/*.md (human-only gate: it
  * needs --yes). `rules compile` turns the ledger into
- * playbook/00-learned-rules.md.
+ * playbook/00-learned-rules.md, whose compiled rules are hypotheses under
+ * observation: what it prints says so, and never calls one doctrine.
  */
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -19,7 +20,7 @@ import { BUCKETS, type Bucket } from '../../src/buckets.js'
 import { readLedger } from '../../src/ledger.js'
 import { acceptRule, buildRetro, formatRuleLine, renderRetroMarkdown, resolvePlaybookFile } from '../../src/retro.js'
 import { dueReviews, renderDigest, runReviews } from '../../src/review.js'
-import { compileRules, renderLearnedRules, smoothedWinRate, sortRules, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
+import { compileRules, describeRule, isProtected, renderLearnedRules, sortRules, statusLabel, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
 import { stableId, type RuleDoc } from '../../src/schema.js'
 import { bool, getProfile, getStore, list, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
 
@@ -234,9 +235,11 @@ async function runRetro(flags: Flags): Promise<number> {
 // ---------------------------------------------------------------- rules
 
 function ruleLine(r: RuleDoc): string {
-  const tag = r.status === 'pinned' || r.pinned ? ' [pinned]' : r.acceptedBy ? ` [accepted by ${r.acceptedBy}]` : ''
-  return `  ${r.status.padEnd(9)} ${r.rule}${tag} (n=${r.tests}, win rate ${Math.round(smoothedWinRate(r.wins, r.tests) * 100)}%, confidence ${Math.round(r.confidence * 100)}%)`
+  return `  ${describeRule(r)}`
 }
+
+/** Printed above any compiled rule a person sees: what the rules are, and the one way into the playbook. */
+const OBSERVATION_NOTE = `Compiled rules are hypotheses under observation from this channel's own small sample, not doctrine. Only a person moves a rule into the playbook: ${USAGE_ACCEPT}`
 
 async function rulesCompile(flags: Flags): Promise<number> {
   const now = nowFrom(flags)
@@ -255,11 +258,18 @@ async function rulesCompile(flags: Flags): Promise<number> {
   const result = compileRules(store, options)
   const content = renderLearnedRules(result.rules, options)
   const written = writeLearnedRules(playbookFrom(flags), content)
+  const accepted = result.rules.filter(isProtected)
+  const observed = result.rules.filter((r) => !isProtected(r))
+  const count = (status: RuleDoc['status']): number => observed.filter((r) => r.status === status).length
   out({ ...result, written, content }, flags, () => [
-    `Compiled ${result.rules.length} rule${result.rules.length === 1 ? '' : 's'} from ${result.tested} tested row${result.tested === 1 ? '' : 's'}: ${result.promoted.length} promoted, ${result.retired.length} retired, ${result.rules.length - result.promoted.length - result.retired.length} under test.`,
-    ...(result.changes.length ? ['Changes:', ...result.changes.map((c) => `  ${c.lever}: ${c.from} -> ${c.to}`)] : ['No status changes since the last compile.']),
-    ...result.promoted.map(ruleLine),
-    `Wrote ${written} (${content.length} chars); every booster ai engine loads it after docs/02.`,
+    `Compiled ${result.rules.length} rule${result.rules.length === 1 ? '' : 's'} from ${result.tested} tested row${result.tested === 1 ? '' : 's'}: ${count('promoted')} winning so far, ${count('retired')} losing so far, ${count('candidate')} under test${accepted.length ? `, ${accepted.length} accepted by a person` : ''}.`,
+    ...(observed.length ? [OBSERVATION_NOTE] : []),
+    ...(result.changes.length ? ['Changes:', ...result.changes.map((c) => `  ${c.lever}: ${statusLabel(c.from)} -> ${statusLabel(c.to)}`)] : ['No status changes since the last compile.']),
+    ...[...accepted, ...observed.filter((r) => r.status === 'promoted')].map(ruleLine),
+    // The ai engines read ROOT/playbook only, so say so when --playbook wrote the file somewhere they never look.
+    path.dirname(written) === path.join(ROOT, 'playbook')
+      ? `Wrote ${written} (${content.length} chars); every booster ai engine loads it after docs/02 as observations under test, not doctrine.`
+      : `Wrote ${written} (${content.length} chars). The booster ai engines read ${path.join(ROOT, 'playbook')}, not this folder, so this file does not reach their prompts.`,
   ].join('\n'))
   return 0
 }
@@ -267,7 +277,10 @@ async function rulesCompile(flags: Flags): Promise<number> {
 async function rulesShow(flags: Flags): Promise<number> {
   const store = getStore(flags)
   const rules = sortRules(store.read('rules'))
-  out({ rules, file: path.join(playbookFrom(flags), LEARNED_RULES_FILE) }, flags, () => (rules.length ? rules.map(ruleLine).join('\n') : `No rules yet: run booster rules compile once the ledger has 7-day reads with levers, or accept one with ${USAGE_ACCEPT}`))
+  out({ rules, file: path.join(playbookFrom(flags), LEARNED_RULES_FILE) }, flags, () => {
+    if (rules.length === 0) return `No rules yet: run booster rules compile once the ledger has 7-day reads with levers, or accept one with ${USAGE_ACCEPT}`
+    return [...(rules.some((r) => !isProtected(r)) ? [OBSERVATION_NOTE] : []), ...rules.map(ruleLine)].join('\n')
+  })
   return 0
 }
 
@@ -279,8 +292,8 @@ export const learnModule: CommandModule = {
     'brief [--week | --today] [--inbox dir] [--out brief.md]            the Monday page: reads due, decisions awaiting, tests to close, rule changes, alerts, next three',
     'retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md]                 the weekly retro: published, levers, winners, losers, candidate rule, overrides',
     'retro --accept-rule ".." --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes   accept a rule into a playbook file (human-only gate; the only writer to playbook/*.md)',
-    'rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--agent <name>]   compile the ledger into playbook/00-learned-rules.md',
-    'rules show                                                         every rule in the store with status, n, win rate and confidence',
+    'rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--agent <name>]   compile the ledger into playbook/00-learned-rules.md: hypotheses under observation, not doctrine',
+    'rules show                                                         every rule in the store: under observation, under test, or accepted by a person, with tests, wins, win rate and confidence',
   ],
   async run(cmd, sub, _rest, flags) {
     if (cmd === 'review') {

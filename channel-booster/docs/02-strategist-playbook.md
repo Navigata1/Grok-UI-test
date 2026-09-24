@@ -66,8 +66,8 @@ Tags: **[sourced]** a listing, quote, or statement captured in `research/finding
 ### Learning
 
 - Every published package is a pre-registered hypothesis: levers, angle, predicted CTR multiple. Rules compile only from packages registered before publish, so hindsight cannot write the playbook.
-- A lever is promoted at three or more tests with a smoothed win rate of 0.6, retired at 0.35, and its confidence halves every 90 days without a confirming observation [house].
-- One sentence of learning per video at seven days; the ledger is the channel's memory; the Sunday retro promotes what won twice.
+- A lever is marked winning so far at three or more tests with a smoothed win rate of 0.6, losing so far at 0.35, and its confidence halves every 90 days without a confirming observation [house]. Either way it is a hypothesis under observation from the channel's own small sample, not doctrine, and it never overrides this playbook; only a person accepts a rule into the playbook, with `booster retro --accept-rule`.
+- One sentence of learning per video at seven days; the ledger is the channel's memory; the Sunday retro drafts one candidate rule, and a person decides whether it enters the playbook.
 
 ## Numbers used by the engines
 

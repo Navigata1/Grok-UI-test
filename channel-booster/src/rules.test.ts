@@ -9,12 +9,16 @@ import {
   compileRuleDocs,
   compileRules,
   decay,
+  describeRule,
   isProtected,
   leverKey,
+  noEffectPromoteChance,
   renderLearnedRules,
   rowWon,
   ruleId,
+  ruleText,
   scoreLever,
+  statusLabel,
   smoothedWinRate,
   sortRules,
   tallyEvidence,
@@ -164,11 +168,11 @@ describe('rules: compile', () => {
     expect(result.tested).toBe(9)
     const by = Object.fromEntries(result.rules.map((r) => [r.lever, r]))
     expect(by['number-in-title']).toMatchObject({ id: ruleId('number-in-title'), status: 'promoted', tests: 4, wins: 3, pinned: false })
-    expect(by['number-in-title'].rule).toContain('Prefer "number-in-title"')
+    expect(by['number-in-title'].rule).toBe('Hypothesis under observation: "number-in-title" may help on this channel')
     // The last confirming win (c) is 63 days old: 0.667 * 2^(-63/90).
     expect(by['number-in-title'].confidence).toBeCloseTo(0.41, 2)
     expect(by['stakes-thumb']).toMatchObject({ status: 'retired', tests: 4, wins: 1 })
-    expect(by['stakes-thumb'].rule).toContain('Avoid "stakes-thumb"')
+    expect(by['stakes-thumb'].rule).toBe('Hypothesis under observation: "stakes-thumb" may not help on this channel')
     expect(by['versus'].status).toBe('candidate')
     expect(by['result-first'].status).toBe('candidate')
     expect(result.promoted.map((r) => r.lever)).toEqual(['number-in-title'])
@@ -249,20 +253,27 @@ describe('rules: compile', () => {
 })
 
 describe('rules: render and write', () => {
-  it('renders a compiled header, promoted rules with counts, and the retired list', () => {
+  it('renders a compiled header, the levers winning and losing so far with their evidence, all under observation', () => {
     seedChannel()
     const { rules } = compileRules(store, { now })
     const md = renderLearnedRules(rules)
-    expect(md.startsWith('# Learned rules (compiled)')).toBe(true)
+    expect(md.startsWith('# Learned rules (compiled): hypotheses under observation')).toBe(true)
     expect(md).toContain('Do not edit by hand')
     expect(md).toContain('on 2026-09-14')
-    expect(md).toContain('promoted at 3 or more tests')
+    expect(md).toContain("an observation under test from this channel's own small sample, not doctrine")
+    expect(md).toContain('None of them overrides docs/02-strategist-playbook.md')
+    expect(md).toContain('follow the doctrine and mention the observation only as a hypothesis worth testing')
+    expect(md).toContain('Only a person moves a rule into the playbook, with `booster retro --accept-rule "<rule>" --into playbook/<file>.md --yes`')
+    expect(md).toContain('Evidence gates [house]: a lever is marked winning so far at 3 or more tests')
     expect(md).toContain('win rate of 60% or more')
     expect(md).toContain('halves every 90 days')
-    expect(md).toContain('## Promoted')
-    expect(md).toContain('- Prefer "number-in-title" on this channel (n=4, win rate 67%, confidence 41%; a, b, c, d)')
-    expect(md).toContain('## Retired')
-    expect(md).toContain('- Avoid "stakes-thumb" on this channel (n=4, win rate 33%, confidence')
+    expect(md).toContain('These gates are not a significance test')
+    expect(md).toContain('at 3 tests it still reaches winning so far 50% of the time')
+    expect(md).toContain('## Under observation: winning so far')
+    expect(md).toContain('- Hypothesis under observation: "number-in-title" may help on this channel (4 tests, 3 wins, smoothed win rate 67%, confidence 41%; a, b, c, d)')
+    expect(md).toContain('## Under observation: losing so far')
+    expect(md).toContain('- Hypothesis under observation: "stakes-thumb" may not help on this channel (4 tests, 1 win, smoothed win rate 33%, confidence')
+    expect(md).not.toContain('## Accepted by a person')
     expect(md).toContain('Under test: 2 levers')
     expect(md).not.toContain('versus')
     expect(md.length).toBeLessThan(LEARNED_RULES_MAX_CHARS)
@@ -271,18 +282,18 @@ describe('rules: render and write', () => {
 
   it('renders an empty rule set honestly', () => {
     const md = renderLearnedRules([])
-    expect(md).toContain('- none yet: 0 levers under test')
-    expect(md).toContain('## Retired\n- none')
+    expect(md).toContain('## Under observation: winning so far\n- none yet: 0 levers under test')
+    expect(md).toContain('## Under observation: losing so far\n- none')
     expect(md).not.toContain(' on undefined')
   })
 
-  it('marks pinned and accepted rules', () => {
+  it('lists pinned and accepted rules apart, as rules a person accepted, never as observations', () => {
     const pinned = RuleDoc.parse({ id: 'rule:p', rule: 'Always X', status: 'pinned', pinned: true, confidence: 1, updatedAt: '2026-02-01T00:00:00Z' })
     const accepted = RuleDoc.parse({ id: 'rule:h', rule: 'Face on every thumbnail', status: 'promoted', acceptedBy: 'jony', confidence: 0.9, updatedAt: '2026-02-02T00:00:00Z' })
     const md = renderLearnedRules([accepted, pinned])
-    expect(md).toContain('- Always X [pinned] (n=0, win rate 50%, confidence 100%)')
-    expect(md).toContain('- Face on every thumbnail [accepted by jony]')
-    expect(md.indexOf('Always X')).toBeLessThan(md.indexOf('Face on every'))
+    expect(md).toContain('## Accepted by a person\n\nThese are playbook rules: a person accepted them.\n- Always X [pinned]\n- Face on every thumbnail [accepted by jony]\n')
+    expect(md.indexOf('## Accepted by a person')).toBeLessThan(md.indexOf('## Under observation: winning so far'))
+    expect(md).toContain('## Under observation: winning so far\n- none yet: 0 levers under test')
     expect(md).toContain('on 2026-02-02')
   })
 
@@ -303,7 +314,7 @@ describe('rules: render and write', () => {
       rules.push(RuleDoc.parse({
         id: `rule:${i}`,
         rule: `Prefer "a fairly long lever description number ${i} that takes up space" on this channel`,
-        lever: `lever ${i}`,
+        lever: `a fairly long lever description number ${i} that takes up space`,
         tests: 5,
         wins: 4,
         confidence: 1 - i / 300,
@@ -315,9 +326,11 @@ describe('rules: render and write', () => {
     const md = renderLearnedRules(rules)
     expect(md.length).toBeLessThanOrEqual(LEARNED_RULES_MAX_CHARS)
     expect(md).not.toContain('; one, two')
-    expect(md).toMatch(/- and \d+ more promoted rules in data\/rules\.jsonl/)
-    expect(md).toMatch(/- and \d+ more retired rules in data\/rules\.jsonl/)
+    expect(md).toMatch(/- and \d+ more observations winning so far in data\/rules\.jsonl/)
+    expect(md).toMatch(/- and \d+ more observations losing so far in data\/rules\.jsonl/)
     expect(md).toContain('lever description number 1 that')
+    // The rows carry an older compile's instruction wording; the file rebuilds each sentence from its lever.
+    expect(md).not.toMatch(/prefer/i)
     const sorted = sortRules(rules)
     expect(sorted[0].status).toBe('promoted')
     expect(sorted[sorted.length - 1].status).toBe('retired')
@@ -334,5 +347,60 @@ describe('rules: render and write', () => {
     expect(readFileSync(target, 'utf8')).toBe('no newline\n')
     expect(() => writeLearnedRules(dir, 'x'.repeat(LEARNED_RULES_MAX_CHARS + 1))).toThrow(/cap is 8000/)
     expect(readFileSync(target, 'utf8')).toBe('no newline\n')
+  })
+})
+
+/** Wording that would let a compiled rule outrank the doctrine (EFF-1). */
+const OUTRANKS_DOCTRINE = [/prefer/i, /takes? precedence/i, /\bbeats? (the )?(generic )?doctrine/i, /\bover (the )?(generic )?doctrine/i, /\bavoid "/i]
+
+describe('rules: compiled rules stay under observation (EFF-1)', () => {
+  it('never tells anyone to prefer a learned rule, in the rule sentences or the compiled file', () => {
+    seedChannel()
+    // A row an older compile wrote with instruction wording, still in the store until the next compile.
+    const stale = RuleDoc.parse({ id: ruleId('old-lever'), rule: 'Prefer "old-lever" on this channel', lever: 'old-lever', tests: 3, wins: 3, confidence: 0.8, status: 'promoted', updatedAt: now.toISOString() })
+    const md = renderLearnedRules([...compileRuleDocs(store.read('ledger'), store.read('decisions'), { now }), stale], { now })
+    for (const pattern of OUTRANKS_DOCTRINE) expect(md).not.toMatch(pattern)
+    for (const status of ['promoted', 'retired', 'candidate'] as const) for (const pattern of OUTRANKS_DOCTRINE) expect(ruleText('number-in-title', status)).not.toMatch(pattern)
+    expect(md).toContain('not doctrine')
+    // Every compiled rule is a hypothesis with its tests, wins and win rate.
+    const lines = md.split('\n').filter((l) => l.startsWith('- Hypothesis under observation: '))
+    expect(lines.map((l) => l.slice(0, l.indexOf(' may')))).toEqual([
+      '- Hypothesis under observation: "old-lever"',
+      '- Hypothesis under observation: "number-in-title"',
+      '- Hypothesis under observation: "stakes-thumb"',
+    ])
+    for (const l of lines) expect(l).toMatch(/ \(\d+ tests?, \d+ wins?, smoothed win rate \d+%, confidence \d+%/)
+  })
+
+  it('says how often a lever with no effect still clears the gate', () => {
+    // A no-effect lever wins a read against a median about half the time: binomial tail at the smoothed-rate gate.
+    expect(noEffectPromoteChance(3, 0.6)).toBe(0.5)
+    expect(noEffectPromoteChance(5, 0.6)).toBeCloseTo(6 / 32, 12)
+    expect(noEffectPromoteChance(10, 0.6)).toBeCloseTo(176 / 1024, 12)
+    expect(noEffectPromoteChance(3, 1.5)).toBe(0)
+    expect(renderLearnedRules([], { promoteTests: 5 })).toContain('at 5 tests it still reaches winning so far 19% of the time')
+  })
+
+  it('describes each standing in plain words: observation, test, or a person\'s rule', () => {
+    const base = { updatedAt: now.toISOString() }
+    expect(describeRule(RuleDoc.parse({ ...base, id: 'r:1', rule: 'x', lever: 'number-in-title', tests: 3, wins: 2, confidence: 0.57, status: 'promoted' })))
+      .toBe('under observation, winning so far: "number-in-title" (3 tests, 2 wins, smoothed win rate 60%, confidence 57%)')
+    expect(describeRule(RuleDoc.parse({ ...base, id: 'r:2', rule: 'x', lever: 'stakes', tests: 4, wins: 1, confidence: 0.3, status: 'retired' })))
+      .toBe('under observation, losing so far: "stakes" (4 tests, 1 win, smoothed win rate 33%, confidence 30%)')
+    expect(describeRule(RuleDoc.parse({ ...base, id: 'r:3', rule: 'x', lever: 'versus', tests: 1, wins: 1, confidence: 0.5, status: 'candidate' })))
+      .toBe('under test: "versus" (1 test, 1 win, smoothed win rate 67%, confidence 50%)')
+    expect(describeRule(RuleDoc.parse({ ...base, id: 'r:4', rule: 'Face on every thumbnail', status: 'promoted', acceptedBy: 'jony', confidence: 1 }))).toBe('accepted by jony: Face on every thumbnail')
+    expect(describeRule(RuleDoc.parse({ ...base, id: 'r:5', rule: 'Always X', status: 'pinned', pinned: true, confidence: 1 }))).toBe('pinned by a person: Always X')
+    expect([statusLabel('new'), statusLabel('candidate'), statusLabel('promoted'), statusLabel('retired')]).toEqual(['new', 'under test', 'winning so far', 'losing so far'])
+  })
+
+  it('keeps hundreds of accepted rules under the cap too, trimming them last', () => {
+    const accepted = Array.from({ length: 200 }, (_, i) => RuleDoc.parse({ id: `rule:h${i}`, rule: `A long rule a person accepted, number ${i}, written out in full so it takes up space`, status: 'promoted', acceptedBy: 'jony', confidence: 1, updatedAt: now.toISOString() }))
+    const observed = RuleDoc.parse({ id: 'rule:o', rule: 'x', lever: 'number-in-title', tests: 4, wins: 3, confidence: 0.5, status: 'promoted', updatedAt: now.toISOString() })
+    const md = renderLearnedRules([...accepted, observed])
+    expect(md.length).toBeLessThanOrEqual(LEARNED_RULES_MAX_CHARS)
+    expect(md).toMatch(/- and \d+ more accepted rules in data\/rules\.jsonl/)
+    expect(md).not.toContain('"number-in-title" may help')
+    expect(md).toMatch(/- and 1 more observation winning so far in data\/rules\.jsonl/)
   })
 })
