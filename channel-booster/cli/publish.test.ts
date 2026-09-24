@@ -21,6 +21,8 @@ const NOW = '2026-09-14T12:00:00Z'
 const IDEA = 'I lived off a $300 solar generator for 30 days'
 const SLUG = 'i-lived-off-a-300-solar-generator-for-30-days'
 const PROMISE = 'thirty days on a $300 solar generator, every failure shown'
+/** The title a person writes at package time (package build --title): offline, the builder never picks one. */
+const TITLE = 'Thirty Days on a $300 Solar Generator, Every Failure'
 
 /** Six short paragraphs: at 150 wpm hook score marks a chapter every 8 s, inside YouTube's 10 s minimum. */
 const SCRIPT = [
@@ -107,9 +109,9 @@ function exportThumbs(): void {
   for (const name of ['thumb-A.png', 'thumb-B.png']) writeFileSync(path.join(tmp, 'packages', SLUG, name), png(1280, 720))
 }
 
-/** package build -> hook score -> publish pack, the documented order. */
+/** package build (with the person's title) -> hook score -> publish pack, the documented order. */
 async function walkToPack(): Promise<any> {
-  const built = await json(['package', 'build', IDEA, '--promise', PROMISE, '--subject', 'me', '--stake', 'the fridge dying', '--result', 'a full month on $300 of solar', '--offline'])
+  const built = await json(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--subject', 'me', '--stake', 'the fridge dying', '--result', 'a full month on $300 of solar', '--offline'])
   expect(built.code).toBe(0)
   const script = path.join(tmp, 'script.txt')
   writeFileSync(script, SCRIPT)
@@ -122,8 +124,9 @@ async function walkToPack(): Promise<any> {
 describe('the package build -> publish check handoff', () => {
   it('passes every publish checklist line on the title and chapters the earlier stages wrote', async () => {
     const { built, packed } = await walkToPack()
-    // The title publish check reads is the one package build stamped GATES PASS on.
+    // The title publish check reads is the one package build stamped GATES PASS on: the person's.
     expect(built.gateReport.pass).toBe(true)
+    expect(built.chosenTitle).toBe(TITLE)
     expect(packed.title).toBe(built.chosenTitle)
     expect(built.chosenTitle.length).toBeGreaterThanOrEqual(30)
     expect(built.chosenTitle.length).toBeLessThanOrEqual(55)
@@ -147,8 +150,9 @@ describe('the package build -> publish check handoff', () => {
   })
 
   it('refuses the package instead of handing publish check a title it will reject', async () => {
-    const over = 'I Tested Every Portable Power Station for Van Solar'
-    const { code, parsed } = await json(['package', 'build', over, '--promise', 'Every portable power station tested for van solar in 24 hours', '--offline'])
+    const over = 'I Tested Every Portable Power Station for Van Solar in 24 Hours'
+    expect(over.length).toBeGreaterThan(55)
+    const { code, parsed } = await json(['package', 'build', 'Portable power stations for van solar', '--promise', 'Every portable power station tested for van solar in 24 hours', '--title', over, '--offline'])
     expect(code).toBe(1)
     expect(parsed.gateReport.titleGate.pass).toBe(false)
     expect(parsed.gateReport.titleGate.reason).toMatch(/publish check needs 30 \[house\] to 55 \[house\]/)

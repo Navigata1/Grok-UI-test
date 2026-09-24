@@ -64,8 +64,9 @@ A bare `--save` writes the scan into the store: `outliers` to `<data>/last-scan.
 **Package before you produce**
 
 ```
-booster package build "<idea>"|<idea:id> --promise ".." [--rounds 3] [--offline]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md
-booster titles "<topic>" | titles score "<title>"
+booster package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".."] [--rounds 3] [--offline]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md
+   offline the builder never picks a title: the title gate fails until you write one (--title); every rebuild, the workflow's included, keeps it
+booster titles "<topic>" | titles score "<title>"   the formulas as shapes with a blank (no scores); score what you write from them
 booster thumbnail brief "<idea>" --title ".." | thumbnail qa --subject ".." --elements "a,b,c" [--text ..]
 booster thumbnail proof <slug> [--images dir] | thumbnail render <slug> | thumbnail check <file.png>
 booster package review --title ".." --thumb-text ".."
@@ -122,7 +123,7 @@ booster ai postmortem        --title ".." --ctr .. [--impressions ..] [--avp ..]
 booster ai channel-audit     --csv my-channel.csv [--channel ".."]
 ```
 
-They need `ANTHROPIC_API_KEY` (or an `ant auth login` profile). The default model is `claude-opus-5`; override with `--model` or `BOOSTER_MODEL`, and reasoning depth with `--effort low|medium|high|xhigh|max`. `--dry-run` prints the exact system blocks and user message and stops; `--out file.json` keeps the result (`booster bank import` reads the idea engine's). Every engine loads the doctrine in a fixed order as its cached system prompt: `docs/02-strategist-playbook.md`, then `playbook/00-learned-rules.md` when it exists (the channel's compiled rules, which the system prompt calls observations under test from a small sample that never override the doctrine), then the other `playbook/*.md` files; without `--channel`, the channel line comes from `channel.json`. The model returns a structured answer and the deterministic scorer then runs over it, so a concept that breaks a rule is flagged even when the model liked it. `booster package build` uses the same engines as its generators and feeds every failed gate back through `package-fix` for up to three rounds; without a key it runs the offline generators once. Tests never call the network.
+They need `ANTHROPIC_API_KEY` (or an `ant auth login` profile). The default model is `claude-opus-5`; override with `--model` or `BOOSTER_MODEL`, and reasoning depth with `--effort low|medium|high|xhigh|max`. `--dry-run` prints the exact system blocks and user message and stops; `--out file.json` keeps the result (`booster bank import` reads the idea engine's). Every engine loads the doctrine in a fixed order as its cached system prompt: `docs/02-strategist-playbook.md`, then `playbook/00-learned-rules.md` when it exists (the channel's compiled rules, which the system prompt calls observations under test from a small sample that never override the doctrine), then the other `playbook/*.md` files; without `--channel`, the channel line comes from `channel.json`. The model returns a structured answer and the deterministic scorer then runs over it, so a concept that breaks a rule is flagged even when the model liked it. `booster package build` uses the same engines as its generators and feeds every failed gate back through `package-fix` for up to three rounds; without a key it runs the offline thumbnail generator once and leaves the title to you (`--title`), because a formula with the topic pasted in is not a title. A title you pass with `--title` wins over the model's too. Tests never call the network.
 
 In Claude Code, the same engines are skills: `/booster` routes, and `/booster-idea-engine`, `/booster-title-lab`, `/booster-thumbnail-factory`, `/booster-packaging-review`, `/booster-retention-map`, `/booster-workflow`, `/booster-postmortem`, `/booster-channel-audit` each run one stage. For other assistants, [`prompts/`](prompts/) has the same prompts as copy-paste text.
 
