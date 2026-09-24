@@ -12,6 +12,7 @@ import { computeOutliers, type OutlierRowV2 } from '../../src/outliers.js'
 import { IdeaStatus, type IdeaDoc } from '../../src/schema.js'
 import { thresholds } from '../../src/thresholds.js'
 import type { IdeaScore } from '../../src/types.js'
+import { exampleNote, scanClock } from '../example-clock.js'
 import { bool, getStore, list, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
 
 const SORT_KEYS: readonly BankSortKey[] = ['total', 'demand', 'updatedAt', 'createdAt', 'idea']
@@ -22,17 +23,26 @@ function scoredX(e: DemandEvidence): number {
   return Math.max(e.multiplier, e.velocityMultiplier ?? 0)
 }
 
-/** Shared demand=auto path: rank a scan, then read the demand axis for `idea` from it. */
-function demandFromScan(idea: string, csv: string, flags: Flags, now: Date): { ranked: OutlierRowV2[]; suggestion: DemandSuggestion } {
+/** A demand=auto read, plus the example's date when the scan was a bundled example read as of that date. */
+type ScanDemand = DemandSuggestion & { exampleAsOf?: string }
+
+/**
+ * Shared demand=auto path: rank a scan, then read the demand axis for `idea`
+ * from it. The scan runs on the same clock `booster outliers` gives the same
+ * CSV (a bundled example at its own date), so the two never disagree; the
+ * caller's own `now` still stamps anything it writes.
+ */
+function demandFromScan(idea: string, csv: string, flags: Flags): { ranked: OutlierRowV2[]; suggestion: ScanDemand } {
   const rows = readVideoRows(readFileSync(csv, 'utf8'))
+  const { now, exampleAsOf } = scanClock(csv, flags)
   const since = num(flags, 'since')
   const ranked = computeOutliers(rows, { now, sinceDays: since, minAgeDays: num(flags, 'min-age-days') ?? 7 })
   const suggestion = suggestDemand(idea, ranked, { now, windowDays: since })
-  return { ranked, suggestion }
+  return { ranked, suggestion: exampleAsOf ? { ...suggestion, exampleAsOf } : suggestion }
 }
 
 /** The demand line plus one evidence row per match, for every command that resolves demand=auto. */
-function renderDemand(s: DemandSuggestion): string[] {
+function renderDemand(s: ScanDemand): string[] {
   const lines = [`Demand ${s.score}/5 (auto): ${s.reason} [house]`]
   for (const e of s.evidence) {
     const age = e.ageDays === undefined ? '   ?' : `${String(Math.round(e.ageDays)).padStart(3)}d`
@@ -41,12 +51,13 @@ function renderDemand(s: DemandSuggestion): string[] {
   }
   if (s.evidence.length === 0) lines.push('  (no evidence rows inside the window)')
   if (s.staleMatches > 0) lines.push(`  ${s.staleMatches} older match${s.staleMatches === 1 ? '' : 'es'} outside ${s.windowDays} days ignored`)
+  if (s.exampleAsOf) lines.push(exampleNote(s.exampleAsOf))
   return lines
 }
 
 /** Structured form of a suggestion for --json: the reason always carries its [house] tag. */
-function demandJson(s: DemandSuggestion): Record<string, unknown> {
-  return { auto: true, score: s.score, reason: s.reason, evidenceTag: 'house', evidence: s.evidence, staleMatches: s.staleMatches, windowDays: s.windowDays }
+function demandJson(s: ScanDemand): Record<string, unknown> {
+  return { auto: true, score: s.score, reason: s.reason, evidenceTag: 'house', evidence: s.evidence, staleMatches: s.staleMatches, windowDays: s.windowDays, ...(s.exampleAsOf ? { exampleAsOf: s.exampleAsOf } : {}) }
 }
 
 /** A bank id from either form: `idea:<hash>` verbatim, anything else hashed as idea text. */
@@ -99,7 +110,7 @@ function renderRow(r: ReturnType<typeof listIdeas>[number]): string {
   return `${r.verdict.verdict.toUpperCase().padEnd(6)} ${String(r.total).padStart(3)}  ${r.status.padEnd(10)} ${r.idea}${r.sequelOf ? ` (sequel of ${r.sequelOf})` : ''}  weakest: ${r.weakestAxis}  sources: ${r.sources.length}  ${r.id}`
 }
 
-function renderScorecard(idea: string, verdict: ReturnType<typeof scoreIdea>, demand?: DemandSuggestion): string {
+function renderScorecard(idea: string, verdict: ReturnType<typeof scoreIdea>, demand?: ScanDemand): string {
   return [
     `Idea: ${idea}`,
     `Total ${verdict.total}/100 · verdict ${verdict.verdict.toUpperCase()}`,
@@ -125,11 +136,11 @@ async function runIdea(sub: string | undefined, rest: string[], flags: Flags): P
     if (scoreText) score = parseIdeaScore(scoreText)
     else if (banked) score = banked.scores
     else throw new Error(`usage: booster idea score "<idea>" --score "demand=4,packaging=3,fit=4,angle=3,payoff=4,feasibility=5" (demand=auto with --outliers <csv>). Nothing in the bank matches "${idea}": booster bank add "<idea>" --score "..", then a person approves it with booster bank approve "<idea>" --yes.`)
-    let demand: DemandSuggestion | undefined
+    let demand: ScanDemand | undefined
     if (score.demand === DEMAND_AUTO) {
       const csv = str(flags, 'outliers')
       if (!csv) throw new Error(`demand=auto needs --outliers <competitors.csv> [--since 90] [--min-age-days 7]. ${DEMAND_AUTO_HINT}`)
-      demand = demandFromScan(idea, csv, flags, nowFrom(flags)).suggestion
+      demand = demandFromScan(idea, csv, flags).suggestion
       score = resolveDemand(score, demand)
     }
     const verdict = scoreIdea(score)
@@ -161,11 +172,11 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
       if (!idea) throw new Error(`usage: ${usage}`)
       let score = parseIdeaScore(need(flags, 'score', usage))
       let sources: IdeaDoc['sources'] = []
-      let demand: DemandSuggestion | undefined
+      let demand: ScanDemand | undefined
       if (score.demand === DEMAND_AUTO) {
         const csv = str(flags, 'csv')
         if (!csv) throw new Error(`demand=auto needs --csv <competitors.csv>. ${DEMAND_AUTO_HINT}`)
-        demand = demandFromScan(idea, csv, flags, now).suggestion
+        demand = demandFromScan(idea, csv, flags).suggestion
         score = resolveDemand(score, demand)
         sources = demand.evidence.map((e) => ({ title: e.title, multiplier: e.multiplier, channel: e.channel, date: e.published, url: e.url }))
       }

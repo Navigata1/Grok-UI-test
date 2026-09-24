@@ -20,7 +20,10 @@ npm ci
 npm run booster -- help
 npm run booster -- outliers channel-booster/examples/competitors.csv
 npm run booster -- audit channel-booster/examples/my-channel.csv
+npm run booster -- idea score "I lived off a solar generator for 30 days" --score "demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4" --outliers channel-booster/examples/competitors.csv
 ```
+
+The last line scores an idea against the example scan: YELLOW 72, with demand 3/5 from two solar-generator outliers. The bundled examples have fixed dates, so `outliers`, `audit` and the `demand=auto` read of `idea score` and `bank add` score them as of the date each file was written for: 2026-07-10 for the competitors and 2026-08-16 for the channel. Each prints `Example data: scored as of <date>, the date it was written for; pass --now to override.` Your own exports always use today's date, and `--now ISO` sets any date you choose.
 
 Export your own data from YouTube Studio (Content > Analytics > Advanced mode > Export) or any competitor-research tool as CSV with at least a title and a views column; published date, channel, and duration are used when present. Header names from common exports are recognised automatically.
 
@@ -54,7 +57,7 @@ booster thresholds [<key>]                                                    ev
 booster outliers <csv> [--since 90] [--fresh] [--by topic] [--saturation] [--diff last-scan.json] [--save]   competitors: views / channel median
 booster audit <csv> [--threshold 5] [--diff last-audit.json] [--save]         your own uploads: winners, format lift, proven formats
 booster direction [--scan last-audit.json]                                    positioning, proven formats, series trends, never-again, three bets
-booster idea score "<idea>" --score "demand=auto,packaging=3,..." --outliers <csv> | idea score <slug> [--out demand.json]
+booster idea score "<idea>" --score "demand=auto,packaging=3,..." --outliers <csv> | idea score <slug> [--out packages/<slug>/demand.json]
 booster bank add "<idea>" --score ".." [--promise ..] [--series ..] | bank list | bank approve <id> --yes | bank park|reject <id> --reason ".."
 booster bank rescore <competitors.csv> | bank sequels | bank import <ideas.json> | bank wip
 ```

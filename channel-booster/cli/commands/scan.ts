@@ -12,7 +12,8 @@ import {
 } from '../../src/outliers.js'
 import { diffScans, saturation, topicDemand, SATURATION_SHARE, SCAN_DIFF_MIN_DELTA, type ScanDiff } from '../../src/topics.js'
 import { thresholds } from '../../src/thresholds.js'
-import { bool, fmt, getStore, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { exampleNote, scanClock } from '../example-clock.js'
+import { bool, fmt, getStore, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 /** Contract for data/last-scan.json (outliers) and data/last-audit.json (audit), read by --diff and written by --save. */
 export interface SavedScan {
@@ -116,13 +117,15 @@ export const scanModule: CommandModule = {
     'outliers <csv> [--threshold 10] [--min-age-days 7] [--top 20]     rank videos by views / channel median',
     '   [--since 90] [--fresh] [--by topic] [--saturation]                demand window, momentum-only view, topic table, format saturation',
     '   [--diff <last-scan.json>] [--save [<path>]] [--now ISO]           what moved since the last scan; save this one (bare --save writes <data>/last-scan.json)',
+    '   a bundled examples/*.csv reads as of the date it was written for, and says so; --now overrides',
     'audit <csv> [--threshold 5] [--since 90] [--fresh] [--by topic]    audit your own uploads (same flags as outliers; bare --save writes <data>/last-audit.json)',
   ],
   async run(cmd, sub, _rest, flags) {
     const file = sub
     if (!file) throw new Error(`usage: booster ${cmd} <csv> [--since 90] [--fresh] [--by topic] [--diff <path>] [--save <path>] [--saturation]`)
     const rows = readVideoRows(readFileSync(file, 'utf8'))
-    const now = nowFrom(flags)
+    // A bundled example reads as of the date it was written for (unless --now says otherwise); --save stamps that date too.
+    const { now, exampleAsOf } = scanClock(file, flags)
     const threshold = num(flags, 'threshold') ?? (cmd === 'audit' ? 5 : 10)
     const minAgeDays = num(flags, 'min-age-days') ?? 7
     const sinceDays = num(flags, 'since') ?? thresholds.demandWindowDays.value
@@ -181,6 +184,7 @@ export const scanModule: CommandModule = {
       staleCount: stale.length,
       formatLift: lifts,
     }
+    if (exampleAsOf) result.exampleAsOf = exampleAsOf
     if (topics) result.topics = topics
     if (diff !== undefined) result.diff = diff
     if (diffPath) result.diffedFrom = diffPath
@@ -190,6 +194,7 @@ export const scanModule: CommandModule = {
     out(result, flags, () => {
       const lines = [
         `${cmd === 'audit' ? 'Channel audit' : 'Outlier scan'} · threshold ${threshold}x · window ${sinceDays}d · ${rows.length} videos (${stale.length} stale, ${fresh.length} fresh) · as of ${scannedAt.slice(0, 10)}`,
+        ...(exampleAsOf ? [exampleNote(exampleAsOf)] : []),
         '',
       ]
       for (const s of summary) lines.push(`  ${s.channel}: ${s.videos} videos (${s.inWindow} in window), median ${fmt(s.median)} views`)
