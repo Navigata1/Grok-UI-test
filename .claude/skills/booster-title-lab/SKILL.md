@@ -11,3 +11,5 @@ description: Write and rank YouTube titles for a video idea using the title form
 4. Deliver: a ranked list with the lever and score per title, the top three, and one line on what the thumbnail must show so it does not repeat the title. The person picks the final one; it goes into the package with `npm run booster -- package build <slug> --title "<title>" --lever "<its lever>"`, never on the person's behalf (the lever pre-registers what the title tests, so `rules compile` can count it).
 
 With an API key: `npm run booster -- ai title-lab --idea ".." --channel ".."`.
+
+Outside this repository, run the same commands as `channel-booster <command>` inside the channel's workspace (see `/booster`).

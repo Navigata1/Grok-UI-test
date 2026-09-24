@@ -13,3 +13,5 @@ description: Write the first 30 seconds and a retention map (payoffs, rehooks, c
 6. Score it: `npm run booster -- hook score --script <file> --slug <slug> [--payoffs <retention-map.json>]` writes `packages/<slug>/story.json` (hook score, promise in the first 25 words, rehook gaps, intro cruft, chapters, cuts, and the payoff ladder from the retention map written by `ai retention-map --out`) and exits 1 when the gate fails; `promise check --promise ".." --script <file>` catches drift on any surface. The shot list (`plan shots`) shoots one setup per payoff moment, so fill the ladder before the Plan stage.
 
 With an API key: `npm run booster -- ai retention-map --idea ".." --title ".." --script file.txt`.
+
+Outside this repository, run the same commands as `channel-booster <command>` inside the channel's workspace (see `/booster`).
