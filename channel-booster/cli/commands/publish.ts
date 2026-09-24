@@ -27,7 +27,7 @@ import { thresholds } from '../../src/thresholds.js'
 import { scoreTitle, titleThumbnailOverlap } from '../../src/titles.js'
 import { qaThumbnail } from '../../src/thumbnails.js'
 import type { ThumbnailQa, ThumbnailSpec } from '../../src/types.js'
-import { bool, getProfile, getStore, list, need, needVideoId, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { bool, getProfile, getStore, list, need, needVideoId, nowFrom, num, out, packagesRoot, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_PACK = 'booster publish pack <slug> [--title ..] [--promise ..] [--story packages/<slug>/story.json] [--thumb-a <name> --thumb-b <name>] [--sequel-question ..] [--related <title|url>] [--profile channel.json] [--out packages/<slug>/publish.md] [--root dir]'
 const USAGE_CHECK = 'booster publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--window-confirmed] [--review-scheduled] [--root dir]'
@@ -51,12 +51,8 @@ interface StoryFile {
   payoffLadder?: Array<{ atSec?: number; moment?: string; text?: string; line?: string; strength?: number }>
 }
 
-function rootFrom(flags: Flags): string {
-  return path.resolve(str(flags, 'root') ?? process.cwd())
-}
-
 function packageDir(flags: Flags, slug: string): string {
-  return path.join(rootFrom(flags), 'packages', slug)
+  return path.join(packagesRoot(flags), 'packages', slug)
 }
 
 function readJson<T>(file: string): T | undefined {

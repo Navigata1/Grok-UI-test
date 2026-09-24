@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { main } from '../cli/booster.js'
+import { cliName } from '../src/build-info.js'
 import { PackageDocSchema } from '../src/package.js'
 import { openStore } from '../src/store.js'
 import { resetThresholds } from '../src/thresholds.js'
@@ -63,15 +64,19 @@ async function json(argv: string[]): Promise<{ code: number; parsed: any }> {
 /** The repository root: `npm run booster --` runs cli/booster.ts through tsx from here. */
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
+/** How the CLI names itself in the lines it prints for a person to paste (`npm run booster --` from source). */
+const CLI = cliName()
+
 /**
- * Run a `booster ...` line the CLI printed, word for word, the way a person pastes it after
- * `npm run booster --`: a new process in `cwd`, with only the environment given (no scoped() flags).
- * Double-quoted words are JSON strings, as the CLI prints them; `<your title>` becomes `title`.
+ * Run a line the CLI printed, word for word, the way a person pastes it: a new process in `cwd`
+ * (`npm run booster --` is cli/booster.ts through tsx), with only the environment given (no
+ * scoped() flags). Double-quoted words are JSON strings, as the CLI prints them; `<your title>`
+ * becomes `title`.
  */
 function runPrinted(line: string, title: string, cwd: string, env: NodeJS.ProcessEnv): { status: number | null; stdout: string; stderr: string } {
-  const words = (line.match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((w) => (w.startsWith('"') ? JSON.parse(w) as string : w))
-  expect(words[0]).toBe('booster')
-  const argv = words.slice(1).map((w) => (w === '<your title>' ? title : w))
+  expect(line.startsWith(`${CLI} `)).toBe(true)
+  const words = (line.slice(CLI.length).match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((w) => (w.startsWith('"') ? JSON.parse(w) as string : w))
+  const argv = words.map((w) => (w === '<your title>' ? title : w))
   const r = spawnSync(process.execPath, [path.join(REPO, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(REPO, 'channel-booster', 'cli', 'booster.ts'), ...argv], { cwd, env, encoding: 'utf8' })
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
 }
@@ -114,7 +119,7 @@ describe('booster package build', () => {
     expect(bare.parsed.bank).toBeNull()
     const text = await run(['package', 'build', IDEA, '--promise', PROMISE, ...opts, '--offline'])
     expect(text.out).toMatch(/^Package · i-lived-off-a-300-solar-generator-for-30-days · GATES FAIL \(offline generators, one round\)\nTitle: none yet/)
-    const rebuild = `booster package build ${SLUG} --title "<your title>" --subject "me" --stake "the fridge dying" --result "a full month on $300 of solar"`
+    const rebuild = `${CLI} package build ${SLUG} --title "<your title>" --subject "me" --stake "the fridge dying" --result "a full month on $300 of solar"`
     expect(text.out).toContain(`then ${rebuild}`)
     // stderr carries it too: it is what the workflow runner shows for a failed stage.
     expect(text.err).toContain(`No title yet for ${SLUG}: a person writes it, then ${rebuild}`)
@@ -252,10 +257,12 @@ describe('booster package build', () => {
     // Offline and no title yet: the stage fails and its stderr (which the runner prints) says who writes the title.
     const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
     expect(first.parsed.result.stageId).toBe('packaging')
-    expect(first.parsed.result.command).toEqual(['npm', 'run', 'booster', '--', 'package', 'build', SLUG])
+    // The stage command, stored with either prefix a runbook may carry.
+    expect([['npm', 'run', 'booster', '--'], ['booster']]).toContainEqual(first.parsed.result.command.slice(0, -3))
+    expect(first.parsed.result.command.slice(-3)).toEqual(['package', 'build', SLUG])
     expect(first.parsed.result.kind).toBe('command')
     expect(first.parsed.result.status).toBe('failed')
-    expect(first.parsed.result.stderr).toContain(`No title yet for ${SLUG}: a person writes it, then booster package build ${SLUG} --title "<your title>"`)
+    expect(first.parsed.result.stderr).toContain(`No title yet for ${SLUG}: a person writes it, then ${CLI} package build ${SLUG} --title "<your title>"`)
     expect(first.code).toBe(1)
     expect(existsSync(path.join(tmp, 'packages', SLUG, 'package.json'))).toBe(true)
     expect(JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'package.json'), 'utf8')).chosenTitle).toBe('')
@@ -284,7 +291,7 @@ describe('booster package build', () => {
     await run(['workflow', 'run', SLUG, '--override', '--reason', 'demand confirmed', '--yes'])
     const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
     expect(first.parsed.result).toMatchObject({ stageId: 'packaging', status: 'failed' })
-    const printed = /No title yet for [a-z0-9-]+: a person writes it, then (booster package build [^\n]+)/.exec(first.parsed.result.stderr)?.[1]
+    const printed = new RegExp(`No title yet for [a-z0-9-]+: a person writes it, then (${CLI.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} package build [^\\n]+)`).exec(first.parsed.result.stderr)?.[1]
     expect(printed).toBeDefined()
     expect(printed).toContain(`--root ${JSON.stringify(root)}`)
 

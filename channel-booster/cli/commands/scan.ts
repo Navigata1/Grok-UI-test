@@ -12,7 +12,7 @@ import {
 } from '../../src/outliers.js'
 import { diffScans, saturation, topicDemand, SATURATION_SHARE, SCAN_DIFF_MIN_DELTA, type ScanDiff } from '../../src/topics.js'
 import { thresholds } from '../../src/thresholds.js'
-import { exampleNote, scanClock } from '../example-clock.js'
+import { exampleNote, resolveCsvArg, scanClock } from '../example-clock.js'
 import { bool, fmt, getStore, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 /** Contract for data/last-scan.json (outliers) and data/last-audit.json (audit), read by --diff and written by --save. */
@@ -117,12 +117,13 @@ export const scanModule: CommandModule = {
     'outliers <csv> [--threshold 10] [--min-age-days 7] [--top 20]     rank videos by views / channel median',
     '   [--since 90] [--fresh] [--by topic] [--saturation]                demand window, momentum-only view, topic table, format saturation',
     '   [--diff <last-scan.json>] [--save [<path>]] [--now ISO]           what moved since the last scan; save this one (bare --save writes <data>/last-scan.json)',
-    '   a bundled examples/*.csv reads as of the date it was written for, and says so; --now overrides',
+    '   a bundled examples/*.csv reads as of the date it was written for, and says so; --now overrides. example:competitors names it from any folder; --csv <csv> works in place of <csv>',
     'audit <csv> [--threshold 5] [--since 90] [--fresh] [--by topic]    audit your own uploads (same flags as outliers; bare --save writes <data>/last-audit.json)',
   ],
   async run(cmd, sub, _rest, flags) {
-    const file = sub
-    if (!file) throw new Error(`usage: booster ${cmd} <csv> [--since 90] [--fresh] [--by topic] [--diff <path>] [--save <path>] [--saturation]`)
+    const given = sub ?? str(flags, 'csv')
+    if (!given) throw new Error(`usage: booster ${cmd} <csv> [--since 90] [--fresh] [--by topic] [--diff <path>] [--save <path>] [--saturation]`)
+    const file = resolveCsvArg(given)
     const rows = readVideoRows(readFileSync(file, 'utf8'))
     // A bundled example reads as of the date it was written for (unless --now says otherwise); --save stamps that date too.
     const { now, exampleAsOf } = scanClock(file, flags)

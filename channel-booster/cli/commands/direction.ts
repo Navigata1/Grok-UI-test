@@ -17,7 +17,7 @@ import type { OutlierTier } from '../../src/outliers.js'
 import { packageDir } from '../../src/runner.js'
 import type { WorkflowFormat } from '../../src/types.js'
 import { WORKFLOW_FORMATS } from '../../src/workflow.js'
-import { getProfile, getStore, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { getProfile, getStore, out, packagesRoot, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_DIRECTION = 'booster direction [--scan last-audit.json] [--data dir] [--path channel.json] [--json]'
 const USAGE_SHOTS = `booster plan shots <slug> [--format ${WORKFLOW_FORMATS.join('|')}] [--root dir] [--out packages/<slug>/shots.md] [--json]`
@@ -119,8 +119,7 @@ function toShotStory(raw: unknown): ShotListStory {
 
 async function runShots(slug: string | undefined, flags: Flags): Promise<number> {
   if (!slug) throw new Error(`usage: ${USAGE_SHOTS}`)
-  const root = path.resolve(str(flags, 'root') ?? process.cwd())
-  const dir = packageDir(root, slug)
+  const dir = packageDir(packagesRoot(flags), slug)
   const pkgFile = path.join(dir, 'package.json')
   const storyFile = path.join(dir, 'story.json')
   if (!existsSync(pkgFile)) throw new Error(`no ${pkgFile}: build the package first (booster package build "<idea>" --promise "..") or pass --root`)

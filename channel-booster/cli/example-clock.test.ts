@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { main } from '../cli/booster.js'
 import { readVideoRows } from '../src/csv.js'
-import { EXAMPLE_AS_OF, exampleAsOf, exampleNote } from './example-clock.js'
+import { EXAMPLE_AS_OF, EXAMPLE_NAMES, exampleAsOf, exampleNote, resolveCsvArg } from './example-clock.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const module = path.resolve(here, '..')
@@ -78,7 +78,8 @@ describe('the bundled examples read as of the date they were written for', () =>
       const { code, out } = await run([...argv, '--data', data])
       expect(code, argv.join(' ')).toBe(0)
       if (argv[0] === 'help') continue
-      const csv = argv.find((w) => w.endsWith('.csv')) as string
+      // A path to a bundled export or its example:<name>; either reads at the file's own date.
+      const csv = resolveCsvArg(argv.find((w) => w.endsWith('.csv') || w.startsWith('example:')) as string)
       expect(out).toContain(exampleNote(EXAMPLE_AS_OF[path.basename(csv)]))
     }
 
@@ -167,6 +168,53 @@ describe('the bundled examples read as of the date they were written for', () =>
       // Not before the newest row (no video from the future) and not so late that the file reads as a stale export.
       expect(days, `${file}: ${EXAMPLE_AS_OF[file]} is ${days} days after its newest row`).toBeGreaterThanOrEqual(0)
       expect(days, `${file}: ${EXAMPLE_AS_OF[file]} is ${days} days after its newest row`).toBeLessThanOrEqual(14)
+    }
+  })
+})
+
+describe('example:<name> names a bundled export from any folder', () => {
+  it('resolves each bundled name to its file, refuses an unknown one, and leaves every other value alone', () => {
+    expect(EXAMPLE_NAMES).toEqual(['competitors', 'my-channel', 'studio-content'])
+    expect(resolveCsvArg('example:competitors')).toBe(competitors)
+    expect(resolveCsvArg('example:my-channel')).toBe(myChannel)
+    expect(resolveCsvArg('example:studio-content')).toBe(path.join(examples, 'studio-content.csv'))
+    for (const value of ['competitors.csv', competitors, 'inbox/example:competitors.csv', 'example']) expect(resolveCsvArg(value)).toBe(value)
+    for (const value of ['example:nope', 'example:competitors.csv', 'example:']) {
+      expect(() => resolveCsvArg(value)).toThrow(`unknown example "${value}": the bundled examples are example:competitors, example:my-channel, example:studio-content`)
+    }
+    // The resolved file is the bundled one, so its own date still applies.
+    expect(exampleAsOf(resolveCsvArg('example:competitors'))).toBe('2026-07-10T00:00:00Z')
+    // An install without the bundled exports says so rather than failing on a missing file.
+    expect(() => resolveCsvArg('example:competitors', tmp)).toThrow(`example:competitors is the bundled export ${path.join(tmp, 'competitors.csv')}, which this install does not have; pass the path of a CSV of your own instead`)
+  })
+
+  it('reads the bundled file at its own date wherever a command takes a CSV, run from a folder with no examples/ in it', async () => {
+    const cwd = process.cwd()
+    process.chdir(realpathSync(tmp))
+    try {
+      const byPath = await json(['outliers', competitors, '--data', data])
+      expect(await json(['outliers', 'example:competitors', '--data', data])).toEqual(byPath)
+      expect(await json(['outliers', '--csv', 'example:competitors', '--data', data])).toEqual(byPath)
+      expect((await json(['audit', 'example:my-channel', '--data', data])).exampleAsOf).toBe('2026-08-16T00:00:00Z')
+
+      const idea = await json(['idea', 'score', 'solar generator budget build', '--score', IDEA_SCORE, '--outliers', 'example:competitors', '--data', data])
+      expect(idea.demand).toMatchObject({ score: 3, exampleAsOf: '2026-07-10T00:00:00Z' })
+      const banked = await json(['bank', 'add', 'solar generator budget build', '--score', IDEA_SCORE, '--csv', 'example:competitors', '--data', data])
+      expect(banked.scores.demand).toBe(3)
+      const rescored = await json(['bank', 'rescore', 'example:competitors', '--own', 'example:my-channel', '--data', data])
+      const rescoredByPath = await json(['bank', 'rescore', competitors, '--own', myChannel, '--data', data])
+      expect([rescored.scanned, rescored.inWindow]).toEqual([rescoredByPath.scanned, rescoredByPath.inWindow])
+      expect(rescored.scanned).toBeGreaterThan(0)
+      const ingest = await json(['ingest', 'example:studio-content', '--dry-run', '--data', data])
+      expect(ingest.file).toBe(path.join(examples, 'studio-content.csv'))
+      expect(ingest.skipped.length).toBeGreaterThan(0)
+
+      const { out } = await run(['outliers', 'example:competitors', '--data', data])
+      expect(out).toContain(exampleNote('2026-07-10T00:00:00Z'))
+      await expect(main(['outliers', 'example:rivals', '--data', data])).rejects.toThrow('unknown example "example:rivals"')
+      await expect(main(['outliers', '--data', data])).rejects.toThrow('usage: booster outliers <csv>')
+    } finally {
+      process.chdir(cwd)
     }
   })
 })

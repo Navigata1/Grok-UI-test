@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { canTransition, ideaId } from '../../src/bank.js'
+import { cliName } from '../../src/build-info.js'
 import { scoreHook, renderHookReport } from '../../src/hook.js'
 import { buildPackage, writePackage, type GenerateHooks } from '../../src/package.js'
 import { checkThumbnailFile } from '../../src/imagemeta.js'
@@ -26,7 +27,7 @@ import { scoreTitle, titleShapes, titleThumbnailOverlap } from '../../src/titles
 import { buildThumbnailBrief, qaThumbnail, renderImagePrompts } from '../../src/thumbnails.js'
 import type { ThumbnailQa, ThumbnailSpec } from '../../src/types.js'
 import { slugify as packageSlug } from '../../src/workflow.js'
-import { bool, getProfile, getStore, list, need, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { activeWorkspace, bool, getProfile, getStore, list, need, nowFrom, num, out, packagesRoot, profilePath, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_PROOF = 'booster thumbnail proof <slug> [--out packages/<slug>/proof-sheet.html] [--competitors "a|b|c"] [--images dir] [--root dir]'
 const USAGE_RENDER = 'booster thumbnail render <slug> [--out packages/<slug>/image-prompts.md] [--all] [--root dir]'
@@ -59,13 +60,8 @@ interface PackageFile {
   abPick?: { a?: string; b?: string }
 }
 
-/** `--root dir` (default cwd): packages/<slug>/ is resolved against it. */
-function rootFrom(flags: Flags): string {
-  return path.resolve(str(flags, 'root') ?? process.cwd())
-}
-
 function packageDir(flags: Flags, slug: string): string {
-  return path.join(rootFrom(flags), 'packages', slug)
+  return path.join(packagesRoot(flags), 'packages', slug)
 }
 
 function readJson<T>(file: string): T | undefined {
@@ -333,24 +329,28 @@ function storedPackage(dir: string): { idea?: string; promise?: string; personTi
 /**
  * The command that rebuilds this package with a title, repeating the options
  * this run was given so the concepts come out the same. The places it read
- * and wrote are repeated as absolute paths: --out and --root, and the store
- * and profile (--data or BOOSTER_DATA, --path or BOOSTER_PROFILE, which
- * `workflow run` sets for its stages). The runner appends --root to every
- * stage and runs it from that root, while a person's `npm run booster` starts
- * at the repository root in a shell that has neither variable, so a relative
- * path or a missing --root would write the title into another packages/
- * folder than the one the stage gate reads.
+ * and wrote are repeated as absolute paths: the workspace when --workspace or
+ * BOOSTER_HOME named it, --out and --root, and the store and profile (--data
+ * or BOOSTER_DATA, --path or BOOSTER_PROFILE, which `workflow run` sets for
+ * its stages). The runner appends --root to every stage and runs it from that
+ * root, while a person's `npm run booster` starts at the repository root in a
+ * shell that has none of these variables, so a relative path or a missing
+ * --root would write the title into another packages/ folder than the one the
+ * stage gate reads. The CLI is named the way this build is typed (cliName()).
  */
 function rebuildCommand(slug: string, flags: Flags): string {
   const repeat = ['subject', 'stake', 'result', 'number', 'audience', 'predicted-ctr', 'rounds']
     .flatMap((k) => (str(flags, k) !== undefined ? [`--${k} ${JSON.stringify(str(flags, k))}`] : []))
+  // A workspace found at or above the working directory is found again from there; one named by flag or variable is repeated.
+  const ws = activeWorkspace(flags)
+  const workspace = ws && ws.source !== 'discovered' ? [`--workspace ${JSON.stringify(ws.root)}`] : []
   const places: Array<[flag: string, env?: string]> = [['out'], ['root'], ['data', 'BOOSTER_DATA'], ['path', 'BOOSTER_PROFILE']]
   const dirs = places.flatMap(([k, env]) => {
     const v = str(flags, k) ?? (env ? process.env[env] : undefined)
     return v ? [`--${k} ${JSON.stringify(path.resolve(v))}`] : []
   })
   const switches = ['offline', 'no-signature'].filter((k) => bool(flags, k)).map((k) => `--${k}`)
-  return ['booster package build', slug, '--title "<your title>"', ...repeat, ...dirs, ...switches].join(' ')
+  return [`${cliName()} package build`, slug, '--title "<your title>"', ...repeat, ...workspace, ...dirs, ...switches].join(' ')
 }
 
 /**
@@ -376,7 +376,7 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
   if (flags.title === true) throw new Error(`--title needs the title text: --title "<your title>". Usage: ${USAGE_BUILD}`)
   if (flags.lever === true) throw new Error(`--lever needs the lever your title pulls: --lever "<lever>". Usage: ${USAGE_BUILD}`)
   const store = getStore(flags)
-  const packagesDir = path.resolve(str(flags, 'out') ?? path.join(rootFrom(flags), 'packages'))
+  const packagesDir = path.resolve(str(flags, 'out') ?? path.join(packagesRoot(flags), 'packages'))
   let doc = store.get('ideas', raw.startsWith('idea:') ? raw : ideaId(raw))
   if (raw.startsWith('idea:') && !doc) throw new Error(`no idea "${raw}" in the bank (booster bank list shows ids)`)
   // The workflow runner passes the package slug: resolve it through the status document's idea text.
@@ -498,10 +498,10 @@ async function signatureSet(flags: Flags): Promise<number> {
   }
   const parsed = Signature.safeParse(raw)
   if (!parsed.success) throw new Error(`signature does not match the schema: ${parsed.error.issues.map((x) => `${x.path.join('.') || '(root)'} ${x.message}`).join('; ')}. Usage: ${USAGE_SIG_SET}`)
-  const profilePath = str(flags, 'path')
-  const profile = loadProfile(profilePath)
-  const saved = saveProfile({ ...profile, signature: parsed.data }, profilePath, { now: nowFrom(flags) })
-  out(saved.signature, flags, () => `${describeSignature(parsed.data)}\nSaved to channel.json (${profilePath ?? 'default path'}).`)
+  const file = profilePath(flags)
+  const profile = loadProfile(file)
+  const saved = saveProfile({ ...profile, signature: parsed.data }, file, { now: nowFrom(flags) })
+  out(saved.signature, flags, () => `${describeSignature(parsed.data)}\nSaved to ${file}.`)
   return 0
 }
 
