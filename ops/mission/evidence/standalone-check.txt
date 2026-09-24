@@ -1,0 +1,122 @@
+$ git rev-parse HEAD  (cwd /home/user/Grok-UI-test; exit 0)
+channel-booster split rehearsal (P0-G3), 2026-09-24T14:00:27.453Z
+from /home/user/Grok-UI-test at a5ef094e0e13572be4af73a4552a8787069319c1; node v22.22.2
+into /tmp/channel-booster-split-svU3dP/channel-booster-repo
+
+$ git diff --name-only -z HEAD -- channel-booster .claude/skills ops/mission  (cwd /home/user/Grok-UI-test; exit 0)
+$ git ls-files -z --others --exclude-standard -- channel-booster .claude/skills ops/mission  (cwd /home/user/Grok-UI-test; exit 0)
+$ git ls-tree -r -z --name-only HEAD -- channel-booster .claude/skills ops/mission  (cwd /home/user/Grok-UI-test; exit 0)
+$ git read-tree HEAD  (cwd /home/user/Grok-UI-test; exit 0)
+$ git checkout-index -z --stdin --prefix=/tmp/channel-booster-split-svU3dP/channel-booster-repo/  (cwd /home/user/Grok-UI-test; exit 0)
+PASS copy the carried files: 183 files from HEAD a5ef094 (channel-booster 172, skills 9, ops/mission 2)
+Not yet committed, so rehearsed as HEAD has them (or left out, when HEAD has none); commit them, or pass --include-uncommitted to try them out:
+  ops/mission/evidence/package-smoke.txt
+PASS root files from scripts/split-template/: .gitignore, LICENSE, NOTICE, README.md, package.json
+$ git -c user.name=split-rehearsal -c user.email=split-rehearsal@localhost -c commit.gpgsign=false init -q  (cwd /tmp/channel-booster-split-svU3dP/channel-booster-repo; exit 0)
+$ git -c user.name=split-rehearsal -c user.email=split-rehearsal@localhost -c commit.gpgsign=false add -A  (cwd /tmp/channel-booster-split-svU3dP/channel-booster-repo; exit 0)
+$ git -c user.name=split-rehearsal -c user.email=split-rehearsal@localhost -c commit.gpgsign=false commit -q -m split rehearsal  (cwd /tmp/channel-booster-split-svU3dP/channel-booster-repo; exit 0)
+$ git -c user.name=split-rehearsal -c user.email=split-rehearsal@localhost -c commit.gpgsign=false ls-files --cached --ignored --exclude-standard  (cwd /tmp/channel-booster-split-svU3dP/channel-booster-repo; exit 0)
+PASS a fresh repository: root: .claude .git .gitignore LICENSE NOTICE README.md channel-booster ops package.json
+
+$ npm install --no-audit --no-fund  (in /tmp/channel-booster-split-svU3dP/channel-booster-repo)
+
+added 65 packages in 9s
+PASS npm install in the split repository
+
+$ npm run verify  (in /tmp/channel-booster-split-svU3dP/channel-booster-repo)
+
+> verify
+> npm run verify --workspace channel-booster
+
+
+> channel-booster@0.1.0 verify
+> npm run check && npm test && npm run build
+
+
+> channel-booster@0.1.0 check
+> tsc -p tsconfig.json
+
+
+> channel-booster@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /tmp/channel-booster-split-svU3dP/channel-booster-repo/channel-booster
+
+ ✓ cli/data.test.ts (29 tests) 183ms
+ ✓ cli/learn.test.ts (19 tests) 507ms
+ ✓ src/package.test.ts (48 tests) 78ms
+ ✓ cli/workflow.test.ts (36 tests) 1207ms
+   ✓ booster workflow run > --isolate spawns the stage as the command line from the root, and hands it the store, profile and clock through the environment  907ms
+ ✓ cli/factory.test.ts (29 tests) 167ms
+ ✓ src/runner.test.ts (36 tests) 138ms
+ ✓ src/decide.test.ts (29 tests) 51ms
+ ✓ src/direction.test.ts (28 tests) 59ms
+ ✓ src/dashboard.test.ts (32 tests) 106ms
+ ✓ cli/workspace.test.ts (18 tests) 183ms
+ ✓ src/rules.test.ts (26 tests) 262ms
+ ✓ cli/review.test.ts (19 tests) 266ms
+ ✓ src/bank.test.ts (27 tests) 133ms
+ ✓ src/brief.test.ts (13 tests) 132ms
+ ✓ src/ai/prompt.test.ts (23 tests) 48ms
+ ✓ src/profile.test.ts (27 tests) 78ms
+ ✓ cli/package-build.test.ts (11 tests) 817ms
+   ✓ booster package build > prints a title command that, pasted as printed from another directory, lets the --root packaging stage pass  677ms
+ ✓ src/review.test.ts (14 tests) 128ms
+ ✓ cli/ideas.test.ts (24 tests) 154ms
+ ✓ src/postmortem.test.ts (30 tests) 49ms
+ ✓ src/publish.test.ts (27 tests) 20ms
+ ✓ src/retro.test.ts (19 tests) 178ms
+ ✓ src/hook.test.ts (37 tests) 30ms
+ ✓ src/workflow.test.ts (30 tests) 38ms
+ ✓ src/adapters/youtube-data.test.ts (24 tests) 46ms
+ ✓ cli/scan.test.ts (16 tests) 86ms
+ ✓ cli/publish.test.ts (7 tests) 116ms
+ ✓ cli/example-clock.test.ts (7 tests) 86ms
+ ✓ src/outliers.test.ts (17 tests) 30ms
+ ✓ src/ai/index.test.ts (12 tests) 78ms
+ ✓ src/titles.test.ts (65 tests) 38ms
+ ✓ src/csv.test.ts (27 tests) 37ms
+ ✓ src/experiments.test.ts (17 tests) 16ms
+ ✓ cli/direction.test.ts (6 tests) 84ms
+ ✓ src/ideas.test.ts (16 tests) 25ms
+ ✓ src/promise.test.ts (20 tests) 20ms
+ ✓ src/docs.test.ts (12 tests) 16ms
+ ✓ src/repackage.test.ts (12 tests) 33ms
+ ✓ src/thumbnails.test.ts (14 tests) 13ms
+ ✓ src/topics.test.ts (13 tests) 23ms
+ ✓ src/cli.test.ts (26 tests) 4526ms
+   ✓ the tsx entry runs main only when it is the script tsx runs > runs by its repo-relative path, as npm run booster names it  610ms
+   ✓ the tsx entry runs main only when it is the script tsx runs > runs through a symlink whatever the link is called  630ms
+   ✓ the tsx entry runs main only when it is the script tsx runs > runs through npm run booster from below channel-booster/ too, at the repository root as before  765ms
+   ✓ the tsx entry runs main only when it is the script tsx runs > stays quiet when another script imports it, even one named booster.mjs  696ms
+   ✓ the packaged bundle and bin > runs main with its own arguments, through a .bin symlink too, and exits with its code  498ms
+   ✓ the packaged bundle and bin > says nothing about a missing workspace until a command needs one, then names init and exits 1  313ms
+   ✓ the packaged bundle and bin > still warns about a channel.json that does not parse and a --workspace that is not one  318ms
+ ✓ src/workspace.test.ts (12 tests) 20ms
+ ✓ src/imagemeta.test.ts (11 tests) 25ms
+ ✓ src/proofsheet.test.ts (11 tests) 8ms
+ ✓ src/ai/packaged.test.ts (2 tests) 256ms
+ ✓ cli/private-paths.test.ts (2 tests) 87ms
+ ✓ src/signature.test.ts (10 tests) 7ms
+ ✓ src/thresholds.test.ts (5 tests) 13ms
+ ✓ src/ledger.test.ts (5 tests) 72ms
+ ✓ src/ai/doctrine.test.ts (3 tests) 7ms
+ ✓ src/io.test.ts (3 tests) 6ms
+ ✓ src/store.test.ts (3 tests) 22ms
+
+ Test Files  52 passed (52)
+      Tests  1009 passed (1009)
+   Start at  14:00:38
+   Duration  12.32s (transform 2.36s, setup 0ms, collect 9.87s, tests 10.81s, environment 15ms, prepare 4.31s)
+
+
+> channel-booster@0.1.0 build
+> tsx scripts/build.ts && node dashboard/build.mjs
+
+dist/channel-booster.mjs written (575 KB, version 0.1.0); doctrine 0ba6885ca507 embedded, 11 files
+dashboard/index.html written (381 KB, engine 134 KB, fonts 144 KB)
+
+PASS npm run verify in the split repository: check, test and build pass with no Grok UI files present
+
+PASS split rehearsal: 5 steps

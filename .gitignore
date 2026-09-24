@@ -35,3 +35,6 @@ channel-booster/playbook/00-learned-rules.md
 /data/
 /channel.json
 /ideas.json
+
+# Playwright traces from the mission gates run to several MB; the screenshots and journey.json carry the evidence.
+ops/mission/evidence/**/trace.zip
