@@ -518,7 +518,10 @@ describe('booster fetch channel', () => {
     expect(inWorkspace.out).toBe(path.join(ws, 'inbox', 'stubchannel.csv'))
     expect(readFileSync(inWorkspace.out, 'utf8').split('\n')[0]).toBe(CSV_HEADER.join(','))
     expect(existsSync(path.join(root, 'packages-elsewhere'))).toBe(false)
+    // --inbox names the inbox as it does for review run and brief, and the usage says so.
     expect((await json(['fetch', 'channel', '@stubchannel', '--inbox', path.join(root, 'drop')])).out).toBe(path.join(root, 'drop', 'stubchannel.csv'))
+    expect((await fails(['fetch', 'channel'])).message).toBe('usage: booster fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]')
+    expect((await run(['help'])).out).toContain('  fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir] ')
     // No workspace and no --inbox: where fetch has always written.
     expect((await json(['fetch', 'channel', '@stubchannel', '--root', path.join(root, 'old')])).out).toBe(path.join(root, 'old', 'inbox', 'stubchannel.csv'))
     const cwd = process.cwd()

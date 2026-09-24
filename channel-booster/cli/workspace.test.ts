@@ -19,7 +19,7 @@ import { captureIo } from '../src/io.js'
 import { defaultProfile } from '../src/profile.js'
 import { resetThresholds } from '../src/thresholds.js'
 import { CODE_ROOT, WORKSPACE_MARKER } from '../src/workspace.js'
-import { nextCommands, renderWhere, whereReport } from './commands/workspace.js'
+import { nextSteps, renderWhere, whereReport } from './commands/workspace.js'
 import { main } from './main.js'
 
 const IDEA = 'I lived off a solar generator for 30 days'
@@ -69,9 +69,9 @@ async function fails(argv: string[]): Promise<string> {
 }
 
 /** A printed command line as argv: the CLI name dropped, double-quoted words read as the JSON strings the CLI prints. */
-function argvOf(line: string): string[] {
-  expect(line.startsWith(`${cliName()} `)).toBe(true)
-  const words = line.slice(cliName().length).match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []
+function argvOf(line: string, cli: string = cliName()): string[] {
+  expect(line.startsWith(`${cli} `)).toBe(true)
+  const words = line.slice(cli.length).match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []
   return words.map((w) => (w.startsWith('"') ? (JSON.parse(w) as string) : w))
 }
 
@@ -119,18 +119,18 @@ function stubYouTube(): void {
  * The first run: the three commands `init` prints (scan the bundled
  * competitor export, bank an idea from it, build its package offline), the
  * demand read on its own, the person's title by slug, the rest of the loop
- * that writes under packages/<slug>/, the profile, the ledger and a decision,
- * and a fetched upload list. `extra` points the commands at their folders.
- * Returns the rebuild line the title-less build printed.
+ * that writes under packages/<slug>/, the profile command `init` prints, the
+ * ledger, a decision carried out, and a fetched upload list. `extra` points
+ * the commands at their folders. Returns the rebuild line the title-less
+ * build printed.
  */
 async function firstRun(root: string, extra: string[]): Promise<string> {
   stubYouTube()
-  const [scanLine, bankLine, buildLine] = nextCommands(root).map(argvOf)
+  const steps = nextSteps(root)
+  const [scanLine, bankLine, buildLine] = steps.commands.map((line) => argvOf(line))
   // From source every printed command carries --workspace; the run under test supplies its own.
-  const own = (argv: string[]): string[] => {
-    const i = argv.indexOf('--workspace')
-    return [...(i >= 0 ? argv.slice(0, i) : argv), ...extra]
-  }
+  const unnamed = (argv: string[]): string[] => (argv.includes('--workspace') ? argv.slice(0, argv.indexOf('--workspace')) : argv)
+  const own = (argv: string[]): string[] => [...unnamed(argv), ...extra]
   const scan = await json(own(scanLine))
   expect(scan.code).toBe(0)
   expect(scan.value.exampleAsOf).toBe('2026-07-10T00:00:00Z')
@@ -143,19 +143,27 @@ async function firstRun(root: string, extra: string[]): Promise<string> {
   expect(titled.code).toBe(0)
   expect(titled.value.promise).toBe('thirty days on a solar generator, every failure shown')
 
+  // The profile command names the workspace in every build; the person fills in the positioning.
+  const describeChannel = unnamed(argvOf(steps.profile)).map((word) => (word === '..' ? 'Solar for renters' : word))
   for (const argv of [
     ['plan', 'shots', SLUG],
     ['thumbnail', 'proof', SLUG],
     ['publish', 'pack', SLUG],
-    ['profile', 'init', '--positioning', 'Solar for renters', '--force', '--now', NOW],
+    [...describeChannel, '--now', NOW],
     ['signature', 'set', '--colors', 'yellow,black', '--now', NOW],
     ['ledger', 'add', '--slug', SLUG, '--title', TITLE, '--published-at', '2026-09-12T12:00:00Z', '--now', NOW],
+    // A weak 48-hour read, so the decision is a swap with a repackage.json to carry out.
+    ['set', SLUG, '--bucket', '48', '--impressions', '25000', '--ctr', '2', '--avp', '42', '--ret30', '66', '--now', NOW],
     ['decide', '--slug', SLUG, '--bucket', '48', '--record', '--now', NOW],
     ['repackage', 'prepare', SLUG, '--now', NOW],
+    ['decide', 'approve', SLUG, '--bucket', '48', '--by', 'jony', '--yes', '--now', NOW],
     ['fetch', 'channel', '@stubchannel'],
   ]) expect((await run([...argv, ...extra])).code, argv.join(' ')).toBe(0)
   // publish check fails on the missing thumb-A.png and thumb-B.png, and still writes its report.
   expect((await run(['publish', 'check', SLUG, ...extra])).code).toBe(1)
+  const applied = await json(['decide', 'apply', SLUG, '--bucket', '48', '--by', 'jony', '--yes', '--now', NOW, ...extra])
+  expect(applied.value).toMatchObject({ decision: { decision: 'REPACKAGE' }, repackageFile: path.join(root, 'packages', SLUG, 'repackage.json') })
+  expect(JSON.parse(readFileSync(path.join(root, 'packages', SLUG, 'repackage.json'), 'utf8'))).toMatchObject({ applied: true, appliedBy: 'jony' })
 
   const shown = await run(['profile', 'show', ...extra])
   expect(shown.out).toContain(path.join(root, 'channel.json'))
@@ -210,28 +218,64 @@ describe('booster init', () => {
     for (const folder of ['data', 'packages', 'inbox', 'playbook']) expect(statSync(path.join(ws, folder)).isDirectory(), folder).toBe(true)
     expect(JSON.parse(readFileSync(path.join(ws, 'channel.json'), 'utf8'))).toEqual({ ...defaultProfile(), updatedAt: '2026-09-14T12:00:00.000Z' })
     expect(value.paths).toEqual([WORKSPACE_MARKER, 'data', 'packages', 'inbox', 'playbook', 'channel.json'].map((rel) => ({ path: path.join(ws, rel), status: 'created' })))
-    expect(value.next).toEqual(nextCommands(ws))
+    expect(value.next).toEqual(nextSteps(ws).commands)
+    expect(value.profileCommand).toBe(nextSteps(ws).profile)
 
     rmSync(ws, { recursive: true })
     const text = await run(['init', ws])
     expect(JSON.parse(readFileSync(path.join(ws, WORKSPACE_MARKER), 'utf8')).channel).toBeNull()
     expect(text.out).toContain(`Created a booster workspace at ${ws}\n  created   ${path.join(ws, WORKSPACE_MARKER)}\n`)
     expect(text.out).toContain(`  created   ${path.join(ws, 'channel.json')}\n`)
-    for (const line of nextCommands(ws)) expect(text.out).toContain(`\n  ${line}`)
+    for (const line of nextSteps(ws).commands) expect(text.out).toContain(`\n  ${line}`)
     expect(text.out).toContain(`${cliName()} outliers example:competitors --save`)
+    // The profile hint is a whole command, in this build's CLI name, that writes this workspace's channel.json.
+    expect(text.out).toContain(`channel.json holds the default profile until you describe the channel (${cliName()} profile init --positioning ".." --force --workspace ${JSON.stringify(ws)}, or edit the file).\n`)
+    expect(text.err).toBe('')
   })
 
-  it('prints commands that run from inside the folder for the packaged bin, and name the workspace from source', () => {
-    expect(nextCommands(ws, true)).toEqual([
+  it('prints commands that run from inside the folder for the packaged bin, and name the workspace from source', async () => {
+    await run(['init', ws])
+    const bundled = nextSteps(ws, { bundled: true, env: {} })
+    expect(bundled.heading).toBe(`Next, from inside ${ws} (or from any folder with --workspace ${JSON.stringify(ws)}):`)
+    expect(bundled.commands).toEqual([
       'channel-booster outliers example:competitors --save',
       'channel-booster bank add "I lived off a solar generator for 30 days" --score "demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4" --csv example:competitors --promise "thirty days on a solar generator, every failure shown"',
       'channel-booster package build "I lived off a solar generator for 30 days" --offline',
     ])
+    // The profile command overwrites, so it names the workspace even where the others need not.
+    expect(bundled.profile).toBe(`channel-booster profile init --positioning ".." --force --workspace ${JSON.stringify(ws)}`)
+    expect(nextSteps(ws, { bundled: true, env: { BOOSTER_HOME: ws } }).commands).toEqual(bundled.commands)
     // npm run always starts at the repository root, so a command from source could never find the workspace from its folder.
-    for (const line of nextCommands(ws, false)) {
+    const source = nextSteps(ws, { bundled: false, env: {} })
+    for (const line of [...source.commands, source.profile]) {
       expect(line.startsWith('npm run booster -- ')).toBe(true)
       expect(line.endsWith(` --workspace ${JSON.stringify(ws)}`)).toBe(true)
     }
+  })
+
+  it('names the new workspace in every command when BOOSTER_HOME would send the packaged bin to another folder', async () => {
+    const other = path.join(tmp, 'other-channel')
+    await run(['init', other])
+    await run(['init', ws])
+    for (const home of [other, path.relative(ws, other), elsewhere]) {
+      const steps = nextSteps(ws, { bundled: true, env: { BOOSTER_HOME: home } })
+      for (const line of [...steps.commands, steps.profile]) expect(line.endsWith(` --workspace ${JSON.stringify(ws)}`), line).toBe(true)
+      expect(steps.heading).toBe(`Next (BOOSTER_HOME is set to ${home}, which outranks the folder a command runs in, so each command names this workspace):`)
+    }
+    // Run as printed, from inside the new folder with BOOSTER_HOME still naming the other channel: the scan lands in the new one.
+    vi.stubEnv('BOOSTER_HOME', other)
+    process.chdir(ws)
+    const [scan] = nextSteps(ws, { bundled: true }).commands
+    expect((await run(argvOf(scan, 'channel-booster'))).code).toBe(0)
+    expect(existsSync(path.join(ws, 'data', 'last-scan.json'))).toBe(true)
+    expect(existsSync(path.join(other, 'data', 'last-scan.json'))).toBe(false)
+  })
+
+  it('warns when BOOSTER_DATA or BOOSTER_PROFILE would keep a location outside the new workspace', async () => {
+    vi.stubEnv('BOOSTER_DATA', path.join(tmp, 'old-data'))
+    const { err } = await run(['init', ws])
+    expect(err).toBe(`BOOSTER_DATA is set to ${path.join(tmp, 'old-data')}, and it outranks every workspace: every command keeps the store there until you unset it.\n`)
+    expect(nextSteps(ws, { env: { BOOSTER_PROFILE: 'p.json' } }).outranked).toEqual(['BOOSTER_PROFILE is set to p.json, and it outranks every workspace: every command keeps the channel profile there until you unset it.'])
   })
 
   it('refuses an existing workspace; --force creates what is missing and never overwrites channel.json or the data', async () => {

@@ -15,8 +15,8 @@ import path from 'node:path'
 import { shippedDoctrine } from '../../src/ai/doctrine.js'
 import { BUNDLED, VERSION, cliName } from '../../src/build-info.js'
 import { defaultProfile, saveProfile } from '../../src/profile.js'
-import { describeLocations, isWorkspace, WORKSPACE_LAYOUT, WORKSPACE_MARKER, type LocationReport, type ResolveOptions, type Workspace } from '../../src/workspace.js'
-import { bool, nowFrom, out, str, type CommandModule, type Flags } from '../shared.js'
+import { describeLocations, findWorkspace, isWorkspace, WORKSPACE_LAYOUT, WORKSPACE_MARKER, type LocationReport, type ResolveOptions, type Workspace } from '../../src/workspace.js'
+import { bool, nowFrom, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_INIT = 'booster init <dir> [--channel "<name>"] [--force]'
 const USAGE_WHERE = 'booster where [--json]'
@@ -36,18 +36,60 @@ const FIRST_SCORE = 'demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=
 const FIRST_PROMISE = 'thirty days on a solar generator, every failure shown'
 
 /**
- * The three commands a person runs after `init`. The packaged bin finds the
- * workspace from inside the folder. `npm run booster` always starts at the
- * repository root, so from source every command names the workspace.
+ * Whether the commands `init` prints must name the workspace. From source they
+ * always do: `npm run booster` starts at the repository root. The packaged bin
+ * finds the workspace from inside the folder, unless BOOSTER_HOME names
+ * another workspace (it outranks the folder a command runs in) or a folder
+ * that is not one (every command would stop on it); --workspace outranks both.
  */
-export function nextCommands(root: string, bundled: boolean = BUNDLED): string[] {
+export function namesWorkspace(root: string, options: ResolveOptions = {}): boolean {
+  if (!(options.bundled ?? BUNDLED)) return true
+  try {
+    return findWorkspace({}, { ...options, cwd: root })?.root !== root
+  } catch {
+    return true
+  }
+}
+
+/** What `init` prints after the paths, in this build's CLI name. */
+export interface NextSteps {
+  /** Where the commands run from. */
+  heading: string
+  /** Replaces the default profile. It overwrites (--force), so it always names the workspace and can never reach another channel's channel.json. */
+  profile: string
+  /** The three commands of the first run. */
+  commands: string[]
+  /** The environment variables that outrank every workspace and so keep a location outside this one. */
+  outranked: string[]
+}
+
+/** The environment variables that outrank every workspace (src/workspace.ts), and the location each one moves. */
+const OUTRANKING_ENV = { BOOSTER_DATA: 'store', BOOSTER_PROFILE: 'channel profile' } as const
+
+/** The steps after `init` for the workspace at root, as this build and this environment will run them (options stand in for both in tests). */
+export function nextSteps(root: string, options: ResolveOptions = {}): NextSteps {
+  const bundled = options.bundled ?? BUNDLED
+  const env = options.env ?? process.env
   const cli = cliName(bundled)
-  const where = bundled ? '' : ` --workspace ${JSON.stringify(root)}`
-  return [
-    `${cli} outliers example:competitors --save${where}`,
-    `${cli} bank add ${JSON.stringify(FIRST_IDEA)} --score ${JSON.stringify(FIRST_SCORE)} --csv example:competitors --promise ${JSON.stringify(FIRST_PROMISE)}${where}`,
-    `${cli} package build ${JSON.stringify(FIRST_IDEA)} --offline${where}`,
-  ]
+  const flag = ` --workspace ${JSON.stringify(root)}`
+  const named = namesWorkspace(root, options)
+  const where = named ? flag : ''
+  return {
+    heading: !bundled
+      ? 'Next (npm run starts at the repository root, so each command names the workspace):'
+      : named
+        ? `Next (BOOSTER_HOME is set to ${env.BOOSTER_HOME}, which outranks the folder a command runs in, so each command names this workspace):`
+        : `Next, from inside ${root} (or from any folder with --workspace ${JSON.stringify(root)}):`,
+    profile: `${cli} profile init --positioning ".." --force${flag}`,
+    commands: [
+      `${cli} outliers example:competitors --save${where}`,
+      `${cli} bank add ${JSON.stringify(FIRST_IDEA)} --score ${JSON.stringify(FIRST_SCORE)} --csv example:competitors --promise ${JSON.stringify(FIRST_PROMISE)}${where}`,
+      `${cli} package build ${JSON.stringify(FIRST_IDEA)} --offline${where}`,
+    ],
+    outranked: (Object.keys(OUTRANKING_ENV) as Array<keyof typeof OUTRANKING_ENV>)
+      .filter((name) => env[name]?.trim())
+      .map((name) => `${name} is set to ${env[name]}, and it outranks every workspace: every command keeps the ${OUTRANKING_ENV[name]} there until you unset it.`),
+  }
 }
 
 /** The marker an earlier init wrote, or undefined when it is missing or unreadable. */
@@ -103,16 +145,17 @@ async function runInit(dir: string | undefined, rest: string[], flags: Flags): P
   writeFileSync(markerFile, `${JSON.stringify(marker, null, 2)}\n`)
   paths.unshift({ path: markerFile, status: reinit ? 'rewritten' : 'created' })
 
-  const next = nextCommands(root)
-  out({ root, marker, reinitialised: reinit, paths, profile, next }, flags, () => [
+  const steps = nextSteps(root)
+  for (const line of steps.outranked) warn(line)
+  out({ root, marker, reinitialised: reinit, paths, profile, profileCommand: newProfile ? steps.profile : null, next: steps.commands }, flags, () => [
     `${reinit ? 'Re-initialised the' : 'Created a'} booster workspace${marker.channel ? ` for "${marker.channel}"` : ''} at ${root}`,
     ...paths.map((p) => `  ${p.status.padEnd(9)} ${p.path}`),
     newProfile
-      ? 'channel.json holds the default profile until you describe the channel (profile init --positioning ".." --force, or edit the file).'
+      ? `channel.json holds the default profile until you describe the channel (${steps.profile}, or edit the file).`
       : 'channel.json was already there and is kept as it is.',
     '',
-    BUNDLED ? `Next, from inside ${root} (or from any folder with --workspace ${JSON.stringify(root)}):` : 'Next (npm run starts at the repository root, so each command names the workspace):',
-    ...next.map((c) => `  ${c}`),
+    steps.heading,
+    ...steps.commands.map((c) => `  ${c}`),
   ].join('\n'))
   return 0
 }

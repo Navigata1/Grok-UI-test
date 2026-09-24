@@ -27,7 +27,7 @@ const USAGE_INGEST = 'booster ingest <studio-content.csv> [--at ISO] [--bucket 2
 const USAGE_SET = 'booster set <slug> --bucket 24|48|168|672 [--ret30 n] [--returning n] [--sub-share n] [--browse-suggested n] [--impressions n] [--ctr n] [--avp n] [--avd-sec n] [--views n] [--lever ".." --yes]'
 const USAGE_LEDGER = 'booster ledger add|show|baseline|levers|winners|due|export'
 const USAGE_LEDGER_ADD = 'booster ledger add --slug <slug> --title ".." --published-at ISO [--video-id id] [--thumb-a name] [--thumb-b name] [--sequel-of slug]'
-const USAGE_FETCH = 'booster fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv]'
+const USAGE_FETCH = 'booster fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]'
 
 const FACE_POLICIES = ['always', 'never', 'either'] as const
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
@@ -476,7 +476,7 @@ export const dataModule: CommandModule = {
     'ledger baseline [--bucket 48|168] [--exclude slug] [--window 10] [--min-age-days 7]   median and MAD from your own history',
     'ledger levers | ledger winners [--multiplier 5] | ledger due        lever tally, own outliers, reads due',
     'ledger export [--out file.json | --md [--out file.md]]              dump the ledger',
-    'fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv]  Data API v3 upload list (needs YOUTUBE_API_KEY)',
+    'fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]   Data API v3 upload list into the inbox (needs YOUTUBE_API_KEY)',
     'thresholds [<key>]                                                  every gate as "key value [evidence] note"',
   ],
   async run(cmd, sub, rest, flags) {
