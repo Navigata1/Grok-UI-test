@@ -23,7 +23,10 @@ import {
 import type { Workflow, WorkflowFormat } from '../../src/types.js'
 import { activeWorkspace, bool, getProfile, getStore, list, num, out, packagesRoot, profilePath, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_RUN = 'booster workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--isolate] [--override --reason ".." --yes] [--root dir] [--workflow file]'
+const USAGE_RUN = `${cliName()} workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--isolate] [--override --reason ".." --yes] [--root dir] [--workflow file]`
+const USAGE_STATUS = `${cliName()} workflow status <slug>`
+const USAGE_IDEA = `${cliName()} workflow "<idea>" [--promise ".."] [--format ..] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]`
+const USAGE_CALENDAR = `${cliName()} calendar --ideas "A;B;C" --start YYYY-MM-DD [--per-week 1] [--cycle-days 14] [--max-per-week N] [--reason ".."]`
 
 /**
  * main() from cli/main.ts, the one every booster stage runs through in this
@@ -49,10 +52,21 @@ function clockFrom(flags: Flags): () => Date {
   return () => d
 }
 
+/** In a workspace, the folder `workflow run` reads runbooks from: <packages root>/packages. Undefined outside one. */
+function workspaceRunbooks(flags: Flags): string | undefined {
+  return activeWorkspace(flags) ? path.join(packagesRoot(flags), 'packages') : undefined
+}
+
+/** The command that creates a workflow so `workflow run` finds its runbook: in a workspace the runbook goes to its packages/ without --out. */
+function createCommand(flags: Flags): string {
+  return activeWorkspace(flags) ? `${cliName()} workflow "<idea>"` : `${cliName()} workflow "<idea>" --out packages`
+}
+
 /**
  * The Workflow for `workflow run`: `--workflow <file>`, else <root>/packages/<slug>.json
- * (what `booster workflow "<idea>" --out packages` wrote), else regenerated
- * from the idea and format on the status document (default cycle length).
+ * (what `booster workflow "<idea>"` wrote there: by default in a workspace, with
+ * --out packages outside one), else regenerated from the idea and format on the
+ * status document (default cycle length).
  */
 function loadWorkflow(store: Store, slug: string, root: string, flags: Flags): Workflow {
   const explicit = str(flags, 'workflow')
@@ -71,7 +85,7 @@ function loadWorkflow(store: Store, slug: string, root: string, flags: Flags): W
   }
   if (explicit) throw new Error(`--workflow ${explicit} does not exist`)
   const doc = store.get('workflows', slug)
-  if (!doc) throw new Error(`no workflow "${slug}": neither ${file} nor a status document. Create it first: ${cliName()} workflow "<idea>" --out packages`)
+  if (!doc) throw new Error(`no workflow "${slug}": neither ${file} nor a status document. Create it first: ${createCommand(flags)}`)
   const format = (WORKFLOW_FORMATS as string[]).includes(doc.format) ? (doc.format as WorkflowFormat) : undefined
   warn(`${file} not found; regenerating the workflow from the status document (idea "${doc.idea}", format ${format ?? 'talking-head'}, default cycle length)`)
   return generateWorkflow(doc.idea, { format })
@@ -173,7 +187,7 @@ async function runWorkflow(slug: string | undefined, flags: Flags): Promise<numb
 export const workflowModule: CommandModule = {
   verbs: ['workflow', 'cadence', 'week', 'calendar'],
   help: [
-    'workflow "<idea>" [--promise ".."] [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]   the runbook + status document; the promise feeds the packaging stage',
+    'workflow "<idea>" [--promise ".."] [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]   the runbook (in a workspace, to its packages/ by default) + status document; the promise feeds the packaging stage',
     'workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--isolate] [--root dir] [--workflow packages/<slug>.json]   runs the stage in this process; --isolate (or BOOSTER_STAGE_ISOLATION=process) spawns it',
     'workflow run <slug> --override --reason ".." --yes [--stage <id>]   a person overrides a gate; recorded, shown in the retro',
     'workflow status <slug>                                             stage status of one workflow',
@@ -185,26 +199,30 @@ export const workflowModule: CommandModule = {
       if (sub === 'run') return runWorkflow(rest[0], flags)
       if (sub === 'status') {
         const slug = rest[0]
-        if (!slug) throw new Error('usage: booster workflow status <slug>')
+        if (!slug) throw new Error(`usage: ${USAGE_STATUS}`)
         const doc = getStore(flags).get('workflows', slug)
-        if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: ${cliName()} workflow "<idea>" --out packages`)
+        if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: ${createCommand(flags)}`)
         out(doc, flags, () => renderWorkflowStatus(doc))
         return 0
       }
       const idea = sub
-      if (!idea) throw new Error('usage: booster workflow "<idea>" [--promise ".."] [--format ..] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]')
+      if (!idea) throw new Error(`usage: ${USAGE_IDEA}`)
       const format = (str(flags, 'format') ?? 'talking-head') as WorkflowFormat
       if (!WORKFLOW_FORMATS.includes(format)) throw new Error(`format must be one of ${WORKFLOW_FORMATS.join(', ')}`)
       const wf = generateWorkflow(idea, { format, days: num(flags, 'days') })
       const kickoffText = str(flags, 'kickoff')
       const kickoff = kickoffText ? new Date(`${kickoffText}T00:00:00Z`) : undefined
       const md = renderWorkflowMarkdown(wf, kickoff)
-      const dir = str(flags, 'out')
+      // --out keeps its meaning, relative to the working directory; without it a workspace's runbook goes where `workflow run` reads it.
+      const runbooks = workspaceRunbooks(flags)
+      const dir = str(flags, 'out') ?? runbooks
       if (dir) {
         mkdirSync(dir, { recursive: true })
         writeFileSync(path.join(dir, `${wf.slug}.md`), md)
         writeFileSync(path.join(dir, `${wf.slug}.json`), `${JSON.stringify(wf, null, 2)}\n`)
         warn(`wrote ${path.join(dir, wf.slug)}.md and .json`)
+        const written = `${path.resolve(dir, wf.slug)}.json`
+        if (runbooks && path.resolve(dir) !== runbooks) warn(`${written} is not in ${runbooks}, where \`workflow run\` looks for it: run it with --workflow ${written}, or leave out --out`)
       }
       const store = getStore(flags)
       const existed = Boolean(store.get('workflows', wf.slug))
@@ -232,7 +250,7 @@ export const workflowModule: CommandModule = {
     }
     const ideas = list(flags, 'ideas')
     const start = str(flags, 'start')
-    if (!ideas || !start) throw new Error('usage: booster calendar --ideas "A;B;C" --start YYYY-MM-DD [--per-week 1] [--cycle-days 14] [--max-per-week N] [--reason ".."]')
+    if (!ideas || !start) throw new Error(`usage: ${USAGE_CALENDAR}`)
     const startDate = new Date(`${start}T00:00:00Z`)
     if (Number.isNaN(startDate.getTime())) throw new Error(`--start must be YYYY-MM-DD, got "${start}"`)
     const profile = getProfile(flags)

@@ -382,7 +382,8 @@ describe('workflow status in the store', () => {
   })
 
   it('refuses dry-run results, mismatched stage ids, unknown workflows and out-of-order stages', () => {
-    expect(() => applyStageResult(store, wf.slug, 'demand', passed('demand'), NOW)).toThrow(/no workflow status for "test-idea"/)
+    // From source the hint is typed `npm run booster --` (cliName); it names no --out, which only the runbook needs.
+    expect(() => applyStageResult(store, wf.slug, 'demand', passed('demand'), NOW)).toThrow('no workflow status for "test-idea". Create it first: npm run booster -- workflow "<idea>" (startWorkflow)')
     startWorkflow(store, wf, NOW)
     expect(() => applyStageResult(store, wf.slug, 'demand', { ...passed('demand'), dryRun: true, status: 'dry-run' }, NOW)).toThrow(/dry run records nothing/)
     expect(() => applyStageResult(store, wf.slug, 'packaging', passed('demand'), NOW)).toThrow(/result is for stage "demand"/)

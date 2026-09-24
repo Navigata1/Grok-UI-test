@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { main } from '../cli/booster.js'
@@ -49,13 +49,14 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })
 })
 
-async function run(argv: string[]): Promise<{ code: number; out: string; err: string }> {
+/** Run the command line (main, or a freshly imported one) and capture what it printed. */
+async function run(argv: string[], entry: (argv: string[]) => Promise<number> = main): Promise<{ code: number; out: string; err: string }> {
   let out = ''
   let err = ''
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => { out += String(chunk); return true })
   const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => { err += String(chunk); return true })
   try {
-    const code = await main(argv)
+    const code = await entry(argv)
     return { code, out, err }
   } finally {
     spy.mockRestore()
@@ -83,7 +84,7 @@ async function createWorkflow(extra: string[] = []): Promise<void> {
 describe('booster workflow promise', () => {
   it('stores --promise on the status document, takes a banked idea\'s promise, and warns when there is none', async () => {
     const bare = await run(['workflow', IDEA, '--out', path.join(tmp, 'packages'), ...base()])
-    expect(bare.err).toMatch(/no promise for empty-sprinter-to-camper-in-90-days/)
+    expect(bare.err).toContain(`no promise for ${SLUG}: the packaging stage needs one (npm run booster -- workflow "<idea>" --promise ".." or bank the idea with --promise)`)
     expect(openStore(data).get('workflows', SLUG)!.promise).toBeUndefined()
     const typed = await run(['workflow', IDEA, '--promise', 'a road-ready camper in 90 days, every cost shown', '--out', path.join(tmp, 'packages'), ...base()])
     expect(typed.err).not.toMatch(/no promise/)
@@ -124,7 +125,7 @@ describe('booster workflow "<idea>"', () => {
     expect(out).toMatch(/^# Workflow: Empty Sprinter/)
     expect(out).toMatch(/workflow run empty-sprinter-to-camper-in-90-days --next/)
     expect(err).toMatch(/wrote .*empty-sprinter-to-camper-in-90-days\.md and \.json/)
-    expect(err).toMatch(/status document created/)
+    expect(err).toContain(`status document created: npm run booster -- workflow run ${SLUG} --next --agent <name>`)
     const wf = JSON.parse(readFileSync(path.join(tmp, 'packages', `${SLUG}.json`), 'utf8'))
     expect(wf.slug).toBe(SLUG)
     expect(wf.stages).toHaveLength(10)
@@ -139,13 +140,13 @@ describe('booster workflow "<idea>"', () => {
     const { parsed, err } = await json(['workflow', IDEA, '--format', 'tutorial', ...base()])
     expect(parsed.slug).toBe(SLUG)
     expect(parsed.stages[0].id).toBe('demand')
-    expect(err).toMatch(/already exists; progress kept/)
+    expect(err).toContain(`status document for ${SLUG} already exists; progress kept (npm run booster -- workflow status ${SLUG})`)
     expect(openStore(data).get('workflows', SLUG)!.stages[0].status).toBe('overridden')
   })
 
   it('rejects an unknown format and a missing idea', async () => {
     await expect(main(['workflow', IDEA, '--format', 'opera', ...base()])).rejects.toThrow(/format must be one of/)
-    await expect(main(['workflow', ...base()])).rejects.toThrow(/usage: booster workflow/)
+    await expect(main(['workflow', ...base()])).rejects.toThrow('usage: npm run booster -- workflow "<idea>" [--promise ".."]')
   })
 })
 
@@ -162,8 +163,8 @@ describe('booster workflow status', () => {
   })
 
   it('fails clearly for an unknown slug or no slug', async () => {
-    await expect(main(['workflow', 'status', 'nope', ...base()])).rejects.toThrow(/no workflow status for "nope"/)
-    await expect(main(['workflow', 'status', ...base()])).rejects.toThrow(/usage: booster workflow status/)
+    await expect(main(['workflow', 'status', 'nope', ...base()])).rejects.toThrow('no workflow status for "nope". Create it first: npm run booster -- workflow "<idea>" --out packages')
+    await expect(main(['workflow', 'status', ...base()])).rejects.toThrow('usage: npm run booster -- workflow status <slug>')
   })
 })
 
@@ -288,7 +289,10 @@ describe('booster workflow run', () => {
     const inWs = ['--workspace', ws, '--now', NOW]
     await run(['bank', 'add', IDEA, '--score', 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4', ...inWs])
     await run(['bank', 'approve', IDEA, '--yes', ...inWs])
-    expect((await run(['workflow', IDEA, '--out', path.join(ws, 'packages'), ...inWs])).code).toBe(0)
+    const created = await run(['workflow', IDEA, '--out', path.join(ws, 'packages'), ...inWs])
+    expect(created.code).toBe(0)
+    // --out named the workspace's packages/ itself, so there is nothing to warn about.
+    expect(created.err).not.toMatch(/is not in/)
     // Run from outside the workspace, so only --workspace can put the packages root there.
     const cwd = process.cwd()
     process.chdir(tmp)
@@ -455,9 +459,97 @@ describe('booster workflow run', () => {
   })
 
   it('fails clearly without a slug or without any workflow', async () => {
-    await expect(main(['workflow', 'run', ...base()])).rejects.toThrow(/usage: booster workflow run <slug>/)
+    await expect(main(['workflow', 'run', ...base()])).rejects.toThrow('usage: npm run booster -- workflow run <slug> [--next | --stage <id>]')
     await expect(main(runFlags(['--next']))).rejects.toThrow(/no workflow "empty-sprinter-to-camper-in-90-days": neither .* nor a status document/)
+    await expect(main(runFlags(['--next']))).rejects.toThrow('nor a status document. Create it first: npm run booster -- workflow "<idea>" --out packages')
     expect(existsSync(data)).toBe(false)
+  })
+})
+
+/** An initialised workspace under the temp dir (the marker is all `init` must leave), by its real path as process.cwd() reports it. */
+function makeWorkspace(): string {
+  const ws = path.join(tmp, 'channel')
+  mkdirSync(ws, { recursive: true })
+  writeFileSync(path.join(ws, WORKSPACE_MARKER), JSON.stringify({ schemaVersion: 1, kind: 'channel-booster-workspace', channel: 'Vans', createdAt: NOW }))
+  return realpathSync(ws)
+}
+
+/** Run the command line from another working directory, and come back whatever happens. */
+async function runFrom(dir: string, argv: string[]): Promise<{ code: number; out: string; err: string }> {
+  const cwd = process.cwd()
+  process.chdir(dir)
+  try {
+    return await run(argv)
+  } finally {
+    process.chdir(cwd)
+  }
+}
+
+describe('booster workflow in a workspace', () => {
+  it('writes the runbook to the workspace\'s packages/ without --out, from a subfolder, and the run reads that runbook', async () => {
+    const ws = makeWorkspace()
+    const sub = path.join(ws, 'inbox')
+    mkdirSync(sub, { recursive: true })
+    // Found from a subfolder, as a person working in the channel folder is; --days is the choice the run must keep.
+    const created = await runFrom(sub, ['workflow', IDEA, '--days', '21', '--now', NOW])
+    expect(created.code).toBe(0)
+    expect(created.err).toContain(`wrote ${path.join(ws, 'packages', SLUG)}.md and .json`)
+    expect(created.err).not.toMatch(/is not in/)
+    expect(JSON.parse(readFileSync(path.join(ws, 'packages', `${SLUG}.json`), 'utf8'))).toMatchObject({ slug: SLUG, timelineDays: 21 })
+    expect(existsSync(path.join(sub, 'packages'))).toBe(false)
+
+    // From outside the workspace with only --workspace, the run finds that runbook and regenerates nothing.
+    const { code, out, err } = await runFrom(tmp, ['workflow', 'run', SLUG, '--next', '--dry-run', '--workspace', ws, '--now', NOW, '--json'])
+    expect(code).toBe(0)
+    expect(JSON.parse(out)).toMatchObject({ root: ws, stageId: 'demand', dryRun: true })
+    expect(err).not.toMatch(/regenerating/)
+    expect(existsSync(path.join(tmp, 'packages'))).toBe(false)
+    expect(spawned).not.toHaveBeenCalled()
+  })
+
+  it('keeps a relative --out relative to the working directory and says where the run will look instead', async () => {
+    const ws = makeWorkspace()
+    const sub = path.join(ws, 'inbox')
+    mkdirSync(sub, { recursive: true })
+    const { code, err } = await runFrom(sub, ['workflow', IDEA, '--out', 'packages', '--now', NOW])
+    expect(code).toBe(0)
+    const stray = path.join(sub, 'packages', `${SLUG}.json`)
+    expect(existsSync(stray)).toBe(true)
+    expect(existsSync(path.join(ws, 'packages', `${SLUG}.json`))).toBe(false)
+    expect(err).toContain(`${stray} is not in ${path.join(ws, 'packages')}, where \`workflow run\` looks for it: run it with --workflow ${stray}, or leave out --out`)
+  })
+
+  it('tells a person to create the workflow without --out, since the runbook defaults into the workspace', async () => {
+    const ws = makeWorkspace()
+    await expect(main(['workflow', 'status', 'nope', '--workspace', ws])).rejects.toThrow(/no workflow status for "nope"\. Create it first: npm run booster -- workflow "<idea>"$/)
+    await expect(main(['workflow', 'run', 'nope', '--workspace', ws])).rejects.toThrow(/nor a status document\. Create it first: npm run booster -- workflow "<idea>"$/)
+  })
+})
+
+describe('booster workflow inside the packaged bundle', () => {
+  it('names the bin, not the repo script, in its usage lines and next steps', async () => {
+    // The bundle defines __BOOSTER_BUNDLED__ (src/build-info.ts); a fresh import reads it.
+    vi.stubGlobal('__BOOSTER_BUNDLED__', true)
+    vi.resetModules()
+    try {
+      const bundled = (await import('./main.js')).main
+      const argv = ['workflow', IDEA, '--out', path.join(tmp, 'packages'), ...base()]
+      const created = await run(argv, bundled)
+      expect(created.code).toBe(0)
+      expect(created.err).toContain(`no promise for ${SLUG}: the packaging stage needs one (channel-booster workflow "<idea>" --promise ".." or bank the idea with --promise)`)
+      expect(created.err).toContain(`status document created: channel-booster workflow run ${SLUG} --next --agent <name>`)
+      const again = await run(argv, bundled)
+      expect(again.err).toContain(`status document for ${SLUG} already exists; progress kept (channel-booster workflow status ${SLUG})`)
+      expect(`${created.err}${again.err}`).not.toContain('npm run booster')
+      await expect(bundled(['workflow', ...base()])).rejects.toThrow('usage: channel-booster workflow "<idea>" [--promise ".."]')
+      await expect(bundled(['workflow', 'status', ...base()])).rejects.toThrow('usage: channel-booster workflow status <slug>')
+      await expect(bundled(['workflow', 'run', ...base()])).rejects.toThrow('usage: channel-booster workflow run <slug> [--next | --stage <id>]')
+      await expect(bundled(['workflow', 'run', 'nope', '--root', tmp, ...base()])).rejects.toThrow('nor a status document. Create it first: channel-booster workflow "<idea>" --out packages')
+      await expect(bundled(['calendar', ...base()])).rejects.toThrow('usage: channel-booster calendar --ideas "A;B;C"')
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
   })
 })
 
@@ -544,8 +636,8 @@ describe('booster calendar', () => {
   })
 
   it('needs ideas and a valid start date', async () => {
-    await expect(main(['calendar', '--start', '2026-10-01', ...base()])).rejects.toThrow(/usage: booster calendar/)
-    await expect(main(['calendar', '--ideas', ideas, ...base()])).rejects.toThrow(/usage: booster calendar/)
+    await expect(main(['calendar', '--start', '2026-10-01', ...base()])).rejects.toThrow('usage: npm run booster -- calendar --ideas "A;B;C" --start YYYY-MM-DD')
+    await expect(main(['calendar', '--ideas', ideas, ...base()])).rejects.toThrow('usage: npm run booster -- calendar --ideas')
     await expect(main(['calendar', '--ideas', ideas, '--start', 'soon', ...base()])).rejects.toThrow(/--start must be YYYY-MM-DD/)
   })
 })

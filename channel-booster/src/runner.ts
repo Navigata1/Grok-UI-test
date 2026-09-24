@@ -319,7 +319,7 @@ export function startWorkflow(store: Store, workflow: Workflow, now: Date, sourc
 
 function loadStatus(store: Store, slug: string): WorkflowStatusDoc {
   const doc = store.get('workflows', slug)
-  if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: ${cliName()} workflow "<idea>" --out packages`)
+  if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: ${cliName()} workflow "<idea>" (startWorkflow)`)
   return doc
 }
 
