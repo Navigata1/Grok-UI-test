@@ -1,10 +1,33 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { main, parseArgs } from '../cli/booster.js'
+import { buildInfo } from '../cli/main.js'
+import { buildBundle } from '../scripts/build.js'
+import { readShippedDoctrine } from './ai/doctrine.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
+const moduleRoot = path.resolve(here, '..')
 const examples = path.resolve(here, '..', 'examples')
+const require = createRequire(import.meta.url)
+const tsxCli = require.resolve('tsx/cli')
+const entry = path.join(moduleRoot, 'cli', 'booster.ts')
+
+/** This environment without the variables that move the booster's files or reach the network, and a scratch HOME. */
+function cleanEnv(home: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home }
+  for (const key of ['BOOSTER_HOME', 'BOOSTER_DATA', 'BOOSTER_PROFILE', 'BOOSTER_NOW', 'BOOSTER_MODEL', 'ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY']) delete env[key]
+  return env
+}
+
+function spawnNode(args: string[], cwd: string, env: NodeJS.ProcessEnv): { status: number | null; stdout: string; stderr: string } {
+  const r = spawnSync(process.execPath, args, { cwd, env, encoding: 'utf8' })
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
+}
 
 async function run(argv: string[]): Promise<{ code: number; out: string }> {
   let out = ''
@@ -75,5 +98,142 @@ describe('main', () => {
   })
   it('rejects an unknown command', async () => {
     await expect(main(['nope'])).rejects.toThrow(/unknown command/)
+  })
+})
+
+describe('help and build info from source', () => {
+  it('names the workspace: init, --workspace, BOOSTER_HOME and where', async () => {
+    const { out } = await run(['help'])
+    expect(out.split('\n')[0]).toBe('booster: YouTube Channel Booster')
+    expect(out).toContain('Create one with `npm run booster -- init <folder>`.')
+    expect(out).toContain('name it with --workspace <folder> or BOOSTER_HOME=<folder>')
+    expect(out).toContain('a source checkout keeps its files in channel-booster/data/ and channel-booster/channel.json')
+    expect(out).toContain('`npm run booster -- where` prints the folder each location resolves to')
+  })
+  it('reads the doctrine from the checkout', () => {
+    const shipped = readShippedDoctrine(moduleRoot)
+    expect(buildInfo()).toEqual({ bundled: false, version: 'source', doctrine: { hash: shipped.hash, files: shipped.files.map((f) => f.name) } })
+  })
+})
+
+describe('the tsx entry runs main only when it is the script tsx runs', () => {
+  let tmp: string
+  beforeAll(() => {
+    tmp = mkdtempSync(path.join(os.tmpdir(), 'booster-entry-'))
+  })
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const titles = ['titles', 'cold showers', '--json']
+
+  it('runs by its repo-relative path, as npm run booster names it', () => {
+    const repo = path.resolve(moduleRoot, '..')
+    const r = spawnNode([tsxCli, path.relative(repo, entry), ...titles], repo, cleanEnv(tmp))
+    expect(r.status, r.stderr).toBe(0)
+    expect(JSON.parse(r.stdout)[0].formula).toBe('first-person test')
+  })
+  it('runs through a symlink whatever the link is called', () => {
+    const link = path.join(tmp, 'bst.ts')
+    symlinkSync(entry, link)
+    const r = spawnNode([tsxCli, link, ...titles], tmp, cleanEnv(tmp))
+    expect(r.status, r.stderr).toBe(0)
+    expect(JSON.parse(r.stdout)[0].formula).toBe('first-person test')
+  })
+  it('stays quiet when another script imports it, even one named booster.mjs', () => {
+    const importer = path.join(tmp, 'booster.mjs')
+    writeFileSync(importer, `import { main } from ${JSON.stringify(pathToFileURL(entry).href)}\nif (typeof main !== 'function') process.exit(3)\n`)
+    const r = spawnNode([tsxCli, importer, ...titles], tmp, cleanEnv(tmp))
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.stdout).toBe('')
+  })
+})
+
+/**
+ * The packaged bin against a bundle built into a scratch folder laid out like
+ * the installed package (bin/, dist/, node_modules/), with no docs/ or
+ * playbook/ beside it: whatever doctrine it reports is the one it embedded.
+ */
+describe('the packaged bundle and bin', () => {
+  let pkg: string
+  let bin: string
+  let cwd: string
+  let env: NodeJS.ProcessEnv
+  let built: Awaited<ReturnType<typeof buildBundle>>
+  beforeAll(async () => {
+    pkg = mkdtempSync(path.join(os.tmpdir(), 'booster-bundle-'))
+    cwd = mkdtempSync(path.join(os.tmpdir(), 'booster-bundle-cwd-'))
+    env = cleanEnv(cwd)
+    mkdirSync(path.join(pkg, 'bin'))
+    bin = path.join(pkg, 'bin', 'channel-booster.mjs')
+    copyFileSync(path.join(moduleRoot, 'bin', 'channel-booster.mjs'), bin)
+    // zod and the SDK stay external: resolve them from the node_modules this checkout installed.
+    symlinkSync(path.resolve(path.dirname(require.resolve('zod/package.json')), '..'), path.join(pkg, 'node_modules'), 'dir')
+    built = await buildBundle({ outfile: path.join(pkg, 'dist', 'channel-booster.mjs') })
+  })
+  afterAll(() => {
+    rmSync(pkg, { recursive: true, force: true })
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  const cli = (args: string[], node: string[] = []) => spawnNode([...node, bin, ...args], cwd, env)
+
+  it('embeds the shipped doctrine and the package version, with no shebang in the bundle', () => {
+    const shipped = readShippedDoctrine(moduleRoot)
+    const version = (JSON.parse(readFileSync(path.join(moduleRoot, 'package.json'), 'utf8')) as { version: string }).version
+    expect(built.doctrine).toEqual({ hash: shipped.hash, files: shipped.files.length })
+    expect(built.version).toBe(version)
+    expect(readFileSync(built.outfile, 'utf8').startsWith('#!')).toBe(false)
+    const script = `const m = await import(${JSON.stringify(pathToFileURL(built.outfile).href)}); process.stdout.write(JSON.stringify(m.buildInfo()))`
+    const r = spawnNode(['--input-type=module', '-e', script], cwd, env)
+    expect(r.status, r.stderr).toBe(0)
+    expect(JSON.parse(r.stdout)).toEqual({ bundled: true, version, doctrine: { hash: shipped.hash, files: shipped.files.map((f) => f.name) } })
+  })
+  it('runs main with its own arguments, through a .bin symlink too, and exits with its code', () => {
+    const help = cli(['help'])
+    expect(help.status, help.stderr).toBe(0)
+    expect(help.stdout.split('\n')[0]).toBe(`channel-booster ${built.version}: YouTube Channel Booster`)
+    expect(help.stdout).toMatch(/^ {2}outliers <csv>/m)
+    expect(help.stdout).toContain('Create one with `channel-booster init <folder>`.')
+    expect(help.stdout).toContain('Run commands inside it, or name it from anywhere with --workspace <folder> or BOOSTER_HOME=<folder>.')
+    mkdirSync(path.join(pkg, '.bin'))
+    const link = path.join(pkg, '.bin', 'channel-booster')
+    symlinkSync(bin, link)
+    const titles = spawnNode([link, 'titles', 'cold showers', '--json'], cwd, env)
+    expect(titles.status, titles.stderr).toBe(0)
+    expect(JSON.parse(titles.stdout)[0].formula).toBe('first-person test')
+    const unknown = cli(['nope'])
+    expect(unknown.status).toBe(1)
+    expect(unknown.stderr).toBe('channel-booster: unknown command "nope". Run channel-booster help.\n')
+  })
+  it('says nothing about a missing workspace until a command needs one, then names init and exits 1', () => {
+    const offline = cli(['titles', 'cold showers'])
+    expect(offline.status).toBe(0)
+    expect(offline.stderr).toBe('')
+    const store = cli(['bank', 'list'])
+    expect(store.status).toBe(1)
+    expect(store.stdout).toBe('')
+    expect(store.stderr).toMatch(/^channel-booster: No channel workspace for the store\. Create one with `channel-booster init <folder>`/)
+  })
+  it('still warns about a channel.json that does not parse and a --workspace that is not one', () => {
+    const bad = path.join(cwd, 'bad.json')
+    writeFileSync(bad, '{not json')
+    const profile = cli(['titles', 'cold showers', '--path', bad])
+    expect(profile.status).toBe(0)
+    expect(profile.stderr).toBe(`channel-booster: ${bad} is not valid JSON\n`)
+    const workspace = cli(['titles', 'cold showers', '--workspace', 'not-a-workspace'])
+    expect(workspace.status).toBe(0)
+    expect(workspace.stderr).toContain(`channel-booster: ${path.join(cwd, 'not-a-workspace')} (from --workspace) is not a booster workspace`)
+  })
+  it('refuses an old Node with a sentence, and a copy that was never built with the command that builds it', () => {
+    const spoof = `data:text/javascript,Object.defineProperty(process.versions, 'node', { value: '20.11.0' })`
+    const old = cli(['help'], ['--import', spoof])
+    expect(old.status).toBe(1)
+    expect(old.stdout).toBe('')
+    expect(old.stderr).toBe('channel-booster: needs Node.js 22 or newer, and this is Node.js 20.11.0. Install Node.js 22 or later from https://nodejs.org and run it again.\n')
+    const unbuilt = path.join(cwd, 'unbuilt', 'bin')
+    mkdirSync(unbuilt, { recursive: true })
+    copyFileSync(bin, path.join(unbuilt, 'channel-booster.mjs'))
+    const r = spawnNode([path.join(unbuilt, 'channel-booster.mjs'), 'help'], cwd, env)
+    expect(r.status).toBe(1)
+    expect(r.stderr).toContain(`${path.join(cwd, 'unbuilt', 'dist', 'channel-booster.mjs')} is missing: this copy was never built. Run \`npm run build\` in the channel-booster folder`)
   })
 })

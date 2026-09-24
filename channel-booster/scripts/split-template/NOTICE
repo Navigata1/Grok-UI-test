@@ -1,0 +1,32 @@
+YouTube Channel Booster
+Copyright (c) 2026 Navigata1. Released under the MIT License (see LICENSE).
+
+Where it was built
+------------------
+The booster was developed inside a fork of Grok UI
+(https://github.com/joeynyc/Grok-UI), MIT License,
+Copyright (c) 2026 Grok UI contributors / Joey Rodriguez.
+
+No Grok UI source is included. Checked when this notice was written: every
+module the command line and the Desk bundle resolve lies inside the
+channel-booster package (esbuild's inputs for cli/main.ts and
+dashboard/engine.ts), nothing in it imports Grok UI's src/, server/,
+scripts/ or bin/, and no line of Grok UI's source beyond an import statement
+or a common idiom appears in the booster's code. The Desk
+(channel-booster/dashboard/) is a server-free single HTML file of its own:
+it uses none of Grok UI's app, server or styles.
+
+What the booster shares with Grok UI is a choice of typefaces, not code: the
+Desk sets its type in Syne, IBM Plex Sans and IBM Plex Mono, as Grok UI does.
+
+Third-party material
+--------------------
+channel-booster/dashboard/fonts/: latin subsets of Syne (Copyright 2019 The
+Syne Project Authors), IBM Plex Sans and IBM Plex Mono (Copyright IBM Corp.),
+from the Fontsource 5.3.0 packages, licensed under the SIL Open Font License
+1.1. Each family's licence text sits beside its files (OFL-Syne.txt,
+OFL-IBM-Plex-Sans.txt, OFL-IBM-Plex-Mono.txt). The packaged bin does not
+carry the Desk or its fonts.
+
+Runtime dependencies, installed by npm and not copied here: zod (MIT) and
+@anthropic-ai/sdk (MIT).
