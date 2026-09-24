@@ -1,0 +1,20 @@
+{
+  "name": "channel-booster-repo",
+  "private": true,
+  "description": "The YouTube Channel Booster repository: the channel-booster package, its Claude Code skills and its mission records.",
+  "license": "MIT",
+  "workspaces": [
+    "channel-booster"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "booster": "tsx channel-booster/cli/booster.ts",
+    "check": "npm run check --workspace channel-booster",
+    "test": "npm test --workspace channel-booster",
+    "build": "npm run build --workspace channel-booster",
+    "verify": "npm run verify --workspace channel-booster",
+    "test:package": "node channel-booster/scripts/package-smoke.mjs"
+  }
+}

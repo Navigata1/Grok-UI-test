@@ -1,24 +1,12 @@
 node_modules/
 dist/
-dist-server/
+coverage/
 .DS_Store
 *.log
 *.tgz
-*.auth-state.json
 .env
 .env.local
 .env.*.local
-coverage/
-test-results/
-playwright-report/
-.grok-ui/
-
-# Local demo-production project, raw captures, and rendered media.
-videos/
-
-# Channel Booster's packaged bundle (npm run booster:build) and its own installs.
-channel-booster/dist/
-channel-booster/node_modules/
 
 # Channel Booster private working data (profile, ledger, packages, Studio exports).
 channel-booster/channel.json
@@ -27,7 +15,7 @@ channel-booster/packages/
 channel-booster/inbox/
 # Compiled from the ledger by `booster rules compile`.
 channel-booster/playbook/00-learned-rules.md
-# The same data written from the repo root, where `npm run booster` runs: workflow --out packages,
+# The same data written from the repository root, where `npm run booster` runs: workflow --out packages,
 # every stage artifact and review run write packages/, fetch channel writes inbox/, and
 # --data data / --path channel.json / `ai idea-engine --json > ideas.json` land here too.
 /packages/
