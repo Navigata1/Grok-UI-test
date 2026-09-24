@@ -20,7 +20,7 @@ The weekly rhythm is `booster cadence`. The reads that are due are `booster revi
 An agent prepares; a person decides. Stop and ask at these points, every time:
 
 1. Approving a green idea (identity: the channel's own angle, not a clone).
-2. Writing three titles of their own and picking the final title and the A/B thumbnail pair.
+2. Writing three titles of their own and picking the final title and the A/B thumbnail pair. The pick goes in with `booster package build <slug> --title "<title>"`, and every rebuild keeps it. Offline the builder never chooses a title, so the packaging gate stays shut until a person writes one. `--title` carries the person's pick: an agent never fills it with a formula fill or a title it chose itself. `booster package build <slug> --title "<title>" --lever "<lever>"` also names what that title tests (the person's call too), so the lever is pre-registered with the two A/B angles and `rules compile` counts it.
 3. Writing and performing the script, shooting, editing.
 4. Clicking publish, starting Test & Compare, applying a repackage swap (public, irreversible).
 5. Typing the numbers Studio does not export (30-second retention, returning vs new, Test & Compare panel).
@@ -34,7 +34,7 @@ Never simulate a review pass, never invent a lever to unblock a 7-day read, neve
 - `data/*.jsonl`: ideas, ledger, experiments, decisions, rules, workflows. Schema in `src/schema.ts`. Ignored by git; export with `booster ledger export`.
 - `packages/<slug>/`: package.json, story.json, shots.md, publish.md, thumb-A.png, thumb-B.png, proof-sheet.html.
 - `inbox/`: drop Studio exports here; `booster review run` ingests everything in it, and `booster ingest <file.csv>` takes one by path.
-- `playbook/`: the rules. `playbook/00-learned-rules.md` is compiled from evidence; do not edit by hand.
+- `playbook/`: the rules. `playbook/00-learned-rules.md` is compiled from evidence; do not edit by hand. Its compiled rules are hypotheses under observation from the channel's own small sample, not doctrine: never present one to the user as a rule to follow, mention it as a hypothesis worth testing with its tests and wins, and let only `booster retro --accept-rule` (a person) move a rule into the playbook.
 
 ## Evidence discipline
 

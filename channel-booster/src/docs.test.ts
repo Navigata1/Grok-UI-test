@@ -141,9 +141,15 @@ describe('documented commands match the shipped CLI', () => {
   it('writes the 7-day lever with the command that accepts it', () => {
     // `ledger add` rejects --lever outright; the lever is a 7-day read, so it
     // goes on `set --bucket 168` and carries the --yes of human-only gate 6.
+    // `package build --lever` is another flag: the lever a person's title tests,
+    // pre-registered with the title before any number is in, so it needs none.
     for (const [rel, text] of all()) {
       for (const line of text.split('\n')) {
-        if (!line.includes('--lever ')) continue
+        const sevenDay = [...line.matchAll(/--lever /g)].filter((m) => {
+          const before = line.slice(0, m.index)
+          return !/package build/.test(before.slice(Math.max(before.lastIndexOf('booster '), before.lastIndexOf('`'))))
+        })
+        if (sevenDay.length === 0) continue
         expect(/ledger add[^\n]*--lever/.test(line), `${rel}: "ledger add --lever" is refused by the CLI`).toBe(false)
         expect(line.includes('--yes'), `${rel}: writing a lever is a human-only gate, so the example needs --yes: ${line.trim()}`).toBe(true)
       }

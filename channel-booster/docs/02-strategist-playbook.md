@@ -59,15 +59,15 @@ Tags: **[sourced]** a listing, quote, or statement captured in `research/finding
 
 - Read the funnel in order: impressions (did the system find an audience?), CTR (did they click?), 30-second retention (did the open keep the promise?), average percentage viewed (did the middle hold?). Fix the first broken stage only (R11).
 - Compare against your own history: leave-one-out median and MAD over your last ten videos, with a tier (prior under 5, thin 5 to 9, solid 10 and up) and a shift flag when the median moves by more than one MAD (R13, house numbers).
-- Do not judge under 1,000 impressions or inside 24 hours; on a first upload, not under 2,000 impressions or 72 hours [house]. Print the baseline used on every verdict.
+- Do not judge under 1,000 impressions or inside 24 hours; on a first upload, do not call packaging low or the video healthy under 2,000 impressions or 72 hours [house]. Print the baseline used on every verdict.
 - Repackage only when packaging is the bottleneck, impressions are still being served, inside 72 hours, no swap in the last seven days, and the expected gain clears a floor. Thumbnail first, then title. Prepare by agent, apply by human [house].
-- Sequel when the 7-day multiple is three or more and returning share holds; expand between 1.5 and 3; park below 0.7 with an idea bottleneck [house].
+- Sequel when the 7-day multiple is three or more and returning share holds; expand between 1.5 and 3; park below 0.7 with an idea bottleneck. None of the three until the 7-day median rests on five videos' 7-day reads; before that, hold and show the multiple [house].
 
 ### Learning
 
 - Every published package is a pre-registered hypothesis: levers, angle, predicted CTR multiple. Rules compile only from packages registered before publish, so hindsight cannot write the playbook.
-- A lever is promoted at three or more tests with a smoothed win rate of 0.6, retired at 0.35, and its confidence halves every 90 days without a confirming observation [house].
-- One sentence of learning per video at seven days; the ledger is the channel's memory; the Sunday retro promotes what won twice.
+- A lever is marked winning so far at three or more tests with a smoothed win rate of 0.6, losing so far at 0.35, and its confidence halves every 90 days without a confirming observation [house]. Either way it is a hypothesis under observation from the channel's own small sample, not doctrine, and it never overrides this playbook; only a person accepts a rule into the playbook, with `booster retro --accept-rule`.
+- One sentence of learning per video at seven days; the ledger is the channel's memory; the Sunday retro drafts one candidate rule, and a person decides whether it enters the playbook.
 
 ## Numbers used by the engines
 

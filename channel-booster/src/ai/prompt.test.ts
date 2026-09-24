@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { assemblePrompt, formatDryRun, loadPlaybook, parseEffort, outlierContext, renderPackageFixUser, DOCTRINE_FILE, LEARNED_RULES_FILE, PACKAGE_FIX_TEMPLATE_PATH, SYSTEM_PREAMBLE, type PlaybookFs } from './prompt.js'
 import { ENGINE_NAMES, isEngineName } from './schemas.js'
+import { renderLearnedRules } from '../rules.js'
+import { RuleDoc } from '../schema.js'
 
 /** An in-memory doctrine tree: docs/02, the compiled rules, two playbook files and two files that must never load. */
 function fakeFs(files: Record<string, string>, dirs: Record<string, string[]>): PlaybookFs {
@@ -118,6 +121,51 @@ describe('assemblePrompt', () => {
   it('is pure: the same input gives the same prompt twice', () => {
     const flags = { idea: 'x', title: 'y' }
     expect(assemblePrompt('thumbnail-factory', flags)).toEqual(assemblePrompt('thumbnail-factory', flags))
+  })
+})
+
+/** Wording that would let a compiled rule outrank the doctrine (EFF-1). */
+const OUTRANKS_DOCTRINE = [/prefer/i, /takes? precedence/i, /\bbeats? (the )?(generic )?doctrine/i, /\bover (the )?(generic )?doctrine/i, /\bavoid "/i]
+
+describe('learned rules in the prompt (EFF-1)', () => {
+  const at = '2026-09-24T00:00:00Z'
+  // A three-video channel: one lever won two of three 7-day reads, one lost three of four, and a person accepted one rule.
+  const rules = [
+    RuleDoc.parse({ id: 'rule:a', rule: 'x', lever: 'number-in-title', tests: 3, wins: 2, confidence: 0.57, status: 'promoted', slugs: ['v1', 'v2', 'v3'], updatedAt: at }),
+    RuleDoc.parse({ id: 'rule:b', rule: 'x', lever: 'stakes-thumb', tests: 4, wins: 1, confidence: 0.33, status: 'retired', updatedAt: at }),
+    RuleDoc.parse({ id: 'rule:c', rule: 'Face on every thumbnail', status: 'promoted', acceptedBy: 'jony', confidence: 1, updatedAt: at }),
+  ]
+
+  it('tells the model learned rules are observations under test that never override the doctrine', () => {
+    expect(SYSTEM_PREAMBLE).toContain("are observations under test from this channel's own small sample, not doctrine")
+    expect(SYSTEM_PREAMBLE).toContain('They never override the doctrine: where one disagrees with it, follow the doctrine.')
+    expect(SYSTEM_PREAMBLE).toContain('Mention a learned rule only as a hypothesis worth testing, with its evidence count.')
+    for (const pattern of OUTRANKS_DOCTRINE) expect(SYSTEM_PREAMBLE).not.toMatch(pattern)
+  })
+
+  it('assembles a prompt in which no learned rule is ever preferred over the doctrine', () => {
+    const learned = renderLearnedRules(rules, { now: new Date(at) })
+    const assembled = assemblePrompt('title-lab', { idea: 'Van build' }, { playbookText: `<!-- playbook/00-learned-rules.md -->\n${learned}`, playbookFiles: [LEARNED_RULES_FILE] })
+    const sent = assembled.system.map((b) => b.text).join('\n')
+    for (const pattern of OUTRANKS_DOCTRINE) expect(sent).not.toMatch(pattern)
+    expect(sent).toContain('- Hypothesis under observation: "number-in-title" may help on this channel (3 tests, 2 wins, smoothed win rate 60%, confidence 57%; v1, v2, v3)')
+    expect(sent).toContain('- Hypothesis under observation: "stakes-thumb" may not help on this channel (4 tests, 1 win,')
+    expect(sent).toContain('- Face on every thumbnail [accepted by jony]')
+    const dry = formatDryRun(assembled)
+    for (const pattern of OUTRANKS_DOCTRINE) expect(dry).not.toMatch(pattern)
+  })
+
+  it('ships a doctrine that never ranks learned rules above itself', () => {
+    // The real docs/02 and playbook/*.md, minus any compiled file a local run left behind. The doctrine
+    // legitimately says "Preferred" (a Test & Compare label), so this checks learned-rule wording only.
+    const shipped: PlaybookFs = { exists: existsSync, readdir: (dir) => readdirSync(dir).filter((f) => f !== path.basename(LEARNED_RULES_FILE)), readFile: (file) => readFileSync(file, 'utf8') }
+    const loaded = loadPlaybook(undefined, { fs: shipped })
+    expect(loaded.files).toContain(DOCTRINE_FILE)
+    const sent = [SYSTEM_PREAMBLE, loaded.text].join('\n')
+    expect(sent).not.toMatch(/prefer (the |a )?learned rules?/i)
+    expect(sent).not.toMatch(/learned rules? (beats?|outranks?|takes? precedence|wins? over)/i)
+    expect(sent).not.toMatch(/\bloaded ahead of (the )?generic doctrine/i)
+    expect(loaded.text).toContain('hypothesis under observation from the channel\'s own small sample, not doctrine')
   })
 })
 

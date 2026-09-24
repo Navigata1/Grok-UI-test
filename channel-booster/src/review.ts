@@ -26,7 +26,7 @@ import path from 'node:path'
 import { bucketFor, ledgerReadFromRow, readStudioRows } from './csv.js'
 import { BUCKET_HOURS, BUCKETS, type Bucket } from './buckets.js'
 import { decide } from './decide.js'
-import { ageHours, baselineFrom, dueReads, readLedger, recordRead } from './ledger.js'
+import { ageHours, baselineFrom, dueReads, readAgeHours, readLedger, recordRead } from './ledger.js'
 import { diagnose, type DiagnosisMode, type DiagnosisV2, type PostMortemInputV2 } from './postmortem.js'
 import { baselineInputFrom } from './profile.js'
 import { prepareRepackage, type PackagedThumbnail, type PackagedTitle, type RepackagePackage, type RepackagePlan } from './repackage.js'
@@ -497,7 +497,8 @@ export function runReviews(store: Store, options: RunReviewsOptions): RunReviews
       mode,
       baselines,
       baseline: flat,
-      hoursSincePublish: ageHours(row, now),
+      // The read's own age: a later run on the same numbers must not clear the cold-start gate by the clock alone.
+      hoursSincePublish: read ? readAgeHours(row, read) : ageHours(row, now),
       previousRead: bucket === '48' ? row.reads['24'] : undefined,
     }
     const diagnosis = diagnose(input)

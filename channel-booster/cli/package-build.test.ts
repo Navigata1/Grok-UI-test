@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { main } from '../cli/booster.js'
 import { PackageDocSchema } from '../src/package.js'
 import { openStore } from '../src/store.js'
@@ -11,6 +13,8 @@ const NOW = '2026-09-14T12:00:00Z'
 const IDEA = 'I lived off a $300 solar generator for 30 days'
 const SLUG = 'i-lived-off-a-300-solar-generator-for-30-days'
 const PROMISE = 'thirty days on a $300 solar generator, every failure shown'
+/** The title a person writes for IDEA (package build --title). Offline it is the only way the package gets one. */
+const TITLE = 'Thirty Days on a $300 Solar Generator, Every Failure'
 
 let tmp: string
 let data: string
@@ -56,6 +60,22 @@ async function json(argv: string[]): Promise<{ code: number; parsed: any }> {
   return { code, parsed: JSON.parse(out) }
 }
 
+/** The repository root: `npm run booster --` runs cli/booster.ts through tsx from here. */
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+/**
+ * Run a `booster ...` line the CLI printed, word for word, the way a person pastes it after
+ * `npm run booster --`: a new process in `cwd`, with only the environment given (no scoped() flags).
+ * Double-quoted words are JSON strings, as the CLI prints them; `<your title>` becomes `title`.
+ */
+function runPrinted(line: string, title: string, cwd: string, env: NodeJS.ProcessEnv): { status: number | null; stdout: string; stderr: string } {
+  const words = (line.match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((w) => (w.startsWith('"') ? JSON.parse(w) as string : w))
+  expect(words[0]).toBe('booster')
+  const argv = words.slice(1).map((w) => (w === '<your title>' ? title : w))
+  const r = spawnSync(process.execPath, [path.join(REPO, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(REPO, 'channel-booster', 'cli', 'booster.ts'), ...argv], { cwd, env, encoding: 'utf8' })
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
+}
+
 async function fails(argv: string[]): Promise<string> {
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
@@ -71,36 +91,106 @@ async function fails(argv: string[]): Promise<string> {
 }
 
 describe('booster package build', () => {
-  it('builds the package offline, writes package.json and package.md, and exits on the gate report', async () => {
-    const { code, parsed } = await json(['package', 'build', IDEA, '--promise', PROMISE, '--subject', 'me', '--stake', 'the fridge dying', '--result', 'a full month on $300 of solar', '--offline'])
-    expect(parsed.slug).toBe(SLUG)
-    expect(parsed.mode).toBe('offline')
-    expect(parsed.rounds).toBe(1)
-    expect(parsed.titles.length).toBeGreaterThan(3)
-    expect(parsed.chosenTitle).toBe(parsed.titles[0].title)
-    expect(parsed.thumbnails.length).toBeGreaterThanOrEqual(4)
-    expect(parsed.thumbnails.every((t: any) => t.qa && t.spec && typeof t.overlap === 'number')).toBe(true)
-    expect(parsed.abPick.a).not.toBe('')
-    expect(parsed.ownTitles).toEqual(['', '', ''])
-    // The pre-registered hypothesis is what makes the ledger row a test rules compile can count.
-    expect(parsed.hypothesis.levers).toEqual([parsed.titles[0].formula, parsed.thumbnails.find((t: any) => t.name === parsed.abPick.a).angle, parsed.thumbnails.find((t: any) => t.name === parsed.abPick.b).angle])
+  it('builds the package offline, never picks a formula fill, and passes once a person writes the title', async () => {
+    const opts = ['--subject', 'me', '--stake', 'the fridge dying', '--result', 'a full month on $300 of solar']
+    const bare = await json(['package', 'build', IDEA, '--promise', PROMISE, ...opts, '--offline'])
+    expect(bare.parsed.slug).toBe(SLUG)
+    expect(bare.parsed.mode).toBe('offline')
+    expect(bare.parsed.rounds).toBe(1)
+    // No title until a person writes one: no fill is ranked, scored or chosen, and the title gate says what to do.
+    expect(bare.parsed.chosenTitle).toBe('')
+    expect(bare.parsed.titleSource).toBeUndefined()
+    expect(bare.parsed.titles).toEqual([])
+    expect(bare.parsed.titleShapes.length).toBeGreaterThan(10)
+    expect(bare.parsed.titleShapes.every((t: any) => t.template === true && t.score === null && t.title.includes('___'))).toBe(true)
+    expect(bare.parsed.gateReport.titleGate.pass).toBe(false)
+    expect(bare.parsed.gateReport.titleGate.reason).toMatch(/offline, the builder never picks a formula fill; a person writes the title \(AGENTS.md, human gate 2\)/)
+    expect(bare.parsed.gateReport.pass).toBe(false)
+    expect(bare.code).toBe(1)
+    expect(bare.parsed.thumbnails.length).toBeGreaterThanOrEqual(4)
+    expect(bare.parsed.thumbnails.every((t: any) => t.qa && t.spec && typeof t.overlap === 'number')).toBe(true)
+    expect(bare.parsed.abPick.a).not.toBe('')
+    expect(bare.parsed.ownTitles).toEqual(['', '', ''])
+    expect(bare.parsed.bank).toBeNull()
+    const text = await run(['package', 'build', IDEA, '--promise', PROMISE, ...opts, '--offline'])
+    expect(text.out).toMatch(/^Package · i-lived-off-a-300-solar-generator-for-30-days · GATES FAIL \(offline generators, one round\)\nTitle: none yet/)
+    const rebuild = `booster package build ${SLUG} --title "<your title>" --subject "me" --stake "the fridge dying" --result "a full month on $300 of solar"`
+    expect(text.out).toContain(`then ${rebuild}`)
+    // stderr carries it too: it is what the workflow runner shows for a failed stage.
+    expect(text.err).toContain(`No title yet for ${SLUG}: a person writes it, then ${rebuild}`)
+    // The directories this run used are repeated as absolute paths, so the line works from any directory.
+    expect(text.err).toContain(` --root ${JSON.stringify(tmp)} --data ${JSON.stringify(data)} --path ${JSON.stringify(profile)} --offline\n`)
+    expect(text.code).toBe(1)
+
+    // The person writes the title and rebuilds by slug: the stored idea and promise come back with it.
+    const { code, parsed } = await json(['package', 'build', SLUG, '--title', TITLE, ...opts, '--offline'])
+    expect(parsed.idea).toBe(IDEA)
+    expect(parsed.promise).toBe(PROMISE)
+    expect(parsed.chosenTitle).toBe(TITLE)
+    expect(parsed.titleSource).toBe('person')
+    expect(parsed.titles).toEqual([expect.objectContaining({ title: TITLE })])
+    expect(parsed.gateReport.pass).toBe(true)
+    expect(code).toBe(0)
+    // The pre-registered hypothesis is what makes the ledger row a test rules compile can count; a person's title names no formula.
+    expect(parsed.hypothesis.levers).toEqual([parsed.thumbnails.find((t: any) => t.name === parsed.abPick.a).angle, parsed.thumbnails.find((t: any) => t.name === parsed.abPick.b).angle])
     expect(parsed.hypothesis.predictedCtrMultiple).toBe(1)
     expect(parsed.gateReport.thresholdsUsed.length).toBeGreaterThan(0)
-    expect(code).toBe(parsed.gateReport.pass ? 0 : 1)
-    expect(parsed.bank).toBeNull()
     const dir = path.join(tmp, 'packages', SLUG)
     expect(parsed.json).toBe(path.join(dir, 'package.json'))
     expect(parsed.md).toBe(path.join(dir, 'package.md'))
     const onDisk = PackageDocSchema.parse(JSON.parse(readFileSync(parsed.json, 'utf8')))
     expect(onDisk.slug).toBe(SLUG)
+    expect(onDisk.titleSource).toBe('person')
     expect(onDisk.createdAt).toBe('2026-09-14T12:00:00.000Z')
     const md = readFileSync(parsed.md, 'utf8')
-    expect(md).toContain(parsed.chosenTitle)
+    expect(md).toContain(`Chosen: **${TITLE}** (yours)`)
     expect(md).toContain(PROMISE)
-    const text = await run(['package', 'build', IDEA, '--promise', PROMISE, '--offline'])
-    expect(text.out).toMatch(/^Package · i-lived-off-a-300-solar-generator-for-30-days · GATES (PASS|FAIL) \(offline generators, one round\)/)
-    expect(text.out).toContain(`Wrote ${parsed.json} and ${parsed.md}.`)
-    expect(text.code).toBe(parsed.gateReport.pass ? 0 : 1)
+
+    // A rebuild without --title (what the workflow's packaging stage runs) keeps the person's title.
+    const again = await run(['package', 'build', SLUG, '--offline'])
+    expect(again.code).toBe(0)
+    expect(again.out).toContain(`Title: ${TITLE} (yours, `)
+    expect(again.out).toContain('Rebuilds keep your title; --title replaces it.')
+    expect(JSON.parse(readFileSync(parsed.json, 'utf8')).chosenTitle).toBe(TITLE)
+  })
+
+  it('refuses --title without the title text', async () => {
+    expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--title', '--offline'])).toMatch(/--title needs the title text/)
+    expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--lever', '--offline'])).toMatch(/--lever needs the lever your title pulls/)
+  })
+
+  it('pre-registers the lever a person names for their title, keeps it on rebuild, and drops it with a new title', async () => {
+    // Offline the title is a person's, and a person's title names no formula: --lever is how it enters the hypothesis.
+    const bare = await run(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--offline'])
+    expect(bare.out).toContain('Your title names no lever: rebuild with --lever "<the lever it pulls>" so rules compile counts the title too.')
+    const named = await json(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--lever', 'number in title', '--offline'])
+    const angles = [named.parsed.thumbnails.find((t: any) => t.name === named.parsed.abPick.a).angle, named.parsed.thumbnails.find((t: any) => t.name === named.parsed.abPick.b).angle]
+    expect(named.parsed.hypothesis.levers).toEqual(['number in title', ...angles])
+    expect(named.parsed.titles[0]).toMatchObject({ title: TITLE, lever: 'number in title' })
+    // The workflow's packaging stage rebuilds by slug with neither flag: the title and its lever both stay.
+    const kept = await json(['package', 'build', SLUG, '--offline'])
+    expect(kept.parsed.chosenTitle).toBe(TITLE)
+    expect(kept.parsed.hypothesis.levers).toEqual(['number in title', ...angles])
+    const again = await run(['package', 'build', SLUG, '--offline'])
+    expect(again.out).not.toContain('Your title names no lever')
+    // A different title does not inherit the old title's lever.
+    const other = await json(['package', 'build', SLUG, '--title', 'I Ran My Fridge on $300 of Solar for 30 Days', '--offline'])
+    expect(other.parsed.hypothesis.levers).toEqual(angles)
+    // With no title of the person's, --lever registers nothing and says so.
+    const none = await run(['package', 'build', 'Van life budget build under 5000', '--promise', 'a full camper build for under $5,000', '--lever', 'price in title', '--offline'])
+    expect(none.err).toContain('--lever "price in title" is not registered: it names the lever of a title you wrote, and this package has none. Pass it with --title.')
+    expect(none.out).toMatch(/Hypothesis: levers (?!.*price in title)/)
+  })
+
+  it('keeps a person\'s title in Start Case, or with one word in capitals, at its own score through the title gate', async () => {
+    // Both used to be read as template fills and held at 40/100: GATES FAIL on a title the person wrote.
+    for (const [title, score] of [['I Did A 30 Day Test On A $300 Solar Generator', 85], ['Why cheap solar generators are NOT worth it', 85]] as const) {
+      const { parsed } = await json(['package', 'build', IDEA, '--promise', PROMISE, '--title', title, '--offline'])
+      expect(parsed.chosenTitle).toBe(title)
+      expect(parsed.titles[0].score).toBe(score)
+      expect(parsed.titles[0].notes.join(' ')).not.toMatch(/template fill/)
+      expect(parsed.gateReport.titleGate.pass).toBe(true)
+    }
   })
 
   it('stays offline without an API key even when --offline is not given, and honours --out', async () => {
@@ -156,18 +246,61 @@ describe('booster package build', () => {
     expect(built.parsed.bank).toBeNull()
   })
 
-  it('runs the packaging stage for real from --root through the workflow runner', async () => {
+  it('runs the packaging stage for real from --root through the workflow runner, and keeps the title a person wrote', async () => {
     await run(['workflow', IDEA, '--promise', PROMISE, '--out', path.join(tmp, 'packages')])
     await run(['workflow', 'run', SLUG, '--override', '--reason', 'demand confirmed', '--yes'])
+    // Offline and no title yet: the stage fails and its stderr (which the runner prints) says who writes the title.
+    const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(first.parsed.result.stageId).toBe('packaging')
+    expect(first.parsed.result.command).toEqual(['npm', 'run', 'booster', '--', 'package', 'build', SLUG])
+    expect(first.parsed.result.kind).toBe('command')
+    expect(first.parsed.result.status).toBe('failed')
+    expect(first.parsed.result.stderr).toContain(`No title yet for ${SLUG}: a person writes it, then booster package build ${SLUG} --title "<your title>"`)
+    expect(first.code).toBe(1)
+    expect(existsSync(path.join(tmp, 'packages', SLUG, 'package.json'))).toBe(true)
+    expect(JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'package.json'), 'utf8')).chosenTitle).toBe('')
+
+    // The person writes it, then the stage re-runs `package build <slug>` and keeps it rather than choosing again.
+    expect((await run(['package', 'build', SLUG, '--title', TITLE, '--offline'])).code).toBe(0)
     const { code, parsed } = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
     expect(parsed.result.stageId).toBe('packaging')
-    expect(parsed.result.command).toEqual(['npm', 'run', 'booster', '--', 'package', 'build', SLUG])
-    expect(parsed.result.kind).toBe('command')
-    expect(existsSync(path.join(tmp, 'packages', SLUG, 'package.json'))).toBe(true)
     const pkg = JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'package.json'), 'utf8'))
     expect(pkg.promise).toBe(PROMISE)
-    expect(parsed.result.status).toBe(pkg.gateReport.pass ? 'passed' : 'failed')
-    expect(code).toBe(pkg.gateReport.pass ? 0 : 1)
+    expect(pkg.chosenTitle).toBe(TITLE)
+    expect(pkg.titleSource).toBe('person')
+    expect(pkg.gateReport.pass).toBe(true)
+    expect(parsed.result.status).toBe('passed')
+    expect(code).toBe(0)
+  }, 90_000)
+
+  it('prints a title command that, pasted as printed from another directory, lets the --root packaging stage pass', async () => {
+    // The workflow runs from --root (scoped() passes tmp), which is not the directory the person types in
+    // (npm run starts at the repository root), and shares its store and profile with the stage through
+    // BOOSTER_DATA and BOOSTER_PROFILE.
+    const root = tmp
+    const elsewhere = path.join(tmp, 'elsewhere')
+    mkdirSync(elsewhere, { recursive: true })
+    await run(['workflow', IDEA, '--promise', PROMISE, '--out', path.join(root, 'packages')])
+    await run(['workflow', 'run', SLUG, '--override', '--reason', 'demand confirmed', '--yes'])
+    const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(first.parsed.result).toMatchObject({ stageId: 'packaging', status: 'failed' })
+    const printed = /No title yet for [a-z0-9-]+: a person writes it, then (booster package build [^\n]+)/.exec(first.parsed.result.stderr)?.[1]
+    expect(printed).toBeDefined()
+    expect(printed).toContain(`--root ${JSON.stringify(root)}`)
+
+    // The person's shell has neither BOOSTER_DATA nor BOOSTER_PROFILE (the runner set both for its stage): the line stands alone.
+    expect(printed).toContain(`--data ${JSON.stringify(data)} --path ${JSON.stringify(profile)}`)
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    for (const k of ['ANTHROPIC_API_KEY', 'BOOSTER_DATA', 'BOOSTER_PROFILE']) delete env[k]
+    const pasted = runPrinted(printed!, TITLE, elsewhere, env)
+    expect(pasted.stdout, pasted.stderr).toContain('GATES PASS')
+    expect(pasted.status).toBe(0)
+    // The title landed where the stage gate reads it, not in a packages/ folder under the typing directory.
+    expect(existsSync(path.join(elsewhere, 'packages'))).toBe(false)
+    expect(JSON.parse(readFileSync(path.join(root, 'packages', SLUG, 'package.json'), 'utf8'))).toMatchObject({ chosenTitle: TITLE, titleSource: 'person' })
+    const second = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(second.parsed.result).toMatchObject({ stageId: 'packaging', status: 'passed' })
+    expect(second.code).toBe(0)
   }, 90_000)
 
   it('refuses a missing promise, an unknown bank id, a bad round count and a missing idea', async () => {
@@ -180,7 +313,8 @@ describe('booster package build', () => {
   })
 
   it('feeds the story and the shot list: hook score reads the package title and promise, plan shots reads both files', async () => {
-    const built = await json(['package', 'build', IDEA, '--promise', PROMISE, '--offline'])
+    const built = await json(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--offline'])
+    expect(built.parsed.chosenTitle).toBe(TITLE)
     const script = path.join(tmp, 'script.txt')
     writeFileSync(script, [
       `Thirty days on a $300 solar generator, every failure shown. Here is what broke first.`,

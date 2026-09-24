@@ -11,8 +11,14 @@
  *   SEQUEL         7-day multiple >= 3x with returning share >= 0.9x baseline and AVP >= 0.9x.
  *   EXPAND         7-day multiple 1.5x to 3x with healthy retention.
  *   PARK           7-day multiple < 0.7x with an idea bottleneck.
- *   HOLD           nothing to change now; the flip condition says what would change it.
- *   WAIT           the read is missing or the diagnosis is insufficient-data.
+ *                  All three need a 7-day median views resting on at least five 7-day reads
+ *                  (the prior/thin boundary of tierFor()); a 48-hour median or a typed number
+ *                  never stands in for it. Short of that the call is HOLD, with the multiple shown.
+ *   HOLD           nothing to change now; the flip condition says what would change it. A read the
+ *                  cold-start gate held (under 2,000 impressions and 72 h of data) is a HOLD too:
+ *                  the next scheduled read judges it, and no swap is made on that sample.
+ *   WAIT           the read is missing, or the diagnosis is insufficient-data for want of numbers
+ *                  a person can still record on this read.
  *
  * The engine only prescribes the first broken stage (R11); hook and retention
  * verdicts are HOLD with the fix routed to the next edit. It never applies
@@ -20,6 +26,7 @@
  * person applies it. All gates live in src/thresholds.ts with evidence tags.
  */
 import { BUCKET_HOURS, BUCKETS, type Bucket } from './buckets.js'
+import { tierFor } from './ledger-core.js'
 import type { Baselines, DecisionDoc, LedgerRow } from './schema.js'
 import type { DiagnosisV2 } from './postmortem.js'
 import { tagged, thresholds } from './thresholds.js'
@@ -38,6 +45,13 @@ export interface DecideInput {
 }
 
 type Numbers = Record<string, number | string | boolean>
+
+/** Fewest 7-day reads behind the median views before SEQUEL, EXPAND or PARK: the first n that tierFor() lifts out of `prior`. */
+const MIN_WEEK_READS = (() => {
+  let n = 0
+  while (tierFor(n) === 'prior') n += 1
+  return n
+})()
 
 function round(v: number, places = 2): number {
   const f = 10 ** places
@@ -59,6 +73,11 @@ function previousBucket(bucket: Bucket): Bucket | undefined {
   return i > 0 ? BUCKETS[i - 1] : undefined
 }
 
+/** The next scheduled read after `bucket`; none after 672 h. */
+function nextBucket(bucket: Bucket): Bucket | undefined {
+  return BUCKETS[BUCKETS.indexOf(bucket) + 1]
+}
+
 /**
  * Decide what to do with a published video at one read bucket. Pure and
  * deterministic: the same diagnosis, row and `now` always give the same document
@@ -69,7 +88,10 @@ export function decide(input: DecideInput): DecisionDoc {
   const read = row.reads[bucket]
   const hours = hoursSince(row.publishedAt, now)
   const base = diagnosis.baselineUsed
-  const baselineViews = baselines?.views?.median ?? base.views
+  // 7 and 28-day reads judge on the 7-day median views alone; at 48 h any median views the caller has.
+  const onMultiple = bucket === '168' || bucket === '672'
+  const weekViews = baselines?.bucket === '168' ? baselines.views : undefined
+  const baselineViews = onMultiple ? weekViews?.median : baselines?.views?.median ?? base.views
   const numbers: Numbers = {
     bucket,
     hoursSincePublish: round(hours, 1),
@@ -98,11 +120,13 @@ export function decide(input: DecideInput): DecisionDoc {
   if (baselineViews !== undefined) numbers.baselineViews = baselineViews
 
   if (diagnosis.bottleneck === 'insufficient-data') {
+    if (diagnosis.coldStartHeld && bucket !== '24') return holdColdStart(diagnosis.coldStartHeld)
+    const next = nextBucket(bucket)
     const need = diagnosis.impressionsNeeded !== undefined && read.impressions !== undefined
       ? `Flips once the video has about ${fmt(diagnosis.impressionsNeeded)} impressions (${fmt(diagnosis.impressionsNeeded - read.impressions)} more) and the CTR band is certain.`
       : bucket === '24'
         ? 'Flips at the 48-hour read, the first read that can call packaging.'
-        : `Flips when the next read clears the data gates (${tagged('minImpressionsForVerdict')} impressions and ${tagged('minHoursForVerdict', 'h')}; cold start ${tagged('coldStartMinImpressions')} or ${tagged('coldStartMinHours', 'h')}).`
+        : `Flips when a read clears the data gates (${tagged('minImpressionsForVerdict')} impressions and ${tagged('minHoursForVerdict', 'h')}; cold start ${tagged('coldStartMinImpressions')} or ${tagged('coldStartMinHours', 'h')}): record the missing numbers on the ${bucket}-hour read and review it again${next ? `, or the ${next}-hour read judges it` : ''}.`
     if (diagnosis.impressionsNeeded !== undefined) numbers.impressionsNeeded = diagnosis.impressionsNeeded
     return finish('WAIT', need)
   }
@@ -159,10 +183,25 @@ export function decide(input: DecideInput): DecisionDoc {
   numbers.expandMultipleLow = expandX
   numbers.parkMultiple = parkX
 
+  // The views baseline the multiple rests on: how many genuine 7-day reads, and their tier.
+  const weekReads = weekViews?.n ?? 0
+  numbers.baselineViewsN = weekReads
+  numbers.baselineViewsTier = tierFor(weekReads)
+  const moreReads = MIN_WEEK_READS - weekReads
+  const readsToGo = moreReads > 0 ? `${moreReads} more video${moreReads === 1 ? ' has' : 's have'} a 7-day read with views` : 'the 7-day median views is above zero'
+
   if (multiple === undefined) {
     return finish('HOLD', views === undefined
       ? `Record views on the ${bucket}-hour read; the multiple cannot be computed without them.`
-      : 'No median views yet (cold start): the multiple cannot be computed. Flips to SEQUEL/EXPAND/PARK once five videos give a baseline.')
+      : `No 7-day median views yet (${weekReads} of ${MIN_WEEK_READS} reads): the multiple cannot be computed, and a 48-hour or typed median never stands in for it. Flips to SEQUEL/EXPAND/PARK once ${readsToGo}.`)
+  }
+  if (weekReads < MIN_WEEK_READS) {
+    const carry = diagnosis.bottleneck === 'packaging' || diagnosis.bottleneck === 'packaging-soft'
+      ? ' CTR was the bottleneck and the swap window has closed: write the lever; the next package inherits it.'
+      : diagnosis.bottleneck === 'hook' || diagnosis.bottleneck === 'retention'
+        ? ` The ${diagnosis.bottleneck} is broken: fix it in the next edit.`
+        : ''
+    return finish('HOLD', `${multiple.toFixed(2)}x median views, but the 7-day median rests on ${weekReads} of ${MIN_WEEK_READS} reads; SEQUEL/EXPAND/PARK wait for ${MIN_WEEK_READS}.${carry} Flips once ${readsToGo}.`)
   }
   if (multiple >= sequelX) {
     const returningOk = read.returningPct !== undefined && (returningRel === undefined || returningRel >= thresholds.sequelReturningRel.value)
@@ -193,6 +232,28 @@ export function decide(input: DecideInput): DecisionDoc {
     return finish('HOLD', `${multiple.toFixed(2)}x median views with a ${diagnosis.bottleneck} bottleneck: the topic had demand, the video did not deliver it. Fix the ${diagnosis.bottleneck} in the next edit. Flips to PARK if the retry reads idea.`)
   }
   return finish('HOLD', `${multiple.toFixed(2)}x median views: a normal video. Flips to EXPAND at ${tagged('expandMultipleLow', 'x')} (${fmt(baselineViews! * expandX)} views) or PARK under ${tagged('parkMultiple', 'x')} with an idea bottleneck.`)
+
+  /**
+   * The cold-start gate held the verdict on this read (a first upload under 2,000 impressions and 72 hours
+   * of data, house). That is no reason to wait on a read the schedule never takes: the call is HOLD,
+   * nothing changes on this sample, and the flip names the next scheduled read. A low or soft CTR can
+   * still reach a swap inside the window, but only on a re-recorded read that clears the gate.
+   */
+  function holdColdStart(held: NonNullable<DiagnosisV2['coldStartHeld']>): DecisionDoc {
+    numbers.readHours = round(held.hours, 1)
+    numbers.coldStartMinImpressions = thresholds.coldStartMinImpressions.value
+    numbers.coldStartMinHours = thresholds.coldStartMinHours.value
+    const gate = `${tagged('coldStartMinImpressions')} impressions or ${tagged('coldStartMinHours', 'h')} of data`
+    const sample = `this read: ${held.impressions !== undefined ? `${fmt(held.impressions)} impressions` : 'no impression count'} at ${round(held.hours, 0)} h`
+    const next = nextBucket(bucket)
+    const later = next ? `The ${next}-hour read judges it${next === '168' ? ' on views against the 7-day median' : ''}.` : 'There is no later scheduled read.'
+    if (held.band === 'healthy') return finish('HOLD', `Cold start: too early to call. The numbers read healthy, but a first upload gets no verdict before ${gate} (${sample}); nothing to change. ${later}`)
+    const window = thresholds.repackageWindowHours.value
+    const reopen = bucket === '48' && hours <= window
+      ? ` Flips to ${held.band === 'low' ? 'REPACKAGE' : 'RE-TEST-TITLE'} only if this read is re-recorded inside the ${window}-hour window with ${fmt(thresholds.coldStartMinImpressions.value)} impressions and CTR still ${held.band}, then reviewed again (booster review run --slug ${row.slug} --bucket ${bucket}).`
+      : ''
+    return finish('HOLD', `Cold start: too early to call. CTR reads ${held.band}, but a first upload gets no packaging verdict before ${gate} (${sample}), so nothing is swapped on it. ${later}${reopen}`)
+  }
 
   /** The REPACKAGE gate, condition by condition; the first failing one names the flip. */
   function decidePackaging(): DecisionDoc {

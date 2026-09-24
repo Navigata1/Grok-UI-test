@@ -31,7 +31,7 @@ The title tells; the thumbnail shows. A title has one job: make the promise spec
 | Stop doing | Stop X Like This | Stop Taking Cold Showers Like This |
 | Proof | X. I Have Proof. | Cold Showers Work. I Have Proof. |
 
-Give the formulas a noun phrase as the topic ("cold showers", not "taking cold showers every day"); the AI title lab handles grammar, the deterministic generator does not.
+These are shapes, not titles. `booster titles` prints each one with a blank (`I Tried ___ for 30 Days`) and no score: fill the blank in your own words, changing the verb and dropping the article where the sentence needs it, as the examples above do. A topic pasted into a formula ("I Did A $300 solar generator Until It Worked") is a template fill, and `booster titles score` holds it under the title gate. Offline, `booster package build` never picks a title for you; pass yours with `--title`.
 
 ## Testing
 

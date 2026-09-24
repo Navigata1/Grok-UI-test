@@ -42,15 +42,15 @@ export const DEFAULT_THRESHOLDS = {
   retention30Healthy: { value: 60, evidence: 'unverified', note: 'share of viewers still watching at 30 seconds; widely cited YouTube intro guidance, not confirmed at source' },
   avpSoftRel: { value: 0.85, evidence: 'house', note: 'average percentage viewed below this share of baseline is a retention bottleneck' },
   repackageWindowHours: { value: 72, evidence: 'house', note: 'after this a thumbnail swap rarely changes distribution' },
-  wilsonZ: { value: 1.96, evidence: 'house', note: 'z for the 95% Wilson interval on CTR; a verdict is insufficient-data while the interval straddles a CTR threshold' },
+  wilsonZ: { value: 1.96, evidence: 'house', note: 'z for the 95% Wilson interval on CTR; a 48-hour verdict is insufficient-data while the interval straddles a CTR threshold (the 7 and 28-day reads call the band on the point estimate)' },
   impressionsLowVsExpectedRel: { value: 0.5, evidence: 'house', note: 'impressions below this share of your own median impressions at the same read means the system found no audience' },
   notAlgorithmicBrowseSuggestedPct: { value: 40, evidence: 'house', note: 'browse plus suggested under this share of impressions: the video is not yet algorithmic; the traffic-source taxonomy is unverified' },
   // Cold start priors (used when the channel has no baseline yet)
   priorCtr: { value: 4, evidence: 'unverified', note: 'midpoint of the 2-10% band' },
   priorAvp: { value: 40, evidence: 'house', note: 'mid-length video average percentage viewed prior' },
   priorRetention30: { value: 60, evidence: 'unverified', note: 'same figure as retention30Healthy' },
-  coldStartMinImpressions: { value: 2000, evidence: 'house', note: 'no packaging verdict on a first upload before this many impressions' },
-  coldStartMinHours: { value: 72, evidence: 'house', note: 'no packaging verdict on a first upload before this many hours' },
+  coldStartMinImpressions: { value: 2000, evidence: 'house', note: 'no packaging or healthy verdict on a cold-start upload before this many impressions' },
+  coldStartMinHours: { value: 72, evidence: 'house', note: 'no packaging or healthy verdict on a cold-start upload before this many hours' },
   coldStartGrowthPct: { value: 30, evidence: 'house', note: '24-to-48 hour impression growth above this is healthy on a cold start; there is no median to compare against' },
   // Test & Compare (src/experiments.ts). The cold-start pair is named apart from the funnel's
   // coldStartMin*: the judge waits a full week where a packaging verdict waits three days.

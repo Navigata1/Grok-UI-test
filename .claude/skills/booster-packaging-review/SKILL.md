@@ -5,7 +5,7 @@ description: Review a YouTube title and thumbnail as a pair - does the title tel
 
 # Packaging review
 
-To build the whole package first: `npm run booster -- package build "<idea>" --promise "<one sentence the video keeps>" [--subject ..] [--stake ..] [--result ..]` writes `packages/<slug>/package.json` and `package.md` (titles, concepts with QA, the A/B pair, the designer brief) and refuses to call it passed until the title gate, two ship-grade concepts with different levers, the overlap gate and the promise gate clear; with `ANTHROPIC_API_KEY` set the model generates and every failed gate goes back to it for up to three rounds. The person then writes three titles of their own on the sheet and picks the final title and pair (human-only gate).
+To build the whole package first: `npm run booster -- package build "<idea>" --promise "<one sentence the video keeps>" [--subject ..] [--stake ..] [--result ..]` writes `packages/<slug>/package.json` and `package.md` (titles, concepts with QA, the A/B pair, the designer brief) and refuses to call it passed until the title gate, two ship-grade concepts with different levers, the overlap gate and the promise gate clear; with `ANTHROPIC_API_KEY` set the model generates and every failed gate goes back to it for up to three rounds. Offline it never picks a title: the sheet lists the formula shapes and the title gate stays shut until the person's title goes in with `--title "<title>"`, which every rebuild keeps. The person writes three titles of their own on the sheet and picks the final title and pair (human-only gate).
 
 To review a pair:
 

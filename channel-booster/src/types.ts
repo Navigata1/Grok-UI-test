@@ -98,6 +98,21 @@ export interface TitleCandidate {
   notes: string[]
 }
 
+/**
+ * A title formula with a blank (___) where the topic goes. It is a shape a
+ * person writes a title from, not a title: it carries no score, is never
+ * ranked and is never chosen for a package.
+ */
+export interface TitleShape {
+  /** The formula with the blank, e.g. "I Tried ___ for 30 Days". */
+  title: string
+  formula: string
+  /** A worked title in this shape, from playbook/title-formulas.md; absent where the playbook has none. */
+  example?: string
+  template: true
+  score: null
+}
+
 export interface TitleLabInput {
   /** The core topic or promise, e.g. "I built a solar generator from scrap". */
   topic: string

@@ -129,7 +129,8 @@ export function generateWorkflow(idea: string, options: { format?: WorkflowForma
       inputs: ['idea scorecard', 'outlier references'],
       outputs: ['10 title candidates', 'chosen title', '3 thumbnail concepts', 'thumbnail brief'],
       checklist: [
-        'Generate 10 titles with booster titles; keep the two best and one wildcard.',
+        'Write 10 titles of your own from the shapes booster titles prints, score them with booster titles score, and keep the two best and one wildcard.',
+        'A person picks the final title and passes it to booster package build with --title "<title>"; every rebuild keeps it, and offline the gate stays shut until then (human-only gate 2).',
         'Build the thumbnail brief; sketch the three strongest concepts on paper at phone size.',
         'Run the packaging review: title tells, thumbnail shows, neither repeats the other.',
       ],

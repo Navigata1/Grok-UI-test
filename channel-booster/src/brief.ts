@@ -17,6 +17,7 @@ import { listIdeas, wipWarnings } from './bank.js'
 import type { Bucket } from './buckets.js'
 import { TEST_RULES } from './experiments.js'
 import { baselineFrom, dueReads, readLedger } from './ledger.js'
+import { describeRule, isProtected, ruleSentence } from './rules-core.js'
 import type { Baselines, DecisionDoc, IdeaDoc, LedgerRow, ProfileDoc, RuleDoc, Stat } from './schema.js'
 import type { Store } from './store.js'
 import { slugify } from './workflow.js'
@@ -243,23 +244,32 @@ function experimentItems(store: Store, profile: ProfileDoc, now: Date): Experime
     .sort((a, b) => Number(b.ready) - Number(a.ready) || b.hoursRunning - a.hoursRunning)
 }
 
+/**
+ * What to do about a rule that moved. A compiled rule is a hypothesis under
+ * observation, so the brief never tells a person to follow it: it says to
+ * keep testing, and names `retro --accept-rule` (a person, in their own
+ * words) as the only way a winning-so-far lever becomes a playbook rule.
+ */
+function ruleCommand(r: RuleDoc): string {
+  if (isProtected(r)) return 'booster rules compile (keeps it as written in playbook/00-learned-rules.md)'
+  if (r.status === 'promoted') return 'test it again in a new package; only a person makes it a playbook rule: booster retro --accept-rule "<rule in your own words>" --into playbook/<file>.md --yes'
+  if (r.status === 'retired') return 'test it again on purpose or drop the lever; booster rules compile refreshes playbook/00-learned-rules.md'
+  return 'leave it to earn tests; booster rules compile after the next 7-day read'
+}
+
 function ruleItems(store: Store, from: Date, to: Date): RuleItem[] {
   return store
     .read('rules')
     .filter((r) => inWindow(r.updatedAt, from, to))
     .map((r) => ({
       id: r.id,
-      rule: r.rule,
+      rule: ruleSentence(r),
       status: r.status,
       tests: r.tests,
       wins: r.wins,
       confidence: r.confidence,
-      text: `"${r.rule}" is ${r.status} (${r.tests} test${r.tests === 1 ? '' : 's'}, ${r.wins} win${r.wins === 1 ? '' : 's'}, confidence ${r.confidence.toFixed(2)})`,
-      command: r.status === 'candidate'
-        ? `booster retro --accept-rule "${r.rule}" --into playbook/<file>.md --yes, or leave it to earn tests`
-        : r.status === 'retired'
-          ? 'booster rules compile (drops it from playbook/00-learned-rules.md); pin it only with a reason'
-          : 'booster rules compile (refreshes playbook/00-learned-rules.md)',
+      text: describeRule(r),
+      command: ruleCommand(r),
     }))
     .sort((a, b) => b.confidence - a.confidence || a.rule.localeCompare(b.rule))
 }

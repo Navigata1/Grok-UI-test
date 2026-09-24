@@ -338,6 +338,53 @@ describe('booster decide', () => {
   })
 })
 
+describe('decide and review run agree on the 7-day call', () => {
+  // A new channel: the profile holds a thin 48-hour set (views 4,450), and few or no other videos have a 7-day read.
+  const target = { impressions: 150000, ctr: 4.3, avpPct: 42, retention30sPct: 62, returningPct: 30 }
+  function seedChannel(weekReads: number, views: number): void {
+    writeProfile(solidBaselines({ n: 5, tier: 'thin', ctr: { median: 4.1, mad: 0.1, n: 5 }, avpPct: { median: 42, mad: 0, n: 5 }, retention30sPct: { median: 62, mad: 0, n: 5 }, returningPct: { median: 30, mad: 0, n: 5 }, views: { median: 4450, mad: 250, n: 5 }, impressions: { median: 60000, mad: 0, n: 5 } }))
+    for (let i = 0; i < 5; i += 1) {
+      const reads: Partial<Record<Bucket, Omit<LedgerRead, 'at'>>> = { '48': { impressions: 60000, ctr: 4.1, views: 4450, avpPct: 42, retention30sPct: 62, returningPct: 30 } }
+      if (i < weekReads) reads['168'] = { impressions: 200000, ctr: 3.8, views: 12000, avpPct: 42, retention30sPct: 62, returningPct: 30 }
+      seedRow(`back-${i}`, (30 + i * 7) * 24, reads)
+    }
+    seedRow('target', 200, { '168': { ...target, views } })
+  }
+  async function both(): Promise<{ decide: any; review: any }> {
+    const decide = await json(['decide', '--slug', 'target', '--bucket', '168', '--now', NOW])
+    const { out } = await run(['review', 'run', '--slug', 'target', '--bucket', '168', '--now', NOW, '--root', tmp, '--json'])
+    return { decide, review: JSON.parse(out).reviews[0].decision }
+  }
+
+  it('holds on a 48-hour median where review run used to call EXPAND', async () => {
+    seedChannel(0, 9000)
+    const { decide, review } = await both()
+    expect(review.decision).toBe('HOLD')
+    expect(decide.decision).toBe('HOLD')
+    expect(review.numbers.multiple).toBeUndefined()
+    expect(review.flipCondition).toBe(decide.flipCondition)
+    expect(review.flipCondition).toMatch(/^No 7-day median views yet \(0 of 5 reads\)/)
+  })
+
+  it('holds on a median of one other video where both paths used to call SEQUEL', async () => {
+    seedChannel(1, 40000)
+    const { decide, review } = await both()
+    for (const d of [decide, review]) {
+      expect(d.decision).toBe('HOLD')
+      expect(d.numbers).toMatchObject({ multiple: 3.33, baselineViews: 12000, baselineViewsN: 1, baselineViewsTier: 'prior' })
+      expect(d.flipCondition).toMatch(/^3\.33x median views, but the 7-day median rests on 1 of 5 reads; SEQUEL\/EXPAND\/PARK wait for 5\./)
+    }
+  })
+
+  it('calls SEQUEL on both paths once five other videos have a 7-day read', async () => {
+    seedChannel(5, 40000)
+    const { decide, review } = await both()
+    expect(decide.decision).toBe('SEQUEL')
+    expect(review.decision).toBe('SEQUEL')
+    expect(review.numbers).toMatchObject({ multiple: 3.33, baselineViewsN: 5, baselineViewsTier: 'thin' })
+  })
+})
+
 describe('booster repackage prepare', () => {
   it('refuses without a recorded decision, a package or a known sub-command', async () => {
     expect(await fails(['repackage'])).toContain('unknown repackage command')

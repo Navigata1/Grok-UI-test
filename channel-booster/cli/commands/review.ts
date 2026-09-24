@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Bucket } from '../../src/buckets.js'
 import { decide, describeDecision } from '../../src/decide.js'
-import { ageHours, baselineFrom, readLedger } from '../../src/ledger.js'
+import { ageHours, baselineFrom, readAgeHours, readLedger } from '../../src/ledger.js'
 import { diagnose, type DiagnosisMode, type DiagnosisV2, type PostMortemInputV2 } from '../../src/postmortem.js'
 import { baselineInputFrom, baselinesForBucket, describeBaselineInput, diagnoseBaseline } from '../../src/profile.js'
 import { describeRepackage, prepareRepackage, type PackagedThumbnail, type PackagedTitle, type RepackagePackage } from '../../src/repackage.js'
@@ -133,7 +133,8 @@ async function runDecide(flags: Flags): Promise<number> {
     retention30sPct: read.retention30sPct,
     bucket,
     baselines,
-    hoursSincePublish: ageHours(row, now),
+    // The read's own age, as `review run` judges it: the clock moving on does not add data to the read.
+    hoursSincePublish: row.reads[bucket] ? readAgeHours(row, row.reads[bucket]!) : ageHours(row, now),
     previousRead: bucket === '48' ? row.reads['24'] : undefined,
     returningViewerPct: read.returningPct,
     subscriberSharePct: read.subscriberSharePct,

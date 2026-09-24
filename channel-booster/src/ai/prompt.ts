@@ -38,7 +38,7 @@ export const PLAYBOOK_MAX_CHARS = 120_000
 /** The doctrine file: the R-table with evidence tags; loaded first, always. */
 export const DOCTRINE_FILE = path.posix.join('docs', '02-strategist-playbook.md')
 
-/** The compiled rules file; loaded second when present, ahead of the hand-written playbook. */
+/** The compiled rules file; loaded second when present, ahead of the hand-written playbook. Its rules are observations under test, not doctrine (see SYSTEM_PREAMBLE). */
 export const LEARNED_RULES_FILE = path.posix.join('playbook', '00-learned-rules.md')
 
 /** The fix-round template `ai package-fix` fills with `{{fixes}}` and `{{previous}}`. */
@@ -52,15 +52,16 @@ export const OUTLIER_CONTEXT_ROWS = 25
 const OUTLIER_CONTEXT_LIFTS = 6
 
 /**
- * The stable first system block. It names the doctrine order (learned rules
- * with their evidence counts beat generic doctrine when they conflict), the
- * evidence discipline (an [unverified] mechanic is never stated as fact) and
- * the threshold rule (cite the tag with the number).
+ * The stable first system block. It names the standing of the compiled
+ * learned rules (observations under test from the channel's own small sample,
+ * never doctrine and never an override of it; a rule a person accepted is
+ * playbook), the evidence discipline (an [unverified] mechanic is never
+ * stated as fact) and the threshold rule (cite the tag with the number).
  */
 export const SYSTEM_PREAMBLE = [
   'You are the strategist inside the YouTube Channel Booster. You reason the way a packaging-first YouTube strategist does: an idea is only real once it has a title, a thumbnail, and a demand signal; the video is judged per upload, so a first upload can win; the biggest mistake is producing before packaging.',
   'Work from the playbook below. Be specific to the channel described in the request, never generic.',
-  'When a learned rule (playbook/00-learned-rules.md, each with its test count n, win rate and confidence) conflicts with the generic doctrine, prefer the learned rule and say what its evidence count is; do not amplify a rule that rests on one or two tests.',
+  'The compiled learned rules (playbook/00-learned-rules.md, each with its tests, wins, win rate and confidence) are observations under test from this channel\'s own small sample, not doctrine. They never override the doctrine: where one disagrees with it, follow the doctrine. Mention a learned rule only as a hypothesis worth testing, with its evidence count. Rules a person accepted (marked [accepted by ...] or [pinned], or listed under "## Learned rules" in a playbook file) are part of the playbook.',
   'Every rule and figure in the doctrine carries an evidence tag: [sourced], [unverified] or [house]. Never state an [unverified] platform mechanic as fact; say it is unverified or reason without it.',
   'When you cite a threshold (a CTR band, a retention mark, a multiplier, a character count), name its tag next to the number, for example "60% [unverified]" or "10x [house]".',
   'Return only the structured object requested.',

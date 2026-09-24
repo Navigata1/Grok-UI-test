@@ -125,6 +125,29 @@ describe('diagnose v2: Wilson interval', () => {
     expect(d.ctrInterval?.high).toBeLessThan(3.75)
   })
 
+  it('never lets the certainty gate block the 7 or 28-day read: the swap window is closed', () => {
+    // 150,000 impressions at 3.1% against a low mark of 3.07% (0.75 x 4.1%): the interval straddles it.
+    const flat = { ctr: 4.1, avpPct: 42, views: 4_450 }
+    const at48 = diagnose({ impressions: 150_000, ctr: 3.1, avpPct: 42, bucket: '48', hoursSincePublish: 48, baseline: flat })
+    expect(at48.bottleneck).toBe('insufficient-data')
+    expect(at48.impressionsNeeded).toBe(1_831_948)
+    // The same read at 168 h used to say "about 1,681,948 more impressions needed" and deadlock the 7-day stage.
+    const at168 = diagnose({ impressions: 150_000, ctr: 3.1, avpPct: 42, bucket: '168', baseline: flat })
+    expect(at168.bottleneck).toBe('packaging-soft')
+    expect(at168.repackage).toBe(false)
+    expect(at168.impressionsNeeded).toBeUndefined()
+    expect(at168.ctrInterval?.low).toBeLessThan(3.075)
+    expect(at168.ctrInterval?.high).toBeGreaterThan(3.075)
+    expect(at168.evidence.join('\n')).toMatch(/CTR 95% interval 3\.01% to 3\.19% over 150,000 impressions/)
+    expect(at168.evidence.join('\n')).toContain('the interval straddles the low threshold 3.07%; the swap window is closed at the 168-hour read, so the band is called on the point estimate, not a certain one')
+    // Low and healthy bands are called the same way at 168 and 672 hours; no swap is ever recommended.
+    const low = diagnose({ impressions: 150_000, ctr: 3, avpPct: 42, bucket: '672', hoursSincePublish: 672, baseline: flat })
+    expect(low.bottleneck).toBe('packaging')
+    expect(low.repackage).toBe(false)
+    expect(diagnose({ impressions: 150_000, ctr: 3.7, avpPct: 42, bucket: '168', baseline: flat }).bottleneck).toBe('none')
+    expect(diagnose({ impressions: 150_000, ctr: 3.7, avpPct: 42, bucket: '48', hoursSincePublish: 48, baseline: flat }).bottleneck).toBe('insufficient-data')
+  })
+
   it('reads the hook before an uncertain CTR band', () => {
     const d = diagnose({ impressions: 1_200, ctr: 5, retention30sPct: 40, avpPct: 42, hoursSincePublish: 48, baseline: { ctr: 5, avpPct: 40, views: 500 } })
     expect(d.bottleneck).toBe('hook')
@@ -255,6 +278,27 @@ describe('diagnose v2: cold start', () => {
     // The soft band is gated the same way.
     expect(diagnose({ impressions: 1_500, ctr: 3.3, avpPct: 42, bucket: '48' }).bottleneck).toBe('insufficient-data')
     expect(diagnose({ impressions: 1_500, ctr: 3.3, avpPct: 42, bucket: '48' }).headline).toMatch(/reads soft but the cold-start gate is not met/)
+  })
+
+  it('holds good news too: a healthy-looking cold-start sample gets no verdict before the gate', () => {
+    // postmortem --ctr 6 --impressions 1500 --avp 45 --hours 30 --mode cold-start used to say "Double down" and "Make the sequel".
+    const early = diagnose({ ctr: 6, impressions: 1_500, avpPct: 45, hoursSincePublish: 30, mode: 'cold-start' })
+    expect(early.bottleneck).toBe('insufficient-data')
+    expect(early.repackage).toBe(false)
+    expect(early.headline).toBe('The numbers look healthy so far, but a cold-start upload gets no verdict before the gate: too early to call it healthy.')
+    expect(early.actions[0]).toBe('Cold start: no healthy verdict before 2,000 impressions or 72 hours (1,500 impressions at 30h: 500 more impressions or 42 more hours).')
+    expect([early.headline, ...early.actions].join('\n')).not.toMatch(/double down|make the sequel/i)
+    expect(early.thresholdsUsed).toEqual(expect.arrayContaining(['coldStartMinImpressions 2000 [house]', 'coldStartMinHours 72h [house]']))
+    // Retention alone (no CTR) is held the same way.
+    expect(diagnose({ impressions: 1_500, avpPct: 45, hoursSincePublish: 30, mode: 'cold-start' }).bottleneck).toBe('insufficient-data')
+    // The same gate and thresholds: met by impressions or by hours, and established channels are untouched.
+    expect(diagnose({ ctr: 6, impressions: 2_500, avpPct: 45, hoursSincePublish: 30, mode: 'cold-start' }).bottleneck).toBe('none')
+    expect(diagnose({ ctr: 6, impressions: 1_500, avpPct: 45, hoursSincePublish: 80, mode: 'cold-start' }).bottleneck).toBe('none')
+    expect(diagnose({ ctr: 6, impressions: 1_500, avpPct: 45, hoursSincePublish: 30, baseline: { ctr: 4, avpPct: 40 } }).bottleneck).toBe('none')
+    // Idea, hook and retention verdicts read before the gate, as before.
+    expect(diagnose({ ctr: 6, impressions: 1_500, avpPct: 45, retention30sPct: 40, hoursSincePublish: 30, mode: 'cold-start' }).bottleneck).toBe('hook')
+    expect(diagnose({ ctr: 6, impressions: 1_500, avpPct: 25, retention30sPct: 70, hoursSincePublish: 30, mode: 'cold-start' }).bottleneck).toBe('retention')
+    expect(diagnose({ ctr: 6, impressions: 1_500, avpPct: 45, hoursSincePublish: 48, bucket: '48', mode: 'cold-start', previousRead: { impressions: 1_400 } }).bottleneck).toBe('idea')
   })
 
   it('reads 24-to-48 hour impression growth when the previous read exists', () => {

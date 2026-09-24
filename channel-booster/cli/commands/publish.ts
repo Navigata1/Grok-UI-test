@@ -3,8 +3,10 @@
  *
  * The publish package (architecture 2.10): `publish pack` assembles what
  * Studio needs into packages/<slug>/publish.json + publish.md from the
- * package and the story; `publish check` ticks the checklist by machine and
- * writes publish-check.json (the workflow's publish gate reads it);
+ * package and the story; `publish check` ticks the checklist by machine,
+ * header-checking packages/<slug>/thumb-A.png and thumb-B.png rather than
+ * taking them on trust, and writes publish-check.json (the workflow's
+ * publish gate reads it);
  * `publish confirm` adds the ledger row once a person has clicked publish,
  * which starts the review clock, so it prints its plan and needs --yes; it
  * carries the package's pre-registered hypothesis (levers and predicted CTR
@@ -16,9 +18,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { judgeTest, renderJudgement, toExperimentDoc, winnerLetter, type TestVariant } from '../../src/experiments.js'
+import { checkThumbnailFile, type ImageMeta } from '../../src/imagemeta.js'
 import { addRow } from '../../src/ledger.js'
 import { loadProfile } from '../../src/profile.js'
-import { assemblePublish, checkPublish, mmss, PUBLISH_RULES, renderPublishCheck, renderPublishMarkdown, type PayoffMoment, type PublishChapter, type PublishPack } from '../../src/publish.js'
+import { assemblePublish, checkPublish, mmss, PUBLISH_RULES, renderPublishCheck, renderPublishMarkdown, THUMB_FILES, type PayoffMoment, type PublishChapter, type PublishPack } from '../../src/publish.js'
 import { LedgerRow, type ProfileDoc } from '../../src/schema.js'
 import { thresholds } from '../../src/thresholds.js'
 import { scoreTitle, titleThumbnailOverlap } from '../../src/titles.js'
@@ -27,7 +30,7 @@ import type { ThumbnailQa, ThumbnailSpec } from '../../src/types.js'
 import { bool, getProfile, getStore, list, need, needVideoId, nowFrom, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_PACK = 'booster publish pack <slug> [--title ..] [--promise ..] [--story packages/<slug>/story.json] [--thumb-a <name> --thumb-b <name>] [--sequel-question ..] [--related <title|url>] [--profile channel.json] [--out packages/<slug>/publish.md] [--root dir]'
-const USAGE_CHECK = 'booster publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--thumb-files-ok] [--window-confirmed] [--review-scheduled] [--root dir]'
+const USAGE_CHECK = 'booster publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--window-confirmed] [--review-scheduled] [--root dir]'
 const USAGE_CONFIRM = 'booster publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a <name> --thumb-b <name>] [--levers "a,b"] [--predicted-ctr 1.3] --yes [--root dir]'
 const USAGE_JUDGE = 'booster test judge --slug <slug> --a "<impressions>,<ctr>[,<sharePct>[,<avdSec>]]" --b ".." [--c ".."] --hours <h> [--cold-start] [--min-impressions <n>] [--min-hours <h>] [--drop-pct <n>] [--n 1] [--record]'
 
@@ -140,6 +143,42 @@ function conceptGrade(pkg: PackageFile | undefined, name: string, signature: Pro
   return { grade: qaThumbnail({ ...spec, text }, signature).grade, text }
 }
 
+/** One exported thumbnail as `publish check` found it. */
+interface ThumbFileRead {
+  variant: 'A' | 'B'
+  file: string
+  found: boolean
+  pass: boolean
+  issues: string[]
+  meta?: ImageMeta
+}
+
+/** A path as a person can paste it: relative when it sits under the working directory, absolute otherwise. */
+function shown(file: string): string {
+  const rel = path.relative(process.cwd(), file)
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : file
+}
+
+/**
+ * Read packages/<slug>/thumb-A.png and thumb-B.png and run the header check
+ * `thumbnail check` and `thumbnail proof` run (1280x720, 16:9, under 2 MB).
+ * A missing file fails, and its issue names the file and the command that
+ * checks it, so the thumbnails line is ticked only on files that were read.
+ */
+function readThumbFiles(flags: Flags, slug: string, thumbs: PublishPack['thumbs']): ThumbFileRead[] {
+  const dir = packageDir(flags, slug)
+  const pair = [['A', THUMB_FILES.a, thumbs.a], ['B', THUMB_FILES.b, thumbs.b]] as const
+  return pair.map(([variant, name, concept]) => {
+    const file = path.join(dir, name)
+    if (!existsSync(file)) {
+      const named = concept && concept !== variant ? ` ("${concept}")` : ''
+      return { variant, file, found: false, pass: false, issues: [`${shown(file)} is missing: export variant ${variant}${named} there, then run booster thumbnail check ${shown(file)}`] }
+    }
+    const r = checkThumbnailFile(readFileSync(file))
+    return { variant, file, found: true, pass: r.pass, issues: r.pass ? [] : [`${shown(file)} fails booster thumbnail check: ${r.issues.join(', ')}`], meta: r.meta }
+  })
+}
+
 async function publishCheck(slug: string, flags: Flags): Promise<number> {
   const pack = readPack(flags, slug)
   const pkg = readPackage(flags, slug)
@@ -147,17 +186,21 @@ async function publishCheck(slug: string, flags: Flags): Promise<number> {
   const a = conceptGrade(pkg, pack.thumbs.a, profile.signature, str(flags, 'thumb-text-a'))
   const b = conceptGrade(pkg, pack.thumbs.b, profile.signature, str(flags, 'thumb-text-b'))
   const overlapOk = [a.text, b.text].every((t) => titleThumbnailOverlap(pack.title, t) < thresholds.titleThumbOverlapMax.value)
+  // The files are read, never taken on a flag's word: an attestation any caller can type is not a check.
+  if (bool(flags, 'thumb-files-ok')) warn(`--thumb-files-ok no longer ticks the thumbnails line: publish check reads ${THUMB_FILES.a} and ${THUMB_FILES.b} in packages/${slug}/ itself`)
+  const thumbFiles = readThumbFiles(flags, slug, pack.thumbs)
   const check = checkPublish(pack, {
     titleScore: scoreTitle(pack.title).score,
     thumbGrades: [a.grade, b.grade],
     overlapOk,
-    thumbFilesOk: bool(flags, 'thumb-files-ok') ? true : undefined,
+    thumbFilesOk: thumbFiles.every((f) => f.pass),
+    thumbFileIssues: thumbFiles.flatMap((f) => f.issues),
     publishWindowConfirmed: bool(flags, 'window-confirmed') ? true : undefined,
     reviewScheduled: bool(flags, 'review-scheduled'),
   })
   const file = path.join(packageDir(flags, slug), 'publish-check.json')
   writeFile(file, `${JSON.stringify(check, null, 2)}\n`)
-  out({ slug, ...check, thumbs: { a: { name: pack.thumbs.a, ...a }, b: { name: pack.thumbs.b, ...b } }, file }, flags, () => `${renderPublishCheck(check)}\nWrote ${file}`)
+  out({ slug, ...check, thumbs: { a: { name: pack.thumbs.a, ...a }, b: { name: pack.thumbs.b, ...b } }, thumbFiles, file }, flags, () => `${renderPublishCheck(check)}\nWrote ${file}`)
   return check.pass ? 0 : 1
 }
 
@@ -184,6 +227,9 @@ function hypothesisFor(slug: string, pkg: PackageFile | undefined, flags: Flags,
   }
   const fromPackage = pkg?.hypothesis
   if (!levers && predicted === undefined && !fromPackage) return undefined
+  // --levers replaces the package's list: say which pre-registered levers the row loses, so dropping the A/B angles is a choice.
+  const dropped = levers ? (fromPackage?.levers ?? []).filter((l) => !levers.some((g) => g.toLowerCase() === l.toLowerCase())) : []
+  if (dropped.length > 0) warn(`--levers replaces the levers the package pre-registered: ${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not on this row. List ${dropped.length === 1 ? 'it' : 'them'} in --levers too to keep ${dropped.length === 1 ? 'it' : 'them'}, or name the title's lever at build time: booster package build ${slug} --lever "<lever>".`)
   return {
     levers: levers ?? fromPackage?.levers ?? [],
     angle: fromPackage?.angle,
@@ -287,7 +333,7 @@ export const publishModule: CommandModule = {
   verbs: ['publish', 'test'],
   help: [
     'publish pack <slug> [--title ..] [--promise ..] [--story file] [--thumb-a ..] [--thumb-b ..] [--sequel-question ..] [--related ..] [--out ..] [--root dir]   description, chapters, pinned comment, Shorts, A/B; writes publish.json + publish.md',
-    'publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--thumb-files-ok] [--window-confirmed] [--review-scheduled] [--root dir]   the publish checklist by machine; writes publish-check.json',
+    'publish check <slug> [--thumb-text-a ..] [--thumb-text-b ..] [--window-confirmed] [--review-scheduled] [--root dir]   the publish checklist by machine, thumb-A.png and thumb-B.png included; writes publish-check.json',
     'publish confirm <slug> --video-id <id> --at <ISO> [--thumb-a ..] [--thumb-b ..] [--levers "a,b"] [--predicted-ctr 1.3] --yes   adds the ledger row with its pre-registered hypothesis after a person clicks publish (human-only gate 4)',
     'test judge --slug <slug> --a "impr,ctr[,share[,avd]]" --b ".." [--c ".."] --hours <h> [--cold-start] [--min-impressions ..] [--min-hours ..] [--drop-pct ..] [--n 1] [--record]   judge a Test & Compare read',
   ],

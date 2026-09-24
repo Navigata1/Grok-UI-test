@@ -1,7 +1,12 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ProfileDoc } from './schema.js'
 import { scoreTitle } from './titles.js'
-import { assemblePublish, checkPublish, mmss, normaliseChapters, pickShortsCuts, PUBLISH_RULES, publishWindowFor, renderPublishCheck, renderPublishMarkdown, type PublishCheckInput, type PublishInput } from './publish.js'
+import { assemblePublish, checkPublish, mmss, normaliseChapters, pickShortsCuts, PUBLISH_RULES, publishWindowFor, renderPublishCheck, renderPublishMarkdown, THUMB_FILES, type PublishCheckInput, type PublishInput } from './publish.js'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
 
 const title = 'I Built a Solar Generator From Scrap for $40'
 const promise = 'a solar generator built from scrap for under $40 that runs a fridge'
@@ -25,7 +30,8 @@ const input: PublishInput = {
   relatedVideo: 'I Powered My Shed With a Car Battery',
 }
 
-const goodCheck: PublishCheckInput = { titleScore: scoreTitle(title).score, thumbGrades: ['ship', 'ship'], overlapOk: true, reviewScheduled: true }
+// thumbFilesOk: true stands for the caller having header-checked both exported files.
+const goodCheck: PublishCheckInput = { titleScore: scoreTitle(title).score, thumbGrades: ['ship', 'ship'], overlapOk: true, thumbFilesOk: true, reviewScheduled: true }
 
 describe('assemblePublish', () => {
   it('puts the promise on line 1, chapters as mm:ss, and links after the fold', () => {
@@ -187,6 +193,24 @@ describe('checkPublish', () => {
     expect(checkPublish(pack, { ...goodCheck, thumbFilesOk: true }).items[1].ok).toBe(true)
   })
 
+  it('never ticks the thumbnail line on files nobody checked', () => {
+    // The Desk and any caller that reads no files pass nothing here; that is "not checked", not a pass.
+    const unchecked = checkPublish(assemblePublish(input), { ...goodCheck, thumbFilesOk: undefined })
+    expect(unchecked.items[1].ok).toBe(false)
+    expect(unchecked.items[1].detail).toContain('not checked')
+    expect(unchecked.items[1].detail).toContain(`packages/<slug>/${THUMB_FILES.a} and ${THUMB_FILES.b}`)
+    expect(unchecked.pass).toBe(false)
+  })
+
+  it("prints the file check's own findings when a file failed or is missing", () => {
+    const issues = ['packages/x/thumb-A.png is missing: export variant A ("stakes") there, then run booster thumbnail check packages/x/thumb-A.png', 'packages/x/thumb-B.png fails booster thumbnail check: 800x450 is smaller than 1280x720']
+    const failed = checkPublish(assemblePublish(input), { ...goodCheck, thumbFilesOk: false, thumbFileIssues: issues })
+    expect(failed.items[1].ok).toBe(false)
+    expect(failed.items[1].detail).toBe(issues.join('; '))
+    // Issues never override a pass: they are read only when the files failed.
+    expect(checkPublish(assemblePublish(input), { ...goodCheck, thumbFilesOk: true, thumbFileIssues: issues }).items[1].ok).toBe(true)
+  })
+
   it('fails the description line when a link sits in line 1 or the promise drifted', () => {
     const pack = assemblePublish(input)
     const linked = { ...pack, description: `${promise} https://example.com\n\nrest` }
@@ -217,6 +241,27 @@ describe('checkPublish', () => {
     expect(checkPublish({ ...pack, shortsCuts: pack.shortsCuts.slice(0, 1) }, goodCheck).items[6].detail).toContain('1 Shorts cut')
     expect(checkPublish({ ...pack, shortsCuts: [pack.shortsCuts[0], pack.shortsCuts[0]] }, goodCheck).items[6].detail).toContain('same mark')
     expect(checkPublish({ ...pack, communityPost: ' ' }, goodCheck).items[6].detail).toContain('community post is empty')
+  })
+
+  it('ticks the community post and Shorts as drafted and leaves scheduling them to a person', () => {
+    // The pack holds drafts; nothing here can see a schedule in Studio.
+    const label = checkPublish(assemblePublish(input), goodCheck).items[6].label
+    expect(label).not.toMatch(/\bscheduled\b/)
+    expect(label).toMatch(/drafted/)
+    expect(label).toMatch(/a person schedules them in Studio after publish/)
+  })
+
+  it('ticks the thumbnails as two named concepts and leaves switching Test & Compare on to a person', () => {
+    // Test & Compare is a Studio setting chosen at upload; the pack only names A and B.
+    const label = checkPublish(assemblePublish(input), goodCheck).items[1].label
+    expect(label).not.toMatch(/; Test & Compare on\.$/)
+    expect(label).toMatch(/two different concepts; a person turns Test & Compare on at upload\.$/)
+  })
+
+  it('keeps its lines in the order and words of playbook/publish-checklist.md', () => {
+    const doc = readFileSync(path.join(here, '..', 'playbook', 'publish-checklist.md'), 'utf8')
+    const lines = doc.split(/\r?\n/).filter((l) => l.startsWith('- [ ] ')).map((l) => l.slice('- [ ] '.length))
+    expect(checkPublish(assemblePublish(input), goodCheck).items.map((i) => i.label)).toEqual(lines)
   })
 
   it('needs the publish window confirmed and the review scheduled with baselines', () => {

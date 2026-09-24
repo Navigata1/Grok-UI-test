@@ -105,6 +105,16 @@ export function ageHours(row: LedgerRow, now: Date = new Date()): number {
   return (now.getTime() - Date.parse(row.publishedAt)) / 3_600_000
 }
 
+/**
+ * How many hours of data a read holds: its own timestamp minus the publish
+ * time, never below 0. The data gates judge this, not `ageHours()` at review
+ * time, so re-running a review later on the same numbers cannot clear a gate
+ * the numbers themselves did not.
+ */
+export function readAgeHours(row: LedgerRow, read: Pick<LedgerRead, 'at'>): number {
+  return Math.max(0, (Date.parse(read.at) - Date.parse(row.publishedAt)) / 3_600_000)
+}
+
 /** Which reads are due: a bucket whose hour mark has passed and has no read yet. */
 export function dueReads(rows: LedgerRow[], now: Date = new Date()): Array<{ slug: string; bucket: Bucket; overdueHours: number }> {
   const out: Array<{ slug: string; bucket: Bucket; overdueHours: number }> = []

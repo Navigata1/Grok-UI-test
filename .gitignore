@@ -21,3 +21,13 @@ channel-booster/channel.json
 channel-booster/data/
 channel-booster/packages/
 channel-booster/inbox/
+# Compiled from the ledger by `booster rules compile`.
+channel-booster/playbook/00-learned-rules.md
+# The same data written from the repo root, where `npm run booster` runs: workflow --out packages,
+# every stage artifact and review run write packages/, fetch channel writes inbox/, and
+# --data data / --path channel.json / `ai idea-engine --json > ideas.json` land here too.
+/packages/
+/inbox/
+/data/
+/channel.json
+/ideas.json

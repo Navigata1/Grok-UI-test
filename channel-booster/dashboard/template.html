@@ -1,8 +1,10 @@
 <title>Channel Booster Desk</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- @@FONTS@@ -->
 <style>
   :root {
+    color-scheme: light;
     --bg: #F4F3EE;
     --panel: #FFFFFF;
     --panel-2: #ECEAE2;
@@ -25,6 +27,7 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
+      color-scheme: dark;
       --bg: #111214; --panel: #1A1B1E; --panel-2: #222327; --ink: #ECEBE6; --muted: #A2A39E; --line: #2F3035;
       --accent: #F5B400; --accent-ink: #111214; --accent-soft: #3A2E08;
       --good: #4CC27A; --warn: #F0A82E; --bad: #F06A63; --good-soft: #163A24; --warn-soft: #3B2A0A; --bad-soft: #3F1A18;
@@ -32,6 +35,7 @@
     }
   }
   :root[data-theme="dark"] {
+    color-scheme: dark;
     --bg: #111214; --panel: #1A1B1E; --panel-2: #222327; --ink: #ECEBE6; --muted: #A2A39E; --line: #2F3035;
     --accent: #F5B400; --accent-ink: #111214; --accent-soft: #3A2E08;
     --good: #4CC27A; --warn: #F0A82E; --bad: #F06A63; --good-soft: #163A24; --warn-soft: #3B2A0A; --bad-soft: #3F1A18;
@@ -159,6 +163,15 @@
   .stack { display: flex; flex-direction: column; gap: 8px; }
   .copy { position: relative; }
   .copy button { position: absolute; top: 8px; right: 8px; }
+  /* Inputs outside a .field (the three own titles, the bank's status select) get the same box. */
+  .stack input, td select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); min-width: 0; }
+  .stack input:focus-visible, td select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .field input[type=file] { padding: 5px 6px; font-size: 12px; }
+  /* The human gate: in-page, because a published artifact answers every native confirm dialog with false. */
+  dialog.gate { max-width: min(460px, calc(100vw - 32px)); padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+  dialog.gate::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog.gate form { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+  dialog.gate .row { justify-content: flex-end; }
 </style>
 <div class="wrap">
   <header class="top">
@@ -254,16 +267,17 @@
           <div class="card">
             <h3>Title lab</h3>
             <div class="row">
-              <div class="field lg"><label for="tl-topic">Topic (a noun phrase: the formulas are templates; Claude handles grammar)</label><input id="tl-topic" placeholder="living off a $300 solar generator"></div>
+              <div class="field lg"><label for="tl-topic">Topic (Claude writes titles from it; the shapes leave a blank for your own words)</label><input id="tl-topic" placeholder="living off a $300 solar generator"></div>
               <div class="field sm"><label for="tl-number">Number / stake</label><input id="tl-number" placeholder="30 days"></div>
             </div>
             <div class="row">
               <div class="field"><label for="tl-subject">Named subject</label><input id="tl-subject" placeholder="Jackery"></div>
               <div class="field"><label for="tl-audience">Audience</label><input id="tl-audience" placeholder="van lifers"></div>
-              <button class="btn primary" id="tl-run">Generate</button>
+              <button class="btn primary" id="tl-run">Show title shapes</button>
               <button class="btn ai" id="tl-ai" hidden>Ask Claude for 15</button>
             </div>
-            <div class="tablewrap"><table id="tl-table"><thead><tr><th class="num">Score</th><th>Lever</th><th>Title</th><th></th></tr></thead><tbody></tbody></table></div>
+            <div class="tablewrap"><table id="tl-table"><thead></thead><tbody></tbody></table></div>
+            <p class="muted" id="tl-note"></p>
             <div class="stack"><label class="muted" for="tl-own1">Three of your own (the sheet is not done until these are filled)</label><input id="tl-own1" placeholder="1."><input id="tl-own2" placeholder="2."><input id="tl-own3" placeholder="3."></div>
           </div>
           <div class="card">
@@ -358,11 +372,16 @@
           </div>
           <div class="row">
             <div class="field sm"><label for="pb-thumb-a">Thumbnail A (concept name)</label><input id="pb-thumb-a" placeholder="stakes"></div>
-            <div class="field sm"><label for="pb-thumb-b">Thumbnail B</label><input id="pb-thumb-b" placeholder="result"></div>
+            <div class="field sm"><label for="pb-thumb-b">Thumbnail B (concept name)</label><input id="pb-thumb-b" placeholder="result"></div>
             <div class="field"><label for="pb-related">Related proven video (end screen)</label><input id="pb-related"></div>
             <div class="field"><label for="pb-sequel">Sequel question (pinned comment)</label><input id="pb-sequel"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label for="pb-file-a">Exported file A (PNG or JPEG)</label><input id="pb-file-a" type="file" accept="image/png,image/jpeg"><small class="muted" id="pb-file-a-status">no file chosen</small></div>
+            <div class="field"><label for="pb-file-b">Exported file B (PNG or JPEG)</label><input id="pb-file-b" type="file" accept="image/png,image/jpeg"><small class="muted" id="pb-file-b-status">no file chosen</small></div>
             <button class="btn primary" id="pb-run">Assemble</button>
           </div>
+          <p class="muted">The two files are read in this browser for their size and dimensions (1280x720, 16:9, under 2 MB). Nothing is uploaded.</p>
           <div class="copy" id="pb-out"></div>
           <div id="pb-check"></div>
         </div>
@@ -430,7 +449,7 @@
         <div class="stage-head"><h2>Sunday retro</h2><p>Which lever won, which lost, one rule for the playbook, next week's three ideas. Thirty minutes.</p></div>
         <div class="grid2">
           <div class="card"><h3>Last 7 days</h3><div id="retro-week"></div></div>
-          <div class="card"><h3>Rule for the playbook</h3><div class="field"><label for="retro-rule">Draft (edit before accepting)</label><textarea id="retro-rule"></textarea></div><div class="row"><button class="btn primary" id="retro-accept">Accept rule</button><span class="muted">Accepted rules are pinned; the CLI compiles evidence-based ones.</span></div><ul class="list" id="retro-rules"></ul></div>
+          <div class="card"><h3>Rule for the playbook</h3><div class="field"><label for="retro-rule">Draft (edit before accepting)</label><textarea id="retro-rule"></textarea></div><div class="row"><button class="btn primary" id="retro-accept">Accept rule</button><span class="muted">Accepted rules are pinned. Rules compiled from the ledger are hypotheses under observation, not playbook.</span></div><ul class="list" id="retro-rules"></ul></div>
         </div>
       </section>
 
@@ -467,6 +486,14 @@
   <footer>Built from the strategist playbook in the channel-booster module. Every threshold carries an evidence tag: sourced, unverified, or house. Deterministic scores are checklists, not predictions. Example rows are examples, not your numbers.</footer>
 </div>
 
+<dialog class="gate" id="gate" aria-labelledby="gate-title" aria-describedby="gate-text">
+  <form method="dialog">
+    <h2 id="gate-title"></h2>
+    <p id="gate-text"></p>
+    <div class="row"><button class="btn" value="cancel" id="gate-cancel">Cancel</button><button class="btn primary" value="ok" id="gate-ok"></button></div>
+  </form>
+</dialog>
+
 <!-- @@ENGINE@@ -->
 <script>
 (() => {
@@ -492,8 +519,16 @@ Off-grid update,21000,2026-04-21,OffGridLab,8:40
 How I Built a Solar Generator for $300,1100000,2026-05-05,OffGridLab,19:03
 Charging tests,28000,2026-05-19,OffGridLab,14:12
 Inverter guide,33000,2026-06-02,OffGridLab,16:27
-Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58
-Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
+Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
+  // The example is examples/competitors.csv row for row, and it reads as of the date that file was written
+  // for, as `booster outliers` reads it (cli/example-clock.ts): on today's clock every row ages out of the
+  // demand window, the scan calls them stale and the first idea scored from it reads RED. A pasted export,
+  // or an edited example, runs on today's clock.
+  const EXAMPLE_AS_OF = '2026-07-10T00:00:00Z'
+  // The example an earlier Desk shipped (and kept in this browser as the pasted scan): one extra row.
+  const EARLIER_EXAMPLE = EXAMPLE_CSV + '\nSolar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20'
+  const isExample = (csv) => csv.trim() === EXAMPLE_CSV
+  const exampleNote = () => `Example data: scored as of ${EXAMPLE_AS_OF.slice(0, 10)}, the date it was written for. Paste your own export to score it as of today.`
 
   // ---------- utils ----------
   const AXES = ['demand', 'packaging', 'fit', 'angle', 'payoff', 'feasibility']
@@ -507,6 +542,24 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   const verdictKind = (v) => v === 'green' || v === 'pass' || v === 'ship' || v === 'none' ? 'good' : v === 'yellow' || v === 'revise' || v === 'insufficient-data' || v === 'packaging-soft' ? 'warn' : v === 'banked' || v === 'parked' ? 'neutral' : 'bad'
   let toastTimer
   function toast(msg) { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t) } t.textContent = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 2600) }
+  // ---------- human gate ----------
+  // A published artifact answers every native confirm dialog with false, so a gate there never opened and never
+  // passed. This one is part of the page: it states the consequence and resolves true only on a click of
+  // its action button; Cancel, Escape or a second gate while one is open resolve false.
+  const gateBox = $('gate')
+  function gate({ title, text, action }) {
+    if (gateBox.open) return Promise.resolve(false)
+    $('gate-title').textContent = title; $('gate-text').textContent = text; $('gate-ok').textContent = action
+    gateBox.returnValue = ''
+    return new Promise((resolve) => {
+      gateBox.addEventListener('close', () => resolve(gateBox.returnValue === 'ok'), { once: true })
+      try { gateBox.showModal() } catch { gateBox.show() }
+      if (!gateBox.open) gateBox.show()
+      // Cancel takes the focus, so Enter or Escape never confirm. Set here after a click, not with autofocus:
+      // a cross-origin frame (where the Desk is published) blocks autofocus and logs an error on every load.
+      $('gate-cancel').focus()
+    })
+  }
   function mmss(sec) { return B.formatSec ? B.formatSec(sec) : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` }
 
   // ---------- state + storage ----------
@@ -571,7 +624,8 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     const promise = $('pk-promise').value.trim() || currentIdea()?.promise || ''
     const fill = (id, v) => { if (v && !$(id).value.trim()) $(id).value = v }
     if (stage === 'story') { fill('st-title', title); fill('st-promise', promise); fill('st-moment', currentIdea()?.thumbnailMoment || '') }
-    if (stage === 'publish') { fill('pb-title', title); fill('pb-promise', promise); fill('pb-thumb-a', 'A'); fill('pb-thumb-b', 'B') }
+    // The concept names, never the letters: the publish gate looks each grade up by the name QA'd in Thumbnail.
+    if (stage === 'publish') { const c = chosenConcepts(); fill('pb-title', title); fill('pb-promise', promise); fill('pb-thumb-a', c.a); fill('pb-thumb-b', c.b) }
     if (stage === 'thumb') fill('tq-title', title)
     if (stage === 'review') renderReviewSelect()
   }
@@ -585,9 +639,10 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     const due = B.dueReads(rows, now)
     $('today-due').innerHTML = due.length ? due.slice(0, 8).map((d) => `<div class="item"><span>${esc(rows.find((r) => r.slug === d.slug)?.title || d.slug)} <span class="chip">${d.bucket} h</span> <span class="muted">${d.overdueHours} h overdue</span></span><button class="btn sm" ${jump('review')}>Record</button></div>`).join('') : '<p class="muted">Nothing due. Confirm a publish to start the clock.</p>'
     const pending = docs('decisions').filter((d) => !d.approvedAt)
-    $('today-decisions').innerHTML = pending.length ? pending.map((d) => `<div class="item"><span>${pill(d.decision === 'REPACKAGE' ? 'bad' : d.decision === 'SEQUEL' || d.decision === 'EXPAND' ? 'good' : 'warn', d.decision)} ${esc(d.slug)} <span class="chip">${d.bucket} h</span></span><button class="btn sm" ${jump('review')}>Open</button></div>`).join('') : '<p class="muted">No decision waiting.</p>'
+    // Store rows can come from a teammate or an agent through the shared db: every value goes through esc().
+    $('today-decisions').innerHTML = pending.length ? pending.map((d) => `<div class="item"><span>${pill(d.decision === 'REPACKAGE' ? 'bad' : d.decision === 'SEQUEL' || d.decision === 'EXPAND' ? 'good' : 'warn', d.decision)} ${esc(d.slug)} <span class="chip">${esc(d.bucket)} h</span></span><button class="btn sm" ${jump('review')}>Open</button></div>`).join('') : '<p class="muted">No decision waiting.</p>'
     const running = docs('experiments').filter((x) => !x.outcome || x.outcome === 'too-early')
-    $('today-tests').innerHTML = running.length ? running.map((x) => `<div class="item"><span>${esc(x.slug)} · ${x.variants.map((v) => v.name).join(' vs ')}</span><button class="btn sm" ${jump('review')}>Judge</button></div>`).join('') : '<p class="muted">No Test &amp; Compare running.</p>'
+    $('today-tests').innerHTML = running.length ? running.map((x) => `<div class="item"><span>${esc(x.slug)} · ${(x.variants || []).map((v) => esc(v.name)).join(' vs ')}</span><button class="btn sm" ${jump('review')}>Judge</button></div>`).join('') : '<p class="muted">No Test &amp; Compare running.</p>'
     const alerts = []
     const inPackaging = ideas().filter((i) => i.status === 'packaging').length, inProduction = ideas().filter((i) => i.status === 'production').length
     if (inPackaging > B.thresholds.wipPackaging.value) alerts.push(`${inPackaging} ideas in packaging (cap ${B.tagged('wipPackaging')})`)
@@ -600,7 +655,7 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     if (!state.profile?.positioning) alerts.push('profile has no positioning sentence yet')
     $('today-alerts').innerHTML = alerts.length ? alerts.map((a) => `<div class="item"><span>${esc(a)}</span></div>`).join('') : '<p class="muted">Nothing to flag.</p>'
     const next = rankedIdeas().filter((i) => i.status === 'green' || i.status === 'banked').slice(0, 3)
-    $('today-next').innerHTML = next.length ? next.map((i) => `<div class="item"><span>${pill(verdictKind(i.v.verdict), i.v.verdict)} ${esc(i.idea)} <span class="chip">${i.v.total}</span></span><button class="btn sm" data-open-idea="${i.id}">Open</button></div>`).join('') : '<p class="muted">Bank three ideas from the scan.</p>'
+    $('today-next').innerHTML = next.length ? next.map((i) => `<div class="item"><span>${pill(verdictKind(i.v.verdict), i.v.verdict)} ${esc(i.idea)} <span class="chip">${i.v.total}</span></span><button class="btn sm" data-open-idea="${esc(i.id)}">Open</button></div>`).join('') : '<p class="muted">Bank three ideas from the scan.</p>'
     $('today-next').querySelectorAll('[data-open-idea]').forEach((b) => b.addEventListener('click', () => { loadIdea(b.dataset.openIdea); show('ideas') }))
     const cadence = B.weeklyCadence({ publishDay: state.profile?.publishDay || 'thu', perWeek: state.profile?.maxPerWeek || 1, solo: state.profile?.solo !== false })
     $('today-cadence').innerHTML = cadence.slice(0, 6).map((r) => `<div class="item"><span><b>${esc(r.when)}</b> ${esc(r.name)}</span><span class="chip">${r.minutes} min</span></div>`).join('')
@@ -614,12 +669,15 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     let rows
     try { rows = B.readVideoRows($('scan-csv').value) } catch (e) { $('scan-summary').textContent = e.message; return }
     const threshold = parseFloat($('scan-threshold').value)
-    const ranked = B.computeOutliers(rows, { threshold, minAgeDays: 7, sinceDays: numv('scan-since') || 90 })
-    state.lastScan = { scannedAt: nowIso(), sinceDays: numv('scan-since') || 90, ranked }
+    const example = isExample($('scan-csv').value)
+    const now = example ? new Date(EXAMPLE_AS_OF) : new Date()
+    const ranked = B.computeOutliers(rows, { threshold, minAgeDays: 7, sinceDays: numv('scan-since') || 90, now })
+    // As the CLI's saved scan does, scannedAt is the example's date when the example was scanned.
+    state.lastScan = { scannedAt: now.toISOString(), sinceDays: numv('scan-since') || 90, ranked, ...(example ? { exampleAsOf: EXAMPLE_AS_OF } : {}) }
     local.write('lastScan', state.lastScan)
     local.write('scanInput', { csv: $('scan-csv').value, threshold: $('scan-threshold').value, since: $('scan-since').value })
     const channels = [...new Set(rows.map((r) => r.channel || 'default'))]
-    $('scan-summary').textContent = `${rows.length} videos · ` + channels.map((c) => `${c}: median ${fmt(B.median(rows.filter((r) => (r.channel || 'default') === c).map((r) => r.views)))}`).join(' · ')
+    $('scan-summary').textContent = (example ? exampleNote() + ' · ' : '') + `${rows.length} videos · ` + channels.map((c) => `${c}: median ${fmt(B.median(rows.filter((r) => (r.channel || 'default') === c).map((r) => r.views)))}`).join(' · ')
     const tb = $('scan-table').querySelector('tbody')
     tb.innerHTML = ranked.slice(0, 25).map((r, i) => `<tr><td class="num">${i + 1}</td><td class="num">${r.multiplier.toFixed(1)}x</td><td>${pill(r.tier === 'outlier' ? 'good' : r.tier === 'fresh' ? 'good' : r.tier === 'strong' ? 'warn' : 'neutral', r.tier)}${r.stale ? ' <span class="chip">stale</span>' : ''}</td><td class="num">${fmt(r.views)}</td><td class="num">${r.velocityMultiplier ? r.velocityMultiplier.toFixed(1) + 'x' : '—'}</td><td>${esc(r.title)}</td><td class="muted">${esc(r.formats.slice(0, 3).join(', '))}</td><td><button class="btn sm" data-send="${i}">To bank</button></td></tr>`).join('')
     tb.querySelectorAll('[data-send]').forEach((btn) => btn.addEventListener('click', () => sendToBank(ranked[Number(btn.dataset.send)])))
@@ -655,9 +713,11 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   $('idea-demand-auto').addEventListener('click', () => {
     const idea = $('idea-text').value.trim(); if (!idea) { toast('Write the idea first.'); return }
     if (!state.lastScan) { toast('Run a scan first.'); return }
-    const s = B.suggestDemand(idea, state.lastScan.ranked, { now: new Date() })
+    // The same clock the scan ran on, as `booster idea score` reads demand=auto from a bundled example.
+    const asOf = state.lastScan.exampleAsOf
+    const s = B.suggestDemand(idea, state.lastScan.ranked, { now: asOf ? new Date(asOf) : new Date() })
     $('ax-demand').value = s.score; $('axv-demand').textContent = String(s.score); scoreCurrentIdea()
-    $('idea-demand-note').textContent = `${s.reason} [house]` + (s.evidence.length ? ' · ' + s.evidence.slice(0, 3).map((e) => `${e.title} (${e.multiplier.toFixed(1)}x)`).join(' · ') : '')
+    $('idea-demand-note').textContent = `${s.reason} [house]` + (s.evidence.length ? ' · ' + s.evidence.slice(0, 3).map((e) => `${e.title} (${e.multiplier.toFixed(1)}x)`).join(' · ') : '') + (asOf ? ' · ' + exampleNote() : '')
   })
   function rankedIdeas() { return ideas().map((i) => ({ ...i, v: B.scoreIdea(i.scores || {}) })).sort((a, b) => b.v.total - a.v.total) }
   function weakest(scores) { return AXES.slice().sort((a, b) => (scores[a] ?? 0) - (scores[b] ?? 0))[0] }
@@ -679,15 +739,23 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   function renderIdeas() {
     const rows = rankedIdeas()
     const tb = $('ideas-table').querySelector('tbody')
-    tb.innerHTML = rows.map((r) => `<tr><td class="num">${r.v.total}</td><td>${pill(verdictKind(r.v.verdict), r.v.verdict)}</td><td>${esc(r.idea)}${r.title ? `<br><small class="muted">${esc(r.title)}</small>` : ''}${r.sequelOf ? `<br><small class="muted">sequel of ${esc(r.sequelOf)}</small>` : ''}</td><td class="muted">${esc(r.weakestAxis || weakest(r.scores || {}))}</td><td><select data-status="${r.id}">${STATUSES.map((s) => `<option ${s === (r.status || 'banked') ? 'selected' : ''}>${s}</option>`).join('')}</select></td><td style="white-space:nowrap"><button class="btn sm" data-load="${r.id}">Open</button> <button class="btn sm" data-pkg="${r.id}">Package</button> <button class="btn sm" data-del="${r.id}">✕</button></td></tr>`).join('')
+    tb.innerHTML = rows.map((r) => `<tr><td class="num">${r.v.total}</td><td>${pill(verdictKind(r.v.verdict), r.v.verdict)}</td><td>${esc(r.idea)}${r.title ? `<br><small class="muted">${esc(r.title)}</small>` : ''}${r.sequelOf ? `<br><small class="muted">sequel of ${esc(r.sequelOf)}</small>` : ''}</td><td class="muted">${esc(r.weakestAxis || weakest(r.scores || {}))}</td><td><select data-status="${esc(r.id)}" aria-label="Status">${STATUSES.map((s) => `<option ${s === (r.status || 'banked') ? 'selected' : ''}>${s}</option>`).join('')}</select></td><td style="white-space:nowrap"><button class="btn sm" data-load="${esc(r.id)}">Open</button> <button class="btn sm" data-pkg="${esc(r.id)}">Package</button> <button class="btn sm" data-del="${esc(r.id)}" aria-label="Delete idea">✕</button></td></tr>`).join('')
     $('ideas-empty').hidden = rows.length > 0
     $('count-ideas').textContent = rows.length ? String(rows.length) : ''
     const wipP = rows.filter((r) => r.status === 'packaging').length, wipQ = rows.filter((r) => r.status === 'production').length
     $('ideas-wip').textContent = `WIP ${wipP}/${B.thresholds.wipPackaging.value} packaging · ${wipQ}/${B.thresholds.wipProduction.value} production`
     tb.querySelectorAll('[data-load]').forEach((b) => b.addEventListener('click', () => loadIdea(b.dataset.load)))
     tb.querySelectorAll('[data-pkg]').forEach((b) => b.addEventListener('click', () => { loadIdea(b.dataset.pkg); show('package') }))
-    tb.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => store.del('ideas', b.dataset.del)))
-    tb.querySelectorAll('[data-status]').forEach((sel) => sel.addEventListener('change', async () => { const i = ideas().find((x) => x.id === sel.dataset.status); if (!i) return; if (sel.value === 'green' && !confirm('Approving a green idea is a human gate: this is your angle, not a clone?')) { renderIdeas(); return } await store.put('ideas', { ...i, status: sel.value }) }))
+    tb.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      const i = ideas().find((x) => x.id === b.dataset.del); if (!i) return
+      if (!(await gate({ title: 'Delete an idea', text: `Delete "${i.idea}" from the idea bank? Its scores, title, promise and story go with it. This cannot be undone.`, action: 'Delete idea' }))) return
+      await store.del('ideas', i.id)
+    }))
+    tb.querySelectorAll('[data-status]').forEach((sel) => sel.addEventListener('change', async () => {
+      const i = ideas().find((x) => x.id === sel.dataset.status); if (!i) return
+      if (sel.value === 'green' && !(await gate({ title: 'Approve a green idea', text: 'Approving a green idea is a human gate: this is your angle, not a clone? It is marked green, ready for the packaging sprint.', action: 'Approve green' }))) { renderIdeas(); return }
+      await store.put('ideas', { ...i, status: sel.value })
+    }))
     renderCurrent()
   }
   function loadIdea(id) {
@@ -697,11 +765,18 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     AXES.forEach((a) => { $('ax-' + a).value = i.scores?.[a] ?? 3; $('axv-' + a).textContent = $('ax-' + a).value })
     scoreCurrentIdea()
     $('tl-topic').value = i.idea.replace(/^Remix:\s*/i, ''); $('wf-idea').value = i.idea
-    if (i.title) { $('pr-title').value = i.title; $('tq-title').value = i.title; $('st-title').value = i.title; $('pb-title').value = i.title }
-    if (i.promise) { $('pk-promise').value = i.promise; $('st-promise').value = i.promise; $('pb-promise').value = i.promise }
-    if (i.thumbText) { $('pr-thumb').value = i.thumbText; $('tq-text').value = i.thumbText }
-    if (i.script) $('st-script').value = i.script
-    if (i.thumbnailMoment) $('st-moment').value = i.thumbnailMoment
+    // Every per-idea field is assigned, empty when this idea has no value: a field left alone keeps the previous
+    // idea's title, promise or A/B names, and Confirm published would write them into this idea's ledger row.
+    ;['pr-title', 'tq-title', 'st-title', 'pb-title'].forEach((id) => { $(id).value = i.title || '' })
+    ;['pk-promise', 'st-promise', 'pb-promise'].forEach((id) => { $(id).value = i.promise || '' })
+    ;['pr-thumb', 'tq-text'].forEach((id) => { $(id).value = i.thumbText || '' })
+    $('pb-thumb-a').value = i.thumbA || ''; $('pb-thumb-b').value = i.thumbB || ''
+    $('st-script').value = i.script || ''; $('st-moment').value = i.thumbnailMoment || ''
+    // The rest of Publish describes one upload (its video id, time, files, levers): none of it carries to another idea.
+    ;['pb-related', 'pb-sequel', 'pb-video-id', 'pb-at', 'pb-levers', 'pb-file-a', 'pb-file-b'].forEach((id) => { $(id).value = '' })
+    $('pb-predict').value = '1.0'
+    ;['a', 'b'].forEach((l) => { const st = $('pb-file-' + l + '-status'); st.className = 'muted'; st.textContent = 'no file chosen' })
+    $('pb-out').innerHTML = ''; $('pb-check').innerHTML = ''
     renderCurrent()
   }
   function currentIdea() { return ideas().find((x) => x.id === state.currentId) }
@@ -712,14 +787,29 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   }
 
   // ---------- 3 PACKAGE ----------
+  // Offline the formulas are shapes, not titles, as `booster titles` prints them: a formula cannot conjugate a
+  // verb or drop an article, so a topic pasted into it reads as a template fill ("I Did Living off a ... Until
+  // It Worked") that the scorer holds under the gate. A shape has a blank, no score and no rank; a person
+  // writes the title from it in the three lines below and checks it in Packaging review.
   function runTitles() {
-    const topic = $('tl-topic').value.trim(); if (!topic) { toast('Give a topic.'); return }
-    const c = B.generateTitles({ topic, number: $('tl-number').value.trim() || undefined, subject: $('tl-subject').value.trim() || undefined, audience: $('tl-audience').value.trim() || undefined })
-    renderTitleRows(c.map((x) => ({ title: x.title, lever: x.formula, score: x.score })))
+    const shapes = B.titleShapes({ number: $('tl-number').value.trim() || undefined, subject: $('tl-subject').value.trim() || undefined, audience: $('tl-audience').value.trim() || undefined })
+    $('tl-table').querySelector('thead').innerHTML = '<tr><th>Shape</th><th>Formula</th><th>Worked example</th><th></th></tr>'
+    const tb = $('tl-table').querySelector('tbody')
+    tb.innerHTML = shapes.map((s, i) => `<tr><td>${esc(s.title)}</td><td class="muted">${esc(s.formula)}</td><td class="muted">${esc(s.example || '')}</td><td><button class="btn sm" data-shape="${i}">Write from it</button></td></tr>`).join('')
+    tb.querySelectorAll('[data-shape]').forEach((b) => b.addEventListener('click', () => {
+      const shape = shapes[Number(b.dataset.shape)].title
+      const own = ['tl-own1', 'tl-own2', 'tl-own3'].map($).find((el) => !el.value.trim())
+      if (!own) { toast('Your three lines are full: clear one to start from this shape.'); return }
+      own.value = shape; own.focus()
+      const at = shape.indexOf(B.TITLE_BLANK); if (at >= 0) own.setSelectionRange(at, at + B.TITLE_BLANK.length)
+    }))
+    $('tl-note').textContent = 'Shapes, not titles: no scores and no ranking. Write your own title in one of these shapes, in your own words, then check it in Packaging review.'
   }
   function renderTitleRows(rows) {
+    $('tl-table').querySelector('thead').innerHTML = '<tr><th class="num">Score</th><th>Lever</th><th>Title</th><th></th></tr>'
+    $('tl-note').textContent = ''
     const tb = $('tl-table').querySelector('tbody')
-    tb.innerHTML = rows.map((r, i) => `<tr><td class="num">${r.score}</td><td class="muted">${esc(r.lever)}</td><td>${esc(r.title)}</td><td><button class="btn sm" data-use="${i}">Use</button></td></tr>`).join('')
+    tb.innerHTML = rows.map((r, i) => `<tr><td class="num">${esc(r.score)}</td><td class="muted">${esc(r.lever)}</td><td>${esc(r.title)}</td><td><button class="btn sm" data-use="${i}">Use</button></td></tr>`).join('')
     tb.querySelectorAll('[data-use]').forEach((b) => b.addEventListener('click', () => { const t = rows[Number(b.dataset.use)].title; ;['pr-title', 'tq-title', 'st-title', 'pb-title'].forEach((id) => { $(id).value = t }); toast('Title placed in review, thumbnail, story, and publish.') }))
   }
   $('tl-run').addEventListener('click', runTitles)
@@ -763,9 +853,37 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   // the names in package.json; a concept nobody QA'd is rethink, as cli/commands/publish.ts does.
   const gradeKey = (name) => (name || '').trim().toLowerCase()
   const conceptGrades = new Map(Object.entries(local.read('thumbGrades') || {}))
-  function recordGrade(name, grade) { const k = gradeKey(name); if (!k) return; conceptGrades.set(k, grade); local.write('thumbGrades', Object.fromEntries(conceptGrades)) }
+  // The names in the order they were QA'd, newest last, so Publish can offer the last two as A and B.
+  let qaOrder = Array.isArray(local.read('thumbQaOrder')) ? local.read('thumbQaOrder') : []
+  function recordGrade(name, grade) {
+    const k = gradeKey(name); if (!k) return
+    conceptGrades.set(k, grade); local.write('thumbGrades', Object.fromEntries(conceptGrades))
+    qaOrder = qaOrder.filter((n) => gradeKey(n) !== k).concat([name.trim()]).slice(-6); local.write('thumbQaOrder', qaOrder)
+  }
   function gradeFor(name) { return conceptGrades.get(gradeKey(name)) || 'rethink' }
-  $('tq-run').addEventListener('click', () => { const spec = specFromForm(); if (!spec.focalSubject) { toast('Name the focal subject.'); return } const qa = B.qaThumbnail(spec, signature()); recordGrade($('tq-name').value, qa.grade); $('tq-out').innerHTML = qaHtml(qa) })
+  /**
+   * A and B for Publish: the names already in the fields or picked for the open idea, and an empty slot filled
+   * from the concepts QA'd most recently, minus any name already picked, so one concept is never offered as
+   * both A and B (the checklist fails that pair as "the same concept").
+   */
+  function chosenConcepts() {
+    const i = currentIdea()
+    const a = $('pb-thumb-a').value.trim() || i?.thumbA || ''; const b = $('pb-thumb-b').value.trim() || i?.thumbB || ''
+    const others = qaOrder.filter((n) => gradeKey(n) !== gradeKey(a) && gradeKey(n) !== gradeKey(b))
+    if (a && b) return { a, b }
+    if (a || b) { const next = others[others.length - 1] || ''; return { a: a || next, b: b || next } }
+    const recent = others.slice(-2)
+    return { a: recent[0] || '', b: recent[1] || '' }
+  }
+  /** "Use as A / B": a person picks the pair (a human gate in AGENTS.md); the open idea keeps it. */
+  const useButtons = (name) => name ? `<div class="row"><button class="btn sm" data-use-concept="a" data-name="${esc(name)}">Use as thumbnail A</button><button class="btn sm" data-use-concept="b" data-name="${esc(name)}">Use as thumbnail B</button></div>` : '<p class="muted">Name the concept to use it as A or B in Publish.</p>'
+  async function useConcept(letter, name) {
+    $('pb-thumb-' + letter).value = name
+    const i = currentIdea(); if (i) await store.put('ideas', { ...i, ['thumb' + letter.toUpperCase()]: name })
+    toast(`"${name}" is thumbnail ${letter.toUpperCase()} in Publish${i ? ' for this idea' : ''}.`)
+  }
+  $('tq-out').addEventListener('click', (e) => { const b = e.target.closest('[data-use-concept]'); if (b) useConcept(b.dataset.useConcept, b.dataset.name) })
+  $('tq-run').addEventListener('click', () => { const spec = specFromForm(); if (!spec.focalSubject) { toast('Name the focal subject.'); return } const qa = B.qaThumbnail(spec, signature()); const name = $('tq-name').value.trim(); recordGrade(name, qa.grade); $('tq-out').innerHTML = qaHtml(qa) + useButtons(name) })
   $('tq-ai').addEventListener('click', async () => {
     const title = $('tq-title').value.trim() || $('pr-title').value.trim(); if (!title || !state.sample) { toast('Give the title first.'); return }
     $('tq-ai').disabled = true; $('tq-ai').textContent = 'Thinking…'
@@ -773,7 +891,7 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
       const sig = signature()
       const out = await state.sample.json(`Design 5 YouTube thumbnail concepts as specs for the title "${title}" (promise: ${$('pk-promise').value || 'see title'}). Rules: one focal subject; at most three elements; three words of text or fewer that do NOT repeat the title; a specific emotion if a face is present; a high-contrast colour pair; a clean background.${sig ? ' Channel signature: ' + B.describeSignature(sig) : ''} Return JSON only: {"concepts":[{"name":"","angle":"result|stakes|curiosity|contrast|identity","focalSubject":"","emotion":"","elements":["",""],"text":"","background":"","colors":["",""],"composition":""}]}`, { modelTier: 'default' })
       const concepts = out?.concepts || []
-      $('tq-out').innerHTML = concepts.map((c) => { const qa = B.qaThumbnail({ ...c, title }, sig); recordGrade(c.name, qa.grade); return `<div class="concept"><h4>${esc(c.name)} <span class="pill ${verdictKind(qa.grade)}">${qa.score} ${qa.grade}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)} (${esc(c.emotion || 'no face')})</dd><dt>Elements</dt><dd>${esc((c.elements || []).join(', '))}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Colours</dt><dd>${esc((c.colors || []).join(' / '))} · ${esc(c.background || '')}</dd><dt>Composition</dt><dd>${esc(c.composition || '')}</dd>${qa.fixes.length ? `<dt>Fix</dt><dd>${esc(qa.fixes.join(' '))}</dd>` : ''}</dl></div>` }).join('')
+      $('tq-out').innerHTML = concepts.map((c) => { const qa = B.qaThumbnail({ ...c, title }, sig); recordGrade(c.name, qa.grade); return `<div class="concept"><h4>${esc(c.name)} <span class="pill ${verdictKind(qa.grade)}">${qa.score} ${qa.grade}</span></h4><dl><dt>Focal</dt><dd>${esc(c.focalSubject)} (${esc(c.emotion || 'no face')})</dd><dt>Elements</dt><dd>${esc((c.elements || []).join(', '))}</dd><dt>Text</dt><dd>${esc(c.text || '(none)')}</dd><dt>Colours</dt><dd>${esc((c.colors || []).join(' / '))} · ${esc(c.background || '')}</dd><dt>Composition</dt><dd>${esc(c.composition || '')}</dd>${qa.fixes.length ? `<dt>Fix</dt><dd>${esc(qa.fixes.join(' '))}</dd>` : ''}</dl>${useButtons((c.name || '').trim())}</div>` }).join('')
     } catch (e) { toast(e?.code === 'not_granted' ? 'Claude calls were not allowed on this page.' : 'Claude could not answer: ' + (e?.message || e)) }
     $('tq-ai').disabled = false; $('tq-ai').textContent = 'Ask Claude for 5 concepts'
   })
@@ -814,26 +932,40 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   // ---------- 7 PUBLISH ----------
   let lastPack = null
   function chaptersFromIdea() { const i = currentIdea(); return (i?.chapters || lastHook?.chapters || []).map((c) => ({ atSec: c.atSec, title: c.title })) }
-  $('pb-run').addEventListener('click', () => {
+  // The exported files, read here the way `booster publish check` reads packages/<slug>/thumb-A.png: the header
+  // for format and size (checkThumbnailFile), the byte count for the 2 MB limit. Nothing leaves the browser.
+  // No file chosen is a failed line with the reason, never a tick: the checklist ticks only a check that ran.
+  async function checkThumbFile(letter) {
+    const L = letter.toUpperCase(); const f = $('pb-file-' + letter).files?.[0]; const status = $('pb-file-' + letter + '-status')
+    if (!f) { status.className = 'muted'; status.textContent = 'no file chosen'; return { pass: false, issues: [`thumbnail ${L}: no exported file chosen (pick it above; it is read here, not uploaded)`] } }
+    const r = B.checkThumbnailFile(new Uint8Array(await f.arrayBuffer()))
+    status.className = r.pass ? 'ok' : 'no'
+    status.textContent = r.pass ? `${r.meta.width}x${r.meta.height} ${r.meta.format.toUpperCase()}, ${Math.round(r.meta.bytes / 1024)} KB` : r.issues.join('; ')
+    return { pass: r.pass, issues: r.pass ? [] : [`thumbnail ${L} (${f.name}): ${r.issues.join(', ')}`] }
+  }
+  ;['a', 'b'].forEach((l) => $('pb-file-' + l).addEventListener('change', () => checkThumbFile(l)))
+  $('pb-run').addEventListener('click', async () => {
     const title = $('pb-title').value.trim(); const promise = $('pb-promise').value.trim()
     if (!title || !promise) { toast('Title and promise are required.'); return }
-    lastPack = B.assemblePublish({ title, promise, chapters: chaptersFromIdea(), sequelQuestion: $('pb-sequel').value.trim() || undefined, thumbs: { a: $('pb-thumb-a').value.trim() || 'A', b: $('pb-thumb-b').value.trim() || 'B' }, profile: state.profile || undefined, relatedVideo: $('pb-related').value.trim() || undefined })
+    // The names as typed: an empty one fails the line as unnamed rather than passing as "A" or "B".
+    lastPack = B.assemblePublish({ title, promise, chapters: chaptersFromIdea(), sequelQuestion: $('pb-sequel').value.trim() || undefined, thumbs: { a: $('pb-thumb-a').value.trim(), b: $('pb-thumb-b').value.trim() }, profile: state.profile || undefined, relatedVideo: $('pb-related').value.trim() || undefined })
     const md = B.renderPublishMarkdown(lastPack)
     $('pb-out').innerHTML = `<button class="btn sm" id="pb-copy">Copy</button><pre>${esc(md)}</pre>`
     $('pb-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(md); toast('Publish pack copied.') } catch { toast('Clipboard blocked; select the text instead.') } })
     const thumbText = $('pr-thumb').value.trim()
+    const files = await Promise.all(['a', 'b'].map(checkThumbFile))
     // reviewScheduled is left to its false default: nothing on this page has put the 48-hour
     // review on a calendar yet, and a gate that asserts its own inputs cannot fail.
-    const check = B.checkPublish(lastPack, { titleScore: B.scoreTitle(title).score, thumbGrades: [gradeFor($('pb-thumb-a').value), gradeFor($('pb-thumb-b').value)], overlapOk: B.titleThumbnailOverlap(title, thumbText) < B.thresholds.titleThumbOverlapMax.value })
+    const check = B.checkPublish(lastPack, { titleScore: B.scoreTitle(title).score, thumbGrades: [gradeFor($('pb-thumb-a').value), gradeFor($('pb-thumb-b').value)], overlapOk: B.titleThumbnailOverlap(title, thumbText) < B.thresholds.titleThumbOverlapMax.value, thumbFilesOk: files.every((f) => f.pass), thumbFileIssues: files.flatMap((f) => f.issues) })
     $('pb-check').innerHTML = `<h3>Checklist · ${check.pass ? '<span class="ok">ready</span>' : '<span class="no">not yet</span>'}</h3><ul class="plain">${check.items.map((it) => `<li>${it.ok ? '<span class="ok">✓</span>' : '<span class="no">✕</span>'} ${esc(it.label)}${it.detail ? `<br><small class="muted">${esc(it.detail)}</small>` : ''}</li>`).join('')}</ul>`
   })
   $('pb-confirm').addEventListener('click', async () => {
     const title = $('pb-title').value.trim() || $('pr-title').value.trim(); if (!title) { toast('Title is required.'); return }
     const at = $('pb-at').value ? new Date($('pb-at').value).toISOString() : nowIso()
     const slug = B.slugify(title)
-    if (!confirm(`Confirm "${title}" is live as of ${at.slice(0, 16)}? This starts the 24 / 48 / 168 / 672 hour reads.`)) return
+    if (!(await gate({ title: 'Confirm the publish', text: `Confirm "${title}" is live as of ${at.slice(0, 16)}? This starts the 24 / 48 / 168 / 672 hour reads.`, action: 'Confirm published' }))) return
     const existing = docs('ledger').find((r) => r.id === slug)
-    await store.put('ledger', { ...(existing || {}), id: slug, slug, title, publishedAt: at, videoId: $('pb-video-id').value.trim() || existing?.videoId, thumbA: $('pb-thumb-a').value.trim() || 'A', thumbB: $('pb-thumb-b').value.trim() || 'B', reads: existing?.reads || {}, hypothesis: { levers: list($('pb-levers').value), angle: currentIdea()?.sources?.[0]?.title, predictedCtrMultiple: numv('pb-predict') ?? 1, registeredAt: at } })
+    await store.put('ledger', { ...(existing || {}), id: slug, slug, title, publishedAt: at, videoId: $('pb-video-id').value.trim() || existing?.videoId, thumbA: $('pb-thumb-a').value.trim() || existing?.thumbA, thumbB: $('pb-thumb-b').value.trim() || existing?.thumbB, reads: existing?.reads || {}, hypothesis: { levers: list($('pb-levers').value), angle: currentIdea()?.sources?.[0]?.title, predictedCtrMultiple: numv('pb-predict') ?? 1, registeredAt: at } })
     const i = currentIdea(); if (i) await store.put('ideas', { ...i, status: 'published' })
     toast('Ledger row created. The 24-hour read is due tomorrow.'); show('today')
   })
@@ -841,7 +973,7 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   // ---------- 8 REVIEW ----------
   function renderReviewSelect() {
     const rows = ledgerRows(); const sel = $('rv-slug'); const prev = sel.value
-    sel.innerHTML = rows.map((r) => `<option value="${esc(r.slug)}">${esc(r.title)} · ${r.publishedAt.slice(0, 10)}</option>`).join('')
+    sel.innerHTML = rows.map((r) => `<option value="${esc(r.slug)}">${esc(r.title)} · ${esc(r.publishedAt.slice(0, 10))}</option>`).join('')
     if (rows.some((r) => r.slug === prev)) sel.value = prev
     if (rows.length) fillReadFields()
   }
@@ -864,7 +996,11 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     const { b48, b168 } = computedBaselines(row.slug)
     const baselines = bucket === '48' || bucket === '24' ? b48 : b168
     const hours = (now.getTime() - Date.parse(row.publishedAt)) / 3600000
-    const d = B.diagnose({ ...read, bucket, baselines: baselines.n > 0 ? baselines : undefined, baseline: baselines.n < 5 ? flatBaseline() : undefined, hoursSincePublish: hours, previousRead: bucket === '48' ? row.reads?.['24'] : undefined, returningViewerPct: read.returningPct, browseSuggestedPct: read.browseSuggestedPct })
+    // At 7 and 28 days decide() judges views on the 7-day median alone and never on a typed one, so the manual
+    // views stay out of the diagnosis there too: the verdict and the decision card below read the same baseline.
+    const weekRead = bucket === '168' || bucket === '672'
+    const flat = baselines.n < 5 ? { ...flatBaseline(), ...(weekRead ? { views: undefined } : {}) } : undefined
+    const d = B.diagnose({ ...read, bucket, baselines: baselines.n > 0 ? baselines : undefined, baseline: flat, hoursSincePublish: hours, previousRead: bucket === '48' ? row.reads?.['24'] : undefined, returningViewerPct: read.returningPct, browseSuggestedPct: read.browseSuggestedPct })
     lastDiag = d
     const updated = { ...row, reads: { ...(row.reads || {}), [bucket]: read }, lever: lever || row.lever, bottleneck: d.bottleneck }
     const decision = B.decide({ diagnosis: d, row: updated, bucket, baselines: baselines.n > 0 ? baselines : undefined, now, source: 'desk' })
@@ -884,7 +1020,7 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     const doc = docs('decisions').find((x) => x.id === `${row.slug}:${bucket}`)
     if (!doc) { $('rv-decision').innerHTML = ''; return }
     $('rv-decision').innerHTML = `<div class="card" style="margin-top:8px"><h3>Decision · ${bucket} h ${doc.approvedAt ? '<span class="chip">approved ' + esc(doc.approvedAt.slice(0, 10)) + '</span>' : '<span class="chip">awaiting you</span>'}</h3><pre>${esc(B.describeDecision(doc))}</pre><div class="row">${doc.approvedAt ? '' : `<button class="btn primary" id="rv-approve">Approve</button>`}${doc.decision === 'REPACKAGE' && doc.approvedAt && !doc.appliedAt ? `<button class="btn" id="rv-applied">Swap applied in Studio</button>` : ''}<button class="btn" data-jump="ledger">Ledger</button></div></div>`
-    const ap = $('rv-approve'); if (ap) ap.addEventListener('click', async () => { if (!confirm(`Approve ${doc.decision} for ${row.slug}? An agent prepared it; you own it.`)) return; await store.put('decisions', { ...doc, approvedAt: nowIso(), approvedBy: 'desk' }); toast('Decision approved.') })
+    const ap = $('rv-approve'); if (ap) ap.addEventListener('click', async () => { if (!(await gate({ title: 'Approve the decision', text: `Approve ${doc.decision} for "${row.title || row.slug}"? An agent prepared it; you own it. The decision is stamped approved by you, now.`, action: `Approve ${doc.decision}` }))) return; await store.put('decisions', { ...doc, approvedAt: nowIso(), approvedBy: 'desk' }); toast('Decision approved.') })
     const al = $('rv-applied'); if (al) al.addEventListener('click', async () => { await store.put('decisions', { ...doc, appliedAt: nowIso() }); const r = docs('ledger').find((x) => x.slug === row.slug); if (r) await store.put('ledger', { ...r, repackagedAt: nowIso() }); toast('Repackage recorded; the ledger excludes this row from baselines from now on.') })
   }
   function parseVariant(name, text) { const [impressions, ctr, share] = list(text).map(Number); if (!impressions || !ctr) return null; return { name, impressions, ctr, watchTimeSharePct: Number.isNaN(share) ? undefined : share } }
@@ -910,11 +1046,15 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
   function renderLedger() {
     const rows = ledgerRows()
     const tb = $('ledger-table').querySelector('tbody')
-    const v = (r, b, k, suffix = '') => r.reads?.[b]?.[k] === undefined ? '—' : (k === 'impressions' || k === 'views' ? fmt(r.reads[b][k]) : r.reads[b][k] + suffix)
-    tb.innerHTML = rows.map((r) => `<tr><td class="mono">${esc(r.publishedAt.slice(0, 10))}</td><td>${esc(r.title)}</td><td class="muted">${esc(r.thumbA || '—')} / ${esc(r.thumbB || '—')}</td><td>${esc(r.winner || '—')}</td><td class="num">${v(r, '48', 'impressions')}</td><td class="num">${v(r, '48', 'ctr', '%')}</td><td class="num">${v(r, '48', 'avpPct', '%')}</td><td class="num">${v(r, '168', 'views')}</td><td>${r.bottleneck ? pill(verdictKind(r.bottleneck), r.bottleneck) : '—'}</td><td>${esc(r.decision || '—')}</td><td>${esc(r.lever || '')}</td><td><button class="btn sm" data-ldel="${r.id}">✕</button></td></tr>`).join('')
+    const v = (r, b, k, suffix = '') => r.reads?.[b]?.[k] === undefined ? '—' : esc(k === 'impressions' || k === 'views' ? fmt(r.reads[b][k]) : r.reads[b][k] + suffix)
+    tb.innerHTML = rows.map((r) => `<tr><td class="mono">${esc(r.publishedAt.slice(0, 10))}</td><td>${esc(r.title)}</td><td class="muted">${esc(r.thumbA || '—')} / ${esc(r.thumbB || '—')}</td><td>${esc(r.winner || '—')}</td><td class="num">${v(r, '48', 'impressions')}</td><td class="num">${v(r, '48', 'ctr', '%')}</td><td class="num">${v(r, '48', 'avpPct', '%')}</td><td class="num">${v(r, '168', 'views')}</td><td>${r.bottleneck ? pill(verdictKind(r.bottleneck), r.bottleneck) : '—'}</td><td>${esc(r.decision || '—')}</td><td>${esc(r.lever || '')}</td><td><button class="btn sm" data-ldel="${esc(r.id)}" aria-label="Delete ledger row">✕</button></td></tr>`).join('')
     $('ledger-empty').hidden = rows.length > 0
     $('count-ledger').textContent = rows.length ? String(rows.length) : ''
-    tb.querySelectorAll('[data-ldel]').forEach((b) => b.addEventListener('click', () => { if (confirm('Delete this ledger row?')) store.del('ledger', b.dataset.ldel) }))
+    tb.querySelectorAll('[data-ldel]').forEach((b) => b.addEventListener('click', async () => {
+      const r = docs('ledger').find((x) => x.id === b.dataset.ldel); if (!r) return
+      if (!(await gate({ title: 'Delete a ledger row', text: `Delete this ledger row? "${r.title || r.slug}" and every read recorded on it go, and the baselines are computed without it. This cannot be undone.`, action: 'Delete row' }))) return
+      await store.del('ledger', r.id)
+    }))
     const levers = B.leverTally(rows)
     $('ledger-levers').innerHTML = levers.length ? levers.slice(0, 8).map((l) => `<li>${esc(l.lever)} <span class="chip">${l.count}</span></li>`).join('') : '<li class="muted">Register levers at publish and write one sentence at 7 days.</li>'
     const winners = B.ownOutliers(rows)
@@ -931,11 +1071,13 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     $('retro-week').innerHTML = `<dl class="kv"><dt>Published or read</dt><dd>${week.length ? week.map((r) => esc(r.title)).join('; ') : 'nothing this week'}</dd><dt>Levers</dt><dd>${levers.length ? levers.map((l) => `${esc(l.lever)} (${l.count})`).join(' · ') : '—'}</dd><dt>Winners</dt><dd>${winners.length ? winners.map((w) => `${esc(w.row.title)} ${w.multiple.toFixed(1)}x`).join(' · ') : '—'}</dd><dt>Broke at</dt><dd>${losers.length ? losers.map((r) => `${esc(r.title)}: ${esc(r.bottleneck)}`).join(' · ') : '—'}</dd><dt>Overrides</dt><dd>${docs('decisions').filter((d) => d.approvedAt && Date.parse(d.approvedAt) >= since).length} decisions approved</dd></dl>`
     if (!$('retro-rule').value && levers.length) $('retro-rule').value = `On this channel, ${levers[0].lever} (n=${levers[0].count}: ${levers[0].slugs.join(', ')}).`
     const rules = docs('rules')
-    $('retro-rules').innerHTML = rules.length ? rules.map((r) => `<li>${esc(r.rule)} <span class="chip">${esc(r.status)}${r.tests ? ` n=${r.tests}` : ''}</span></li>`).join('') : '<li class="muted">No rules yet.</li>'
+    // Where a rule stands in a person's words: a compiled rule is under observation, never "promoted" doctrine.
+    // The sentence is rebuilt from the lever and status, as the CLI does: a row an older compile stored as an instruction ("Prefer ...") still reads as a hypothesis.
+    $('retro-rules').innerHTML = rules.length ? rules.map((r) => `<li>${esc(B.ruleSentence(r))} <span class="chip">${esc(B.ruleStanding(r))}${r.tests ? ` n=${esc(r.tests)}` : ''}</span></li>`).join('') : '<li class="muted">No rules yet.</li>'
   }
   $('retro-accept').addEventListener('click', async () => {
     const rule = $('retro-rule').value.trim(); if (!rule) { toast('Write the rule.'); return }
-    if (!confirm('Accept this rule into the playbook? The CLI appends it under Learned rules on the next sync.')) return
+    if (!(await gate({ title: 'Accept a playbook rule', text: 'Accept this rule into the playbook? The CLI appends it under Learned rules on the next sync.', action: 'Accept rule' }))) return
     await store.put('rules', { id: B.stableId('rule', rule), rule, tests: 0, wins: 0, confidence: 1, status: 'pinned', pinned: true, slugs: [], acceptedBy: 'desk' })
     $('retro-rule').value = ''; toast('Rule accepted.')
   })
@@ -969,6 +1111,8 @@ Solar Fridge Test: 7 Days No Sun,150000,2026-09-10,OffGridLab,11:20`
     // never a replacement for it, and the controls come back with it so the re-scan is the same scan.
     const scanInput = local.read('scanInput')
     $('scan-csv').value = typeof scanInput?.csv === 'string' ? scanInput.csv : EXAMPLE_CSV
+    // The first scan of an earlier Desk saved its own example here as if it were pasted: that is the example still.
+    if ($('scan-csv').value.trim() === EARLIER_EXAMPLE) $('scan-csv').value = EXAMPLE_CSV
     if (scanInput?.threshold) $('scan-threshold').value = scanInput.threshold
     if (scanInput?.since) $('scan-since').value = scanInput.since
     runScan(); renderAll(); scoreCurrentIdea()

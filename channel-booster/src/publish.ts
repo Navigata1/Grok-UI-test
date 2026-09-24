@@ -30,6 +30,12 @@ export const PUBLISH_RULES = {
   minChapterGapSec: { value: 10, evidence: 'unverified', note: 'shortest chapter YouTube accepts' },
 } as const
 
+/**
+ * The exported A/B pair in packages/<slug>/: the names the workflow's
+ * thumbnail gate requires and the files `publish check` header-checks.
+ */
+export const THUMB_FILES = { a: 'thumb-A.png', b: 'thumb-B.png' } as const
+
 /** A chapter as the story report emits it. */
 export interface PublishChapter {
   atSec: number
@@ -244,8 +250,14 @@ export interface PublishCheckInput {
   thumbGrades: [ThumbnailQa['grade'], ThumbnailQa['grade']]
   /** titleThumbnailOverlap below thresholds.titleThumbOverlapMax for both concepts. */
   overlapOk: boolean
-  /** Both PNGs passed `booster thumbnail check` (1280x720, under 2 MB). Undefined: not asserted here. */
+  /**
+   * Both exported files passed the header check (checkThumbnailFile: 1280x720,
+   * 16:9, under 2 MB). Undefined means nobody checked them, and the thumbnails
+   * line fails: the checklist ticks only what a check actually ran.
+   */
   thumbFilesOk?: boolean
+  /** What the file check found, one entry per missing or failing file; the thumbnails line prints it when thumbFilesOk is false. */
+  thumbFileIssues?: string[]
   /** The creator confirmed the window in Studio > Audience. Defaults to true when the window came from the profile. */
   publishWindowConfirmed?: boolean
   /** The 48-hour review is on the calendar. Default false. */
@@ -274,7 +286,10 @@ function isPlaceholder(s: string): boolean {
  * Check a pack against playbook/publish-checklist.md, one item per line in the
  * same order. `pass` is true only when every item is true; details say what to
  * fix. The chapters line cannot see the retention map, so it checks YouTube's
- * chapter rules instead (three or more, 0:00 first, rising, 10 s apart).
+ * chapter rules instead (three or more, 0:00 first, rising, 10 s apart). A
+ * line is ticked only on a check that ran: thumbnail files nobody read fail
+ * as not checked, and the thumbnail and Shorts lines claim what the pack
+ * holds, never a Studio setting or a schedule.
  */
 export function checkPublish(pack: PublishPack, input: PublishCheckInput): PublishCheck {
   const items: PublishCheckItem[] = []
@@ -293,15 +308,18 @@ export function checkPublish(pack: PublishPack, input: PublishCheckInput): Publi
   if (input.titleScore < gate) titleProblems.push(`title score ${input.titleScore} under the gate ${gate}`)
   push('Title final: 30 to 55 characters, promise inside the first 40, no thumbnail words repeated.', titleProblems.length === 0, titleProblems.join('; '))
 
-  // 2. Thumbnails
+  // 2. Thumbnails. Test & Compare is switched on in Studio at upload, which
+  // nothing here can see, so the line checks A and B are two named concepts
+  // and leaves switching it on to a person.
   const thumbProblems: string[] = []
   const [gradeA, gradeB] = input.thumbGrades
   if (gradeA !== 'ship') thumbProblems.push(`A graded ${gradeA}`)
   if (gradeB !== 'ship') thumbProblems.push(`B graded ${gradeB}`)
   if (!pack.thumbs.a || !pack.thumbs.b) thumbProblems.push('both thumbnails must be named for the test')
   if (pack.thumbs.a && pack.thumbs.a.toLowerCase() === pack.thumbs.b.toLowerCase()) thumbProblems.push('A and B are the same concept')
-  if (input.thumbFilesOk === false) thumbProblems.push('a file failed booster thumbnail check (1280x720, under 2 MB)')
-  push('Thumbnails A and B exported at 1280x720, under 2MB, graded "ship"; Test & Compare on.', thumbProblems.length === 0, thumbProblems.join('; '))
+  if (input.thumbFilesOk === undefined) thumbProblems.push(`the exported files were not checked: booster publish check <slug> reads packages/<slug>/${THUMB_FILES.a} and ${THUMB_FILES.b} (1280x720, under 2 MB)`)
+  else if (!input.thumbFilesOk) thumbProblems.push(...(input.thumbFileIssues?.length ? input.thumbFileIssues : ['a file failed booster thumbnail check (1280x720, under 2 MB)']))
+  push('Thumbnails A and B exported at 1280x720, under 2MB, graded "ship", two different concepts; a person turns Test & Compare on at upload.', thumbProblems.length === 0, thumbProblems.join('; '))
 
   // 3. Description
   const firstLine = pack.description.split(/\r?\n/)[0] ?? ''
@@ -330,12 +348,14 @@ export function checkPublish(pack: PublishPack, input: PublishCheckInput): Publi
   // 6. Pinned comment
   push('Pinned comment asks the question the sequel will answer.', pack.pinnedComment.includes('?'), 'the pinned comment is not a question')
 
-  // 7. Community post and Shorts
+  // 7. Community post and Shorts. The machine sees the drafts in the pack, not
+  // a schedule: scheduling happens in Studio after publish, so the line says
+  // drafted and leaves the scheduling to a person.
   const shortsProblems: string[] = []
   if (!pack.communityPost.trim()) shortsProblems.push('community post is empty')
   if (pack.shortsCuts.length < PUBLISH_RULES.shortsCount.value) shortsProblems.push(`${pack.shortsCuts.length} Shorts cut, need ${PUBLISH_RULES.shortsCount.value}: add payoff moments to the story`)
   if (new Set(pack.shortsCuts.map((s) => s.atSec)).size !== pack.shortsCuts.length) shortsProblems.push('two Shorts start at the same mark')
-  push('Community post scheduled inside 24 hours; two Shorts cut from the best moments scheduled inside 48 hours, each pointing at the video.', shortsProblems.length === 0, shortsProblems.join('; '))
+  push('Community post drafted and two Shorts cut from the best moments, each pointing at the video; a person schedules them in Studio after publish (the post inside 24 hours, the Shorts inside 48).', shortsProblems.length === 0, shortsProblems.join('; '))
 
   // 8. Publish time
   const windowOk = input.publishWindowConfirmed ?? pack.publishWindowSource === 'profile'

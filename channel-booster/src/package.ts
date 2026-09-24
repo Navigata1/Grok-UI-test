@@ -19,8 +19,12 @@
  * are judged when a spec is given). `buildPackage()` generates titles and
  * concepts, QA's every concept, picks A and B, and, when generation hooks are
  * given, feeds every failed gate's fixes back into the hooks for up to
- * `rounds` rounds (`prompts/package-fix.md`). Offline it uses generateTitles()
- * and buildThumbnailBrief(), which are deterministic, so the loop runs once.
+ * `rounds` rounds (`prompts/package-fix.md`). Offline it uses
+ * buildThumbnailBrief(), which is deterministic, so the loop runs once, and it
+ * never chooses a title: a formula cannot write grammar, so the sheet carries
+ * titleShapes() and the title gate fails until a person's title is given
+ * (`--title`, or the one an earlier build stored as `titleSource: 'person'`).
+ * A person's title is chosen over the model's too.
  *
  * The sheet (`package.md`) leaves three blank lines for the human's own
  * titles: an agent prepares, a person picks (AGENTS.md, human gate 2).
@@ -34,8 +38,8 @@ import { stableId, type Signature } from './schema.js'
 import { describeSignature } from './signature.js'
 import { tagged, thresholds } from './thresholds.js'
 import { THUMBNAIL_QA_CHECKLIST, THUMBNAIL_RULES, THUMBNAIL_TEST_PLAN, buildThumbnailBrief, qaThumbnail } from './thumbnails.js'
-import { generateTitles, scoreTitle, titleThumbnailOverlap } from './titles.js'
-import type { ThumbnailConcept, ThumbnailQa, ThumbnailSpec, TitleCandidate } from './types.js'
+import { scoreTitle, titleShapes, titleThumbnailOverlap } from './titles.js'
+import type { ThumbnailConcept, ThumbnailQa, ThumbnailSpec, TitleShape } from './types.js'
 import { slugify } from './workflow.js'
 
 /** Concepts a package needs at grade "ship" with distinct angles before it may leave packaging (architecture 2.5; house). */
@@ -59,6 +63,9 @@ const ANGLE_EMOTION: Record<ThumbnailConcept['angle'], string> = {
 }
 
 export type PackageVerdict = 'pass' | 'revise' | 'fail'
+
+/** Who wrote the chosen title: a person (`--title`, human gate 2) or the model's titles hook. Offline there is no third source. */
+export type TitleSource = 'person' | 'model'
 
 /** One gate: whether it passed and the one-line reason, with its threshold tag where one applies. */
 export interface Gate {
@@ -184,6 +191,21 @@ export interface BuildPackageInput {
   audience?: string
   signature?: Signature
   generate?: GenerateHooks
+  /**
+   * The title a person wrote (`booster package build --title`, or the one an
+   * earlier build stored with `titleSource: 'person'`). It is the chosen title
+   * whatever a titles hook returns; offline it is the only way the package
+   * gets one (AGENTS.md, human gate 2).
+   */
+  title?: string
+  /**
+   * The lever the person's title pulls (`booster package build --lever`), pre-registered with the two A/B
+   * angles so `booster rules compile` can count the title as a test. Ignored without a person's title: a
+   * model title names its own.
+   */
+  titleLever?: string
+  /** The person's own-title lines from an earlier build, carried so a rebuild never blanks them. */
+  ownTitles?: string[]
   /** Fix rounds when hooks are given; offline generation is deterministic and runs once. */
   rounds?: number
   /** The CTR multiple this package predicts, pre-registered with the levers. Defaults to 1 (no lift claimed). */
@@ -207,7 +229,12 @@ export interface PackageDoc {
   idea: string
   promise: string
   titles: PackageTitle[]
+  /** The chosen title; empty offline until a person writes one. */
   chosenTitle: string
+  /** Who wrote `chosenTitle`; absent while there is none. A rebuild reuses a 'person' title and never a model one. */
+  titleSource?: TitleSource
+  /** Offline only: the formula shapes (a blank where the topic goes) the person writes the title from. Empty with a titles hook. */
+  titleShapes: TitleShape[]
   thumbnails: PackageThumbnail[]
   abPick: { a: string; b: string; reason: string }
   designerBrief: string[]
@@ -240,6 +267,8 @@ export const PackageDocSchema = z.object({
   promise: z.string(),
   titles: z.array(z.object({ title: z.string(), score: z.number(), formula: z.string().optional(), lever: z.string().optional(), notes: z.array(z.string()).default([]) })),
   chosenTitle: z.string(),
+  titleSource: z.enum(['person', 'model']).optional(),
+  titleShapes: z.array(z.object({ title: z.string(), formula: z.string(), example: z.string().optional(), template: z.literal(true), score: z.null() })).default([]),
   thumbnails: z.array(z.object({
     name: z.string(),
     angle: z.string(),
@@ -405,9 +434,12 @@ function offlineConcepts(input: BuildPackageInput, title: string): ConceptInput[
   })
 }
 
-function offlineTitles(input: BuildPackageInput): TitleInput[] {
-  return generateTitles({ topic: input.idea, number: input.number, subject: input.subject, audience: input.audience }).map((t: TitleCandidate) => ({ title: t.title, formula: t.formula }))
-}
+/**
+ * Why the title gate fails when no title exists. Offline the builder never
+ * fills a formula in: the fills read "I Did A $300 solar generator Until It
+ * Worked" and the lexical score rated them 85-93, so the person writes it.
+ */
+export const NO_TITLE_OFFLINE = 'no title yet: offline, the builder never picks a formula fill; a person writes the title (AGENTS.md, human gate 2). Write one from the shapes on the sheet, check it with booster titles score "<title>", then rebuild with --title "<title>"'
 
 /**
  * Rescore and rank titles; the hook's own score is ignored so the gate is one
@@ -426,6 +458,13 @@ function rankTitles(inputs: TitleInput[]): PackageTitle[] {
     out.push({ title, score, formula: t.formula, lever: t.lever, notes })
   }
   return out.sort((a, b) => Number(titlePublishable(b.title, b.score)) - Number(titlePublishable(a.title, a.score)) || b.score - a.score)
+}
+
+/** The person's title first, scored like any other, whatever the ranking says, with the lever they named; the hook's copy of it is dropped. */
+function withPersonTitle(ranked: PackageTitle[], person: string | undefined, lever: string | undefined): PackageTitle[] {
+  if (!person) return ranked
+  const { score, notes } = scoreTitle(person)
+  return [{ title: person, score, ...(lever ? { lever } : {}), notes }, ...ranked.filter((t) => t.title.toLowerCase() !== person.toLowerCase())]
 }
 
 /** A hook concept as a full spec: elements derived when missing. */
@@ -503,8 +542,13 @@ interface Evaluation {
   thumbSide: boolean
 }
 
-/** Run every gate on one round's titles and concepts and write the fixes the next round must apply. */
-function evaluate(titles: PackageTitle[], concepts: ConceptInput[], promise: string, signature?: Signature): Evaluation {
+/**
+ * Run every gate on one round's titles and concepts and write the fixes the
+ * next round must apply. `titlePending` is the offline case with no person
+ * title: the title gate says who writes it, and the promise gate checks only
+ * the thumbnail texts, because there is no title to check it on yet.
+ */
+function evaluate(titles: PackageTitle[], concepts: ConceptInput[], promise: string, signature: Signature | undefined, titlePending: boolean): Evaluation {
   const chosen = titles[0] ?? { title: '', score: 0, notes: ['no title generated'] }
   const thumbs = qaConcepts(concepts, chosen.title, promise, signature)
   const pick = pickAb(thumbs)
@@ -514,11 +558,11 @@ function evaluate(titles: PackageTitle[], concepts: ConceptInput[], promise: str
   let titleSide = false
   let thumbSide = false
 
-  const titleGate = titles.length === 0 ? { pass: false, reason: 'no title generated' } : titleGateFor(chosen.title, chosen.score)
+  const titleGate = titles.length === 0 ? { pass: false, reason: titlePending ? NO_TITLE_OFFLINE : 'no title generated' } : titleGateFor(chosen.title, chosen.score)
   if (!titleGate.pass) {
     issues.push(titleGate.reason)
     titleSide = true
-    fixes.push(`Title: "${chosen.title}" scores ${chosen.score}/100 (gate ${thresholds.titleGateScore.value}). Notes: ${chosen.notes.join('; ') || 'none'}. Write titles of ${thresholds.titleMinChars.value}-${thresholds.titleMaxChars.value} characters with the promise inside the first 40, a number or a named thing, one hook word up front, no shouting.`)
+    if (!titlePending) fixes.push(`Title: "${chosen.title}" scores ${chosen.score}/100 (gate ${thresholds.titleGateScore.value}). Notes: ${chosen.notes.join('; ') || 'none'}. Write titles of ${thresholds.titleMinChars.value}-${thresholds.titleMaxChars.value} characters with the promise inside the first 40, a number or a named thing, one hook word up front, no shouting.`)
   }
 
   const worstOverlap = pair.reduce((m, t) => Math.max(m, t.overlap), 0)
@@ -554,6 +598,20 @@ function evaluate(titles: PackageTitle[], concepts: ConceptInput[], promise: str
     promiseGate = { pass: false, reason: 'no promise written; write one sentence the video keeps' }
     issues.push(promiseGate.reason)
     titleSide = true
+  } else if (titlePending) {
+    const drift: string[] = []
+    for (const t of pair) {
+      const report = checkPromise(promise, { thumbnailText: t.spec.text ?? '' })
+      const c = report.surfaces.thumbnailText
+      if (c && !c.pass) {
+        drift.push(`thumbnailText ("${t.name}"): ${c.reason}`)
+        thumbSide = true
+        fixes.push(`Concept "${t.name}": ${c.reason}. Use one promise word (${report.promiseTokens.join(', ')}) or no text at all.`)
+      }
+    }
+    promiseGate = { pass: false, reason: ['not checked on the title: there is no title until a person writes one', ...drift].join('; ') }
+    // The missing title is already the title gate's issue; only thumbnail drift is new here.
+    issues.push(...drift.map((d) => `promise: ${d}`))
   } else {
     const titleCheck = checkPromise(promise, { title: chosen.title })
     const drift = [...titleCheck.drift]
@@ -603,12 +661,14 @@ function designerBrief(ev: Evaluation, signature?: Signature): string[] {
 
 /**
  * Build a complete package for an idea and refuse to call it passed until
- * every gate clears. Offline (no hooks) generation is generateTitles() and
- * buildThumbnailBrief(); with hooks, every failed gate's fixes go back into
- * the hooks (titles hook for title and promise-on-title failures, concepts
- * hook for thumbnail, overlap and promise-on-text failures) for up to
- * `rounds` rounds. The document is returned whether or not the gates pass:
- * `gateReport.pass` is the truth, and the workflow runner reads it.
+ * every gate clears. Offline (no hooks) the concepts come from
+ * buildThumbnailBrief() and the title only from `input.title`: without one
+ * the title gate fails with NO_TITLE_OFFLINE and the sheet carries the
+ * formula shapes. With hooks, every failed gate's fixes go back into the hooks
+ * (titles hook for title and promise-on-title failures, unless the title is a
+ * person's; concepts hook for thumbnail, overlap and promise-on-text failures)
+ * for up to `rounds` rounds. The document is returned whether or not the
+ * gates pass: `gateReport.pass` is the truth, and the workflow runner reads it.
  */
 export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc> {
   const now = input.now ?? new Date()
@@ -620,16 +680,20 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
   let prevTitles: TitleInput[] | undefined
   let prevConcepts: ConceptInput[] | undefined
   let ev: Evaluation | undefined
+  const person = input.title?.trim() || undefined
+  // Offline nothing writes a title but a person: no formula fill is ever ranked or chosen.
+  const titlePending = !hooks.titles && !person
 
   for (let round = 1; round <= maxRounds; round += 1) {
-    const rawTitles = hooks.titles ? await hooks.titles({ round, fixes, previous: prevTitles }) : offlineTitles(input)
-    const titles = rankTitles(rawTitles)
+    const rawTitles = hooks.titles ? await hooks.titles({ round, fixes, previous: prevTitles }) : []
+    const titles = withPersonTitle(rankTitles(rawTitles), person, input.titleLever?.trim() || undefined)
     const chosenTitle = titles[0]?.title ?? ''
     const rawConcepts = hooks.concepts ? await hooks.concepts({ round, fixes, previous: prevConcepts, title: chosenTitle }) : offlineConcepts(input, chosenTitle)
-    ev = evaluate(titles, rawConcepts, input.promise, input.signature)
+    ev = evaluate(titles, rawConcepts, input.promise, input.signature, titlePending)
     prevTitles = rawTitles
     prevConcepts = rawConcepts
-    const canFix = round < maxRounds && ((ev.titleSide && Boolean(hooks.titles)) || (ev.thumbSide && Boolean(hooks.concepts)))
+    // A person's title is not the titles hook's to fix, so a title-side failure then goes back to the person.
+    const canFix = round < maxRounds && ((ev.titleSide && Boolean(hooks.titles) && !person) || (ev.thumbSide && Boolean(hooks.concepts)))
     fixes = ev.gateReport.pass || !canFix ? [] : ev.fixes
     history.push({ round, pass: ev.gateReport.pass, issues: ev.issues, fixes })
     if (ev.gateReport.pass || !canFix) break
@@ -637,7 +701,9 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
 
   const final = ev!
   const slug = slugify(input.idea)
-  const ownTitles = Array.from({ length: OWN_TITLE_LINES }, () => '')
+  const ownTitles = [...(input.ownTitles ?? [])]
+  while (ownTitles.length < OWN_TITLE_LINES) ownTitles.push('')
+  const titleSource: TitleSource | undefined = person ? 'person' : final.chosen.title ? 'model' : undefined
   return {
     id: stableId('package', slug),
     slug,
@@ -645,6 +711,8 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
     promise: input.promise,
     titles: final.titles,
     chosenTitle: final.chosen.title,
+    ...(titleSource ? { titleSource } : {}),
+    titleShapes: hooks.titles ? [] : titleShapes({ number: input.number, subject: input.subject, audience: input.audience }),
     thumbnails: final.thumbs,
     abPick: { a: final.a?.name ?? '', b: final.b?.name ?? '', reason: final.abReason },
     designerBrief: designerBrief(final, input.signature),
@@ -658,11 +726,13 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
 }
 
 /**
- * The levers this package pre-registers: the chosen title's lever (its formula
- * offline) and the two A/B angles, de-duplicated case-insensitively. `booster
- * rules compile` counts only ledger rows whose `hypothesis.levers` is non-empty,
- * so an empty list here keeps every published package out of the flywheel —
- * and the pair was picked precisely because it pulls two named levers.
+ * The levers this package pre-registers: the chosen title's lever (a model
+ * title's own, or the one a person names for their title with `package build
+ * --lever`; a person's title without one adds none) and the two A/B angles,
+ * de-duplicated case-insensitively. `booster rules compile` counts only ledger
+ * rows whose `hypothesis.levers` is non-empty, so an empty list here keeps
+ * every published package out of the flywheel — and the pair was picked
+ * precisely because it pulls two named levers.
  */
 function preRegisteredLevers(ev: Evaluation): string[] {
   const seen = new Map<string, string>()
@@ -700,15 +770,29 @@ export function renderPackageMarkdown(doc: PackageDoc): string {
     '',
     '## Titles',
     '',
-    `Chosen: **${doc.chosenTitle || '(none)'}**`,
+    doc.chosenTitle
+      ? `Chosen: **${doc.chosenTitle}**${doc.titleSource === 'person' ? ' (yours)' : doc.titleSource === 'model' ? ' (the model\'s; yours replaces it)' : ''}`
+      : 'Chosen: (none yet; offline the builder never picks one, so write yours from the shapes below)',
     '',
-    '| Score | Formula / lever | Title |',
-    '| --- | --- | --- |',
-    ...doc.titles.map((t) => `| ${t.score} | ${t.formula ?? t.lever ?? ''} | ${t.title} |`),
-    '',
+    ...(doc.titles.length
+      ? [
+          '| Score | Formula / lever | Title |',
+          '| --- | --- | --- |',
+          ...doc.titles.map((t) => `| ${t.score} | ${t.formula ?? t.lever ?? (doc.titleSource === 'person' && t.title === doc.chosenTitle ? 'yours' : '')} | ${t.title} |`),
+          '',
+        ]
+      : []),
+    ...(doc.titleShapes.length
+      ? [
+          'Title shapes (templates with a blank, not titles: no scores, no ranking). Fill the blank in your own words; change the verb and drop the article where the sentence needs it.',
+          '',
+          ...doc.titleShapes.map((t) => `- ${t.title} (${t.formula}${t.example ? `; e.g. "${t.example}"` : ''})`),
+          '',
+        ]
+      : []),
     '## Your own titles',
     '',
-    'Write three by hand that beat the chosen one, then pick the final title. Thirty to fifty-five characters, promise inside the first forty.',
+    `Write three by hand${doc.chosenTitle ? ' that beat the chosen one' : ''}, then pick the final title: \`booster package build ${doc.slug} --title "<title>"\` makes it the chosen title and every rebuild keeps it. Check each with \`booster titles score "<title>"\`. Thirty to fifty-five characters, promise inside the first forty.`,
     '',
     ...doc.ownTitles.map((t, i) => `${i + 1}. ${t || '________________________________________________'}`),
     '',

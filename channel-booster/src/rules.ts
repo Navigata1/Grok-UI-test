@@ -10,12 +10,22 @@
  *
  * The output lands in `playbook/00-learned-rules.md`, which the alphabetical
  * loader in src/ai reads first, and in the `rules` collection of the store.
+ *
+ * A compiled rule is a hypothesis under observation, never doctrine: the gates
+ * below are not a significance test, and a small channel's sample cannot tell
+ * a lever from luck. The status names stay `promoted` and `retired` in the
+ * store; everything a person or a model reads says "winning so far" or
+ * "losing so far" under observation instead. Only a person moves a rule into
+ * the playbook, with `booster retro --accept-rule`.
  */
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { baselineFrom, readLedger } from './ledger.js'
+import { isProtected, noEffectPromoteChance, ruleEvidence, ruleSentence, ruleText, smoothedWinRate } from './rules-core.js'
 import { RuleDoc, stableId, type DecisionDoc, type LedgerRow } from './schema.js'
 import type { Store } from './store.js'
+
+export * from './rules-core.js'
 
 /** File name of the compiled rules; sorted first by the playbook loader. */
 export const LEARNED_RULES_FILE = '00-learned-rules.md'
@@ -74,9 +84,9 @@ export interface RuleChange {
 export interface CompiledRules {
   /** Every rule now in the store, promoted first, then by confidence. */
   rules: RuleDoc[]
-  /** Rules whose status is promoted (pinned rules included). */
+  /** Rules whose status is promoted (pinned and accepted rules included). A compiled one is winning so far, under observation: not doctrine. */
   promoted: RuleDoc[]
-  /** Rules whose status is retired. */
+  /** Rules whose status is retired: losing so far, under observation. */
   retired: RuleDoc[]
   /** Status changes since the previous compile, for the retro. */
   changes: RuleChange[]
@@ -92,11 +102,6 @@ export function ruleId(lever: string): string {
 /** Lower-cased, trimmed lever text: the tally key. */
 export function leverKey(lever: string): string {
   return lever.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-/** Laplace-smoothed win rate: (wins + 1) / (tests + 2). */
-export function smoothedWinRate(wins: number, tests: number): number {
-  return (wins + 1) / (tests + 2)
 }
 
 /** Exponential decay: 1 at zero days, 0.5 at `halfLifeDays`. Days at or below zero do not decay. */
@@ -157,13 +162,6 @@ export function tallyEvidence(allRows: LedgerRow[], decisions: DecisionDoc[], no
   return [...byLever.values()].sort((a, b) => b.tests - a.tests || a.lever.localeCompare(b.lever))
 }
 
-/** The rule sentence for a lever at a status. */
-export function ruleText(lever: string, status: RuleDoc['status']): string {
-  if (status === 'retired') return `Avoid "${lever}" on this channel`
-  if (status === 'candidate') return `"${lever}" is under test on this channel`
-  return `Prefer "${lever}" on this channel`
-}
-
 /**
  * Score one lever: smoothed win rate, decayed confidence, and status.
  * Both gates need `promoteTests` tests. Retired: smoothed win rate at or
@@ -212,11 +210,6 @@ export function compileRuleDocs(allRows: LedgerRow[], decisions: DecisionDoc[], 
   })
 }
 
-/** A rule the compiler must leave alone: pinned, or accepted by a person. */
-export function isProtected(rule: RuleDoc): boolean {
-  return rule.pinned || rule.status === 'pinned' || Boolean(rule.acceptedBy)
-}
-
 function rank(rule: RuleDoc): number {
   return rule.status === 'pinned' ? 0 : rule.status === 'promoted' ? 1 : rule.status === 'candidate' ? 2 : 3
 }
@@ -261,18 +254,29 @@ function pct(n: number): string {
   return `${Math.round(n * 100)}%`
 }
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
 function ruleLine(r: RuleDoc, withSlugs: boolean): string {
-  const rate = smoothedWinRate(r.wins, r.tests)
-  const tag = r.status === 'pinned' || r.pinned ? ' [pinned]' : r.acceptedBy ? ` [accepted by ${r.acceptedBy}]` : ''
   const slugs = withSlugs && r.slugs.length ? `; ${r.slugs.slice(0, 6).join(', ')}${r.slugs.length > 6 ? ', ...' : ''}` : ''
-  return `- ${r.rule}${tag} (n=${r.tests}, win rate ${pct(rate)}, confidence ${pct(r.confidence)}${slugs})`
+  if (isProtected(r)) {
+    const tag = r.acceptedBy ? ` [accepted by ${r.acceptedBy}]` : ' [pinned]'
+    return `- ${r.rule}${tag}${r.tests > 0 ? ` (${ruleEvidence(r)}${slugs})` : ''}`
+  }
+  return `- ${ruleSentence(r)} (${ruleEvidence(r)}${slugs})`
 }
 
 /**
- * The compiled playbook file: a header that says it is compiled and states
- * the evidence gates, the promoted rules with n, win rate and confidence, and
- * the retired list. Always under `LEARNED_RULES_MAX_CHARS`; when the lists
- * would overflow, slug refs go first, then the lowest-confidence lines.
+ * The compiled playbook file. The header says it is compiled, that every
+ * compiled rule is a hypothesis under observation from this channel's own
+ * small sample (never doctrine, never an override of it), that only
+ * `booster retro --accept-rule` moves a rule into the playbook, and what the
+ * gates are and are not. Then the rules a person accepted, the levers winning
+ * so far and the levers losing so far, each with tests, wins, smoothed win
+ * rate and confidence. Always under `LEARNED_RULES_MAX_CHARS`; when the lists
+ * would overflow, slug refs go first, then the lowest-confidence observations,
+ * then accepted rules (a CLI-accepted rule is also in its own playbook file).
  */
 export function renderLearnedRules(rules: RuleDoc[], options: { now?: Date; halfLifeDays?: number; promoteTests?: number; promoteWinRate?: number; retireWinRate?: number } = {}): string {
   const halfLife = options.halfLifeDays ?? RULE_DEFAULTS.halfLifeDays
@@ -280,46 +284,61 @@ export function renderLearnedRules(rules: RuleDoc[], options: { now?: Date; half
   const promoteAt = options.promoteWinRate ?? RULE_DEFAULTS.promoteWinRate
   const retireAt = options.retireWinRate ?? RULE_DEFAULTS.retireWinRate
   const sorted = sortRules(rules)
-  const promoted = sorted.filter((r) => r.status === 'promoted' || r.status === 'pinned')
-  const retired = sorted.filter((r) => r.status === 'retired')
-  const candidates = sorted.filter((r) => r.status === 'candidate')
+  const accepted = sorted.filter(isProtected)
+  const observed = sorted.filter((r) => !isProtected(r))
+  const winning = observed.filter((r) => r.status === 'promoted')
+  const losing = observed.filter((r) => r.status === 'retired')
+  const candidates = observed.filter((r) => r.status === 'candidate')
   // The header says when the compile ran. A rule that compileRules() kept verbatim (pinned, or accepted by a person) keeps its old updatedAt, so the newest rule date is not the compile date; fall back to it only when no clock is given.
   const stamp = options.now?.toISOString() ?? rules.reduce<string | undefined>((m, r) => (m === undefined || r.updatedAt > m ? r.updatedAt : m), undefined)
 
   const header = [
-    '# Learned rules (compiled)',
+    '# Learned rules (compiled): hypotheses under observation',
     '',
-    `Compiled by \`booster rules compile\` from the packaging ledger${stamp ? ` on ${stamp.slice(0, 10)}` : ''}. Do not edit by hand; accept a human rule with \`booster retro --accept-rule\` into another playbook file.`,
+    `Compiled by \`booster rules compile\` from the packaging ledger${stamp ? ` on ${stamp.slice(0, 10)}` : ''}. Do not edit by hand.`,
     '',
-    `Evidence gates: a lever is promoted at ${minTests} or more tests with a Laplace-smoothed win rate of ${pct(promoteAt)} or more, retired at ${pct(retireAt)} or less; confidence halves every ${halfLife} days without a confirming win. When a learned rule and the generic doctrine conflict, prefer the learned rule, weighted by its n: do not amplify a rule with n under ${minTests}.`,
+    'Every compiled rule below is an observation under test from this channel\'s own small sample, not doctrine. None of them overrides docs/02-strategist-playbook.md or the other playbook files: where one disagrees with the doctrine, follow the doctrine and mention the observation only as a hypothesis worth testing, with its tests and wins. Only a person moves a rule into the playbook, with `booster retro --accept-rule "<rule>" --into playbook/<file>.md --yes`.',
+    '',
+    `Evidence gates [house]: a lever is marked winning so far at ${minTests} or more tests with a Laplace-smoothed win rate of ${pct(promoteAt)} or more, and losing so far at ${pct(retireAt)} or less; confidence halves every ${halfLife} days without a confirming win. A test is a win when the video's 7-day views reach the median of the channel's other 7-day reads, or its 7-day or 28-day decision was SEQUEL or EXPAND. These gates are not a significance test: a lever with no effect wins about half its reads, so at ${minTests} tests it still reaches winning so far ${pct(noEffectPromoteChance(minTests, promoteAt))} of the time.`,
     '',
   ]
 
-  const build = (withSlugs: boolean, promotedN: number, retiredN: number): string => {
-    const lines = [...header, '## Promoted']
-    if (promoted.length === 0) lines.push(`- none yet: ${candidates.length} lever${candidates.length === 1 ? '' : 's'} under test`)
-    for (const r of promoted.slice(0, promotedN)) lines.push(ruleLine(r, withSlugs))
-    if (promotedN < promoted.length) lines.push(`- and ${promoted.length - promotedN} more promoted rule${promoted.length - promotedN === 1 ? '' : 's'} in data/rules.jsonl`)
-    lines.push('', '## Retired')
-    if (retired.length === 0) lines.push('- none')
-    for (const r of retired.slice(0, retiredN)) lines.push(ruleLine(r, withSlugs))
-    if (retiredN < retired.length) lines.push(`- and ${retired.length - retiredN} more retired rule${retired.length - retiredN === 1 ? '' : 's'} in data/rules.jsonl`)
-    if (candidates.length > 0 && promoted.length > 0) lines.push('', `Under test: ${candidates.length} lever${candidates.length === 1 ? '' : 's'} with fewer than ${minTests} tests or an undecided win rate.`)
+  const more = (n: number, what: string): string => `- and ${n} more ${what} in data/rules.jsonl`
+  const build = (withSlugs: boolean, acceptedN: number, winningN: number, losingN: number): string => {
+    const lines = [...header]
+    if (accepted.length > 0) {
+      lines.push('## Accepted by a person', '')
+      lines.push('These are playbook rules: a person accepted them.')
+      for (const r of accepted.slice(0, acceptedN)) lines.push(ruleLine(r, withSlugs))
+      if (acceptedN < accepted.length) lines.push(more(accepted.length - acceptedN, accepted.length - acceptedN === 1 ? 'accepted rule' : 'accepted rules'))
+      lines.push('')
+    }
+    lines.push('## Under observation: winning so far')
+    if (winning.length === 0) lines.push(`- none yet: ${plural(candidates.length, 'lever')} under test`)
+    for (const r of winning.slice(0, winningN)) lines.push(ruleLine(r, withSlugs))
+    if (winningN < winning.length) lines.push(more(winning.length - winningN, winning.length - winningN === 1 ? 'observation winning so far' : 'observations winning so far'))
+    lines.push('', '## Under observation: losing so far')
+    if (losing.length === 0) lines.push('- none')
+    for (const r of losing.slice(0, losingN)) lines.push(ruleLine(r, withSlugs))
+    if (losingN < losing.length) lines.push(more(losing.length - losingN, losing.length - losingN === 1 ? 'observation losing so far' : 'observations losing so far'))
+    if (candidates.length > 0 && winning.length > 0) lines.push('', `Under test: ${plural(candidates.length, 'lever')} with fewer than ${minTests} tests or an undecided win rate.`)
     return `${lines.join('\n')}\n`
   }
 
   let withSlugs = true
-  let promotedN = promoted.length
-  let retiredN = retired.length
-  let content = build(withSlugs, promotedN, retiredN)
+  let acceptedN = accepted.length
+  let winningN = winning.length
+  let losingN = losing.length
+  let content = build(withSlugs, acceptedN, winningN, losingN)
   if (content.length > LEARNED_RULES_MAX_CHARS) {
     withSlugs = false
-    content = build(withSlugs, promotedN, retiredN)
+    content = build(withSlugs, acceptedN, winningN, losingN)
   }
-  while (content.length > LEARNED_RULES_MAX_CHARS && (promotedN > 0 || retiredN > 0)) {
-    if (retiredN >= promotedN && retiredN > 0) retiredN -= 1
-    else promotedN -= 1
-    content = build(withSlugs, promotedN, retiredN)
+  while (content.length > LEARNED_RULES_MAX_CHARS && (acceptedN > 0 || winningN > 0 || losingN > 0)) {
+    if (losingN > 0 && losingN >= winningN) losingN -= 1
+    else if (winningN > 0) winningN -= 1
+    else acceptedN -= 1
+    content = build(withSlugs, acceptedN, winningN, losingN)
   }
   return content
 }

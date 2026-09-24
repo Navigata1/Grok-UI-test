@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_COLOR_PAIR,
   DEFAULT_ROUNDS,
+  NO_TITLE_OFFLINE,
   PACKAGE_FIX_PROMPT_PATH,
   buildPackage,
   conceptToSpec,
@@ -52,6 +53,11 @@ const SOLAR = {
   result: 'the finished solar generator',
   now: NOW,
 }
+
+/** The title a person writes for SOLAR (package build --title): offline, the only way the package gets one. */
+const PERSON_TITLE = 'I Built a Solar Generator From Scrap for $100'
+/** SOLAR as a person runs it offline once they have written their title. */
+const TITLED = { ...SOLAR, title: PERSON_TITLE }
 
 describe('reviewPackage (fast path, no spec)', () => {
   it('passes a strong title with complementary short text', () => {
@@ -201,23 +207,42 @@ describe('conceptToSpec', () => {
 })
 
 describe('buildPackage (offline)', () => {
-  it('builds a passing package from generateTitles and buildThumbnailBrief in one round', async () => {
+  it('never chooses a formula fill: without a person title the title gate fails with the instruction and the sheet carries the shapes', async () => {
     const doc = await buildPackage(SOLAR)
+    expect(doc.chosenTitle).toBe('')
+    expect(doc.titleSource).toBeUndefined()
+    expect(doc.titles).toEqual([])
+    expect(doc.gateReport.titleGate).toEqual({ pass: false, reason: NO_TITLE_OFFLINE })
+    expect(NO_TITLE_OFFLINE).toMatch(/--title "<title>"/)
+    // No title to check the promise on: the gate says so instead of reporting drift on an empty string.
+    expect(doc.gateReport.promiseGate.pass).toBe(false)
+    expect(doc.gateReport.promiseGate.reason).toMatch(/^not checked on the title: there is no title until a person writes one/)
+    expect(doc.gateReport.thumbGate.pass).toBe(true)
+    expect(doc.gateReport.pass).toBe(false)
+    expect(doc.history).toEqual([{ round: 1, pass: false, issues: [NO_TITLE_OFFLINE], fixes: [] }])
+    expect(doc.titleShapes.length).toBeGreaterThan(10)
+    expect(doc.titleShapes.every((t) => t.template === true && t.score === null && t.title.includes('___'))).toBe(true)
+    expect(doc.titleShapes[0]).toEqual({ title: 'I Tried ___ for 30 days', formula: 'first-person test', example: 'I Tried 30 Days of Cold Showers', template: true, score: null })
+    // The concepts are still built and QA'd, so the person only has the title left to write.
+    expect(doc.abPick.a).toBe('The Result')
+    expect(doc.hypothesis.levers).toEqual(['result', 'identity'])
+  })
+
+  it('builds a passing package in one round from the brief and the title a person wrote', async () => {
+    const doc = await buildPackage(TITLED)
     expect(doc.slug).toBe('solar-generator-from-scrap')
     expect(doc.id).toBe(stableId('package', 'solar-generator-from-scrap'))
     expect(doc.createdAt).toBe(NOW.toISOString())
     expect(doc.rounds).toBe(1)
     expect(doc.history).toEqual([{ round: 1, pass: true, issues: [], fixes: [] }])
     expect(doc.gateReport.pass).toBe(true)
-    expect(doc.chosenTitle).toBe(doc.titles[0]!.title)
-    // Ranked publishable-first (over the gate and inside the mobile band), then by score.
-    const rank = (t: { title: string; score: number }): number => (t.score >= 60 && t.title.length >= 30 && t.title.length <= 55 ? 0 : 1)
-    expect(doc.titles.every((t, i) => {
-      const prev = doc.titles[i - 1]
-      return i === 0 || rank(prev!) < rank(t) || (rank(prev!) === rank(t) && t.score <= prev!.score)
-    })).toBe(true)
-    expect(doc.titles[0]!.formula).toBeDefined()
+    expect(doc.chosenTitle).toBe(PERSON_TITLE)
+    expect(doc.titleSource).toBe('person')
+    expect(doc.titles).toHaveLength(1)
+    expect(doc.titles[0]).toMatchObject({ title: PERSON_TITLE })
+    expect(doc.titles[0]!.formula).toBeUndefined()
     expect(doc.titles[0]!.score).toBeGreaterThanOrEqual(60)
+    expect(doc.titleShapes.length).toBeGreaterThan(0)
     expect(doc.thumbnails).toHaveLength(5)
     expect(new Set(doc.thumbnails.map((t) => t.angle))).toEqual(new Set(['result', 'stakes', 'curiosity', 'contrast', 'identity']))
     expect(doc.thumbnails.every((t) => t.qa.grade === 'ship' && t.spec.title === doc.chosenTitle)).toBe(true)
@@ -225,11 +250,24 @@ describe('buildPackage (offline)', () => {
     expect(doc.abPick.a).toBe('The Result')
     expect(doc.abPick.b).toBe('The Identity')
     expect(doc.abPick.reason).toContain('different lever')
-    expect(doc.hypothesis).toEqual({ levers: ['first-person test', 'result', 'identity'], angle: 'result', predictedCtrMultiple: 1 })
+    // A person's title names no formula, so nothing is invented for it: the A/B angles are the levers.
+    expect(doc.hypothesis).toEqual({ levers: ['result', 'identity'], angle: 'result', predictedCtrMultiple: 1 })
     expect(doc.ownTitles).toEqual(['', '', ''])
     expect(doc.promise).toBe(SOLAR.promise)
     expect(doc.designerBrief.length).toBeGreaterThan(10)
     expect(doc.designerBrief[0]).toMatch(/^The Result \(result\): focal/)
+  })
+
+  it('fails the title gate on a person title that reads as a template fill', async () => {
+    const doc = await buildPackage({ ...SOLAR, title: 'I Did Solar generator from scrap Until It Worked' })
+    expect(doc.chosenTitle).toBe('I Did Solar generator from scrap Until It Worked')
+    expect(doc.gateReport.titleGate.pass).toBe(false)
+    expect(doc.titles[0]!.notes.some((n) => n.startsWith('template fill:'))).toBe(true)
+  })
+
+  it('carries the own-title lines an earlier build stored, so a rebuild never blanks them', async () => {
+    const doc = await buildPackage({ ...TITLED, ownTitles: ['Scrap to Solar in One Weekend', '', ''] })
+    expect(doc.ownTitles).toEqual(['Scrap to Solar in One Weekend', '', ''])
   })
 
   it('marks concepts whose text drops the promise as ineligible and still pairs two different levers', async () => {
@@ -250,7 +288,7 @@ describe('buildPackage (offline)', () => {
   })
 
   it('carries the signature into every offline spec and records a face-policy drift', async () => {
-    const doc = await buildPackage({ ...SOLAR, signature: { colors: ['white', 'red'], facePolicy: 'never', maxWords: 3, framing: 'subject lower third' } })
+    const doc = await buildPackage({ ...TITLED, signature: { colors: ['white', 'red'], facePolicy: 'never', maxWords: 3, framing: 'subject lower third' } })
     expect(doc.thumbnails.every((t) => t.spec.colors?.join('/') === 'white/red')).toBe(true)
     const stakes = doc.thumbnails.find((t) => t.angle === 'stakes')!
     expect(stakes.qa.failures[0]).toMatch(/signature drift: a face is in frame/)
@@ -259,7 +297,7 @@ describe('buildPackage (offline)', () => {
   })
 
   it('fails the promise gate when the promise is unrelated to the title, and does not loop without hooks', async () => {
-    const doc = await buildPackage({ ...SOLAR, promise: 'I rebuild a vintage motorcycle engine in a weekend', rounds: 3 })
+    const doc = await buildPackage({ ...TITLED, promise: 'I rebuild a vintage motorcycle engine in a weekend', rounds: 3 })
     expect(doc.gateReport.promiseGate.pass).toBe(false)
     expect(doc.gateReport.pass).toBe(false)
     expect(doc.rounds).toBe(1)
@@ -301,8 +339,28 @@ describe('buildPackage (generation hooks and the fix loop)', () => {
     expect(doc.history[0]!.fixes).toEqual(seen[1]!.fixes)
     expect(doc.history[1]).toEqual({ round: 2, pass: true, issues: [], fixes: [] })
     expect(doc.chosenTitle).toBe('I Built a Solar Generator From Scrap for $100')
+    expect(doc.titleSource).toBe('model')
+    expect(doc.titleShapes).toEqual([])
     expect(doc.titles[0]!.lever).toBe('first-person test')
     expect(doc.titles[0]!.formula).toBeUndefined()
+  })
+
+  it('chooses a person title over the model titles and never sends a title-side failure back to the titles hook', async () => {
+    let calls = 0
+    const titles = async (): Promise<TitleInput[]> => { calls += 1; return goodTitles }
+    const kept = await buildPackage({ ...SOLAR, title: 'Scrap Solar: My $100 Generator Build', generate: { titles, concepts } })
+    expect(kept.chosenTitle).toBe('Scrap Solar: My $100 Generator Build')
+    expect(kept.titleSource).toBe('person')
+    expect(kept.titles.map((t) => t.title)).toEqual(['Scrap Solar: My $100 Generator Build', ...goodTitles.map((t) => t.title)])
+    expect(kept.hypothesis.levers).toEqual(['result', 'stakes'])
+
+    calls = 0
+    const weak = await buildPackage({ ...SOLAR, title: 'Vlog 3', generate: { titles, concepts } })
+    expect(weak.chosenTitle).toBe('Vlog 3')
+    expect(weak.gateReport.titleGate.pass).toBe(false)
+    // The model cannot fix a person's title, so the loop stops after one round and the person rewrites it.
+    expect(calls).toBe(1)
+    expect(weak.rounds).toBe(1)
   })
 
   it('stops after the configured rounds when the concepts never ship, with a provisional pair', async () => {
@@ -428,11 +486,20 @@ describe('buildPackage (the title band publish check enforces)', () => {
 
 describe('buildPackage (pre-registered hypothesis)', () => {
   it('records the chosen title lever and both A/B angles, so rules compile can count the row', async () => {
-    const doc = await buildPackage(SOLAR)
-    expect(doc.hypothesis.levers).toEqual([doc.titles[0]!.formula, 'result', 'identity'])
-    expect(doc.hypothesis.levers.length).toBeGreaterThan(0)
+    const doc = await buildPackage({ ...SOLAR, rounds: 1, generate: { titles: async () => [{ title: PERSON_TITLE, lever: 'first-person test' }] } })
+    expect(doc.hypothesis.levers).toEqual(['first-person test', 'result', 'identity'])
     expect(doc.hypothesis.angle).toBe('result')
     expect(doc.hypothesis.predictedCtrMultiple).toBe(1)
+    // Offline a person's title carries no lever, and no formula is invented for it.
+    const offline = await buildPackage(TITLED)
+    expect(offline.hypothesis.levers).toEqual(['result', 'identity'])
+    // The lever the person names for it (package build --lever) is registered first, like a model title's own.
+    const named = await buildPackage({ ...TITLED, titleLever: ' price in the title ' })
+    expect(named.hypothesis.levers).toEqual(['price in the title', 'result', 'identity'])
+    expect(named.titles[0]).toMatchObject({ title: PERSON_TITLE, lever: 'price in the title' })
+    // Without a person's title there is nothing for it to name.
+    const untitled = await buildPackage({ ...SOLAR, titleLever: 'price in the title' })
+    expect(untitled.hypothesis.levers).toEqual(['result', 'identity'])
   })
 
   it('takes the model hook lever over the formula and de-duplicates case-insensitively', async () => {
@@ -455,15 +522,17 @@ describe('buildPackage (pre-registered hypothesis)', () => {
 
 describe('renderPackageMarkdown', () => {
   it('prints the promise, the gates, the titles, three blank own-title lines, the pair and the designer brief', async () => {
-    const doc = await buildPackage(SOLAR)
+    const doc = await buildPackage(TITLED)
     const md = renderPackageMarkdown(doc)
     expect(md).toContain(`# Package: ${SOLAR.idea}`)
     expect(md).toContain('## Promise')
     expect(md).toContain(SOLAR.promise)
     expect(md).toContain('- PASS title:')
     expect(md).toContain('- PASS promise:')
-    expect(md).toContain(`Chosen: **${doc.chosenTitle}**`)
+    expect(md).toContain(`Chosen: **${doc.chosenTitle}** (yours)`)
+    expect(md).toContain(`| ${doc.titles[0]!.score} | yours | ${PERSON_TITLE} |`)
     expect(md).toContain('## Your own titles')
+    expect(md).toContain('`booster package build solar-generator-from-scrap --title "<title>"`')
     expect(md.match(/^[123]\. _+$/gm)).toHaveLength(3)
     expect(md).toContain('A: The Result · B: The Identity')
     expect(md).toContain('## Designer brief')
@@ -483,6 +552,16 @@ describe('renderPackageMarkdown', () => {
     expect(md).toMatch(/- round 1: FAIL \(\d+ issue\(s\)\); fixes fed back: \d+/)
     expect(md).toMatch(/- round 2: FAIL \(\d+ issue\(s\)\)$/m)
     expect(md).toContain('Provisional pair')
+  })
+
+  it('offline without a title: says no title is chosen and lists the shapes, never a scored fill', async () => {
+    const md = renderPackageMarkdown(await buildPackage(SOLAR))
+    expect(md).toContain('Chosen: (none yet; offline the builder never picks one, so write yours from the shapes below)')
+    expect(md).not.toContain('| Score | Formula / lever | Title |')
+    expect(md).toContain('- I Tried ___ for 30 days (first-person test; e.g. "I Tried 30 Days of Cold Showers")')
+    expect(md).toContain('- I Did ___ Until It Worked (until/stakes; e.g. "I Took Cold Showers Until It Worked")')
+    expect(md).toContain('- FAIL title: no title yet')
+    expect(md.match(/^[123]\. _+$/gm)).toHaveLength(3)
   })
 
   it('renders hand-written own titles when they are filled in', async () => {
@@ -505,7 +584,7 @@ describe('writePackage / readPackage', () => {
   })
 
   it('writes package.json and package.md and reads the document back unchanged', async () => {
-    const doc = await buildPackage(SOLAR)
+    const doc = await buildPackage(TITLED)
     const dir = path.join(tmp(), 'packages', doc.slug)
     const paths = writePackage(dir, doc)
     expect(paths).toEqual({ json: path.join(dir, 'package.json'), md: path.join(dir, 'package.md') })
@@ -513,6 +592,7 @@ describe('writePackage / readPackage', () => {
     expect(readFileSync(paths.md, 'utf8')).toBe(renderPackageMarkdown(doc))
     expect(JSON.parse(readFileSync(paths.json, 'utf8')).gateReport.pass).toBe(true)
     expect(readPackage(dir)).toEqual(doc)
+    expect(readPackage(dir)!.titleSource).toBe('person')
   })
 
   it('returns undefined for a missing package and throws on bad JSON or a wrong shape', () => {
@@ -527,12 +607,15 @@ describe('writePackage / readPackage', () => {
   it('fills defaults for optional fields when reading an older document', async () => {
     const doc = await buildPackage(SOLAR)
     const dir = tmp()
-    const { history: _h, designerBrief: _d, ownTitles: _o, ...older } = doc as PackageDoc
+    const { history: _h, designerBrief: _d, ownTitles: _o, titleShapes: _s, titleSource: _t, ...older } = doc as PackageDoc
     writeFileSync(path.join(dir, 'package.json'), JSON.stringify(older))
     const read = readPackage(dir)!
     expect(read.history).toEqual([])
     expect(read.designerBrief).toEqual([])
     expect(read.ownTitles).toEqual(['', '', ''])
+    expect(read.titleShapes).toEqual([])
+    // A document from before titleSource existed never counts as a person's title.
+    expect(read.titleSource).toBeUndefined()
   })
 })
 

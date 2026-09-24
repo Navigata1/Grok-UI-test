@@ -21,6 +21,8 @@ const NOW = '2026-09-14T12:00:00Z'
 const IDEA = 'I lived off a $300 solar generator for 30 days'
 const SLUG = 'i-lived-off-a-300-solar-generator-for-30-days'
 const PROMISE = 'thirty days on a $300 solar generator, every failure shown'
+/** The title a person writes at package time (package build --title): offline, the builder never picks one. */
+const TITLE = 'Thirty Days on a $300 Solar Generator, Every Failure'
 
 /** Six short paragraphs: at 150 wpm hook score marks a chapter every 8 s, inside YouTube's 10 s minimum. */
 const SCRIPT = [
@@ -96,9 +98,20 @@ async function fails(argv: string[]): Promise<string> {
   throw new Error(`expected "${argv.join(' ')}" to fail`)
 }
 
-/** package build -> hook score -> publish pack, the documented order. */
+/** A minimal PNG header (signature + IHDR) at `width`x`height`; the header check reads nothing past it. */
+function png(width: number, height: number): Buffer {
+  const u32 = (n: number) => [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]
+  return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...u32(13), 0x49, 0x48, 0x44, 0x52, ...u32(width), ...u32(height), 8, 2, 0, 0, 0, 0, 0, 0, 0])
+}
+
+/** The thumbnail stage's deliverable: thumb-A.png and thumb-B.png at 1280x720 in the package, which publish check reads. */
+function exportThumbs(): void {
+  for (const name of ['thumb-A.png', 'thumb-B.png']) writeFileSync(path.join(tmp, 'packages', SLUG, name), png(1280, 720))
+}
+
+/** package build (with the person's title) -> hook score -> publish pack, the documented order. */
 async function walkToPack(): Promise<any> {
-  const built = await json(['package', 'build', IDEA, '--promise', PROMISE, '--subject', 'me', '--stake', 'the fridge dying', '--result', 'a full month on $300 of solar', '--offline'])
+  const built = await json(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--subject', 'me', '--stake', 'the fridge dying', '--result', 'a full month on $300 of solar', '--offline'])
   expect(built.code).toBe(0)
   const script = path.join(tmp, 'script.txt')
   writeFileSync(script, SCRIPT)
@@ -111,12 +124,14 @@ async function walkToPack(): Promise<any> {
 describe('the package build -> publish check handoff', () => {
   it('passes every publish checklist line on the title and chapters the earlier stages wrote', async () => {
     const { built, packed } = await walkToPack()
-    // The title publish check reads is the one package build stamped GATES PASS on.
+    // The title publish check reads is the one package build stamped GATES PASS on: the person's.
     expect(built.gateReport.pass).toBe(true)
+    expect(built.chosenTitle).toBe(TITLE)
     expect(packed.title).toBe(built.chosenTitle)
     expect(built.chosenTitle.length).toBeGreaterThanOrEqual(30)
     expect(built.chosenTitle.length).toBeLessThanOrEqual(55)
-    const { code, parsed } = await json(['publish', 'check', SLUG, '--review-scheduled', '--thumb-files-ok', '--window-confirmed'])
+    exportThumbs()
+    const { code, parsed } = await json(['publish', 'check', SLUG, '--review-scheduled', '--window-confirmed'])
     expect(parsed.items.filter((i: any) => !i.ok)).toEqual([])
     expect(parsed.pass).toBe(true)
     expect(code).toBe(0)
@@ -130,17 +145,42 @@ describe('the package build -> publish check handoff', () => {
     expect(packedErr).toMatch(/story beat\(s\) are not chapters: YouTube needs 10 s between marks/)
     const story = JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'story.json'), 'utf8'))
     expect(story.chapters.length).toBeGreaterThan(packed.chapters.length)
-    const { parsed } = await json(['publish', 'check', SLUG, '--review-scheduled', '--thumb-files-ok', '--window-confirmed'])
+    const { parsed } = await json(['publish', 'check', SLUG, '--review-scheduled', '--window-confirmed'])
     expect(parsed.items[3]).toEqual({ label: 'Chapters match the retention map beats.', ok: true })
   })
 
   it('refuses the package instead of handing publish check a title it will reject', async () => {
-    const over = 'I Tested Every Portable Power Station for Van Solar'
-    const { code, parsed } = await json(['package', 'build', over, '--promise', 'Every portable power station tested for van solar in 24 hours', '--offline'])
+    const over = 'I Tested Every Portable Power Station for Van Solar in 24 Hours'
+    expect(over.length).toBeGreaterThan(55)
+    const { code, parsed } = await json(['package', 'build', 'Portable power stations for van solar', '--promise', 'Every portable power station tested for van solar in 24 hours', '--title', over, '--offline'])
     expect(code).toBe(1)
     expect(parsed.gateReport.titleGate.pass).toBe(false)
     expect(parsed.gateReport.titleGate.reason).toMatch(/publish check needs 30 \[house\] to 55 \[house\]/)
   })
+})
+
+describe('the thumbnail -> publish stages through the workflow runner', () => {
+  it('passes the publish stage on real 1280x720 exports and fails it on a file the header check rejects', async () => {
+    await walkToPack()
+    expect((await run(['workflow', IDEA, '--promise', PROMISE, '--out', path.join(tmp, 'packages')])).code).toBe(0)
+    for (const id of ['demand', 'packaging', 'story', 'plan', 'production', 'edit']) {
+      expect((await run(['workflow', 'run', SLUG, '--override', '--stage', id, '--reason', `covered earlier in this test: ${id}`, '--yes', '--agent', 'tester'])).code).toBe(0)
+    }
+    exportThumbs()
+    const thumbnail = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(thumbnail.parsed.result).toMatchObject({ stageId: 'thumbnail', status: 'passed' })
+    // An export swapped after the proof: the publish stage reads the file itself rather than trusting the earlier stage.
+    writeFileSync(path.join(tmp, 'packages', SLUG, 'thumb-B.png'), png(800, 450))
+    const bad = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(bad.parsed.result).toMatchObject({ stageId: 'publish', status: 'failed' })
+    const failed = JSON.parse(readFileSync(path.join(tmp, 'packages', SLUG, 'publish-check.json'), 'utf8'))
+    // The runner spawns the stage from the root, so the file prints as a path relative to it.
+    expect(failed.items.filter((i: any) => !i.ok).map((i: any) => i.detail)).toEqual([`packages/${SLUG}/thumb-B.png fails booster thumbnail check: 800x450 is smaller than 1280x720`])
+    exportThumbs()
+    const good = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(good.parsed.result).toMatchObject({ stageId: 'publish', status: 'passed' })
+    expect(good.code).toBe(0)
+  }, 90_000)
 })
 
 describe('the flywheel: package build -> publish confirm -> 7-day read -> rules compile', () => {
@@ -162,13 +202,31 @@ describe('the flywheel: package build -> publish confirm -> 7-day read -> rules 
     }
     expect(readFileSync(path.join(playbook, '00-learned-rules.md'), 'utf8')).not.toContain('none yet: 0 levers under test')
     const shown = await run(['rules', 'show', '--playbook', playbook])
-    expect(shown.out).toMatch(/is under test on this channel \(n=1/)
+    expect(shown.out).toMatch(/ {2}under test: "[^"]+" \(1 test, /)
+  })
+
+  it('counts the lever a person names for their title at package build, next to the two A/B angles', async () => {
+    // Offline the title is the person's and names no formula; a rebuild with --lever (what the build prints) puts it in
+    // the hypothesis before any number is in, and keeps the title.
+    await walkToPack()
+    const built = await json(['package', 'build', SLUG, '--lever', 'every failure shown', '--offline'])
+    expect(built.parsed.chosenTitle).toBe(TITLE)
+    expect(built.parsed.hypothesis.levers[0]).toBe('every failure shown')
+    expect(built.parsed.hypothesis.levers.length).toBe(3)
+    const confirmed = await json(['publish', 'confirm', SLUG, '--video-id', 'aB3dEfGh1jK', '--at', '2026-09-01T12:00:00Z', '--yes'])
+    expect(confirmed.parsed.row.hypothesis.levers).toEqual(built.parsed.hypothesis.levers)
+    expect(confirmed.err).not.toMatch(/--levers replaces/)
+    await run(['set', SLUG, '--bucket', '168', '--impressions', '300000', '--ctr', '5.8', '--views', '17000', '--avp', '42', '--lever', 'failures up front held the audience', '--yes'])
+    const compiled = await json(['rules', 'compile', '--playbook', playbook])
+    expect(compiled.parsed.rules.map((r: any) => r.lever)).toContain('every failure shown')
   })
 
   it('takes --levers and --predicted-ctr over the package, and never rewrites a registered hypothesis', async () => {
-    await walkToPack()
+    const { built } = await walkToPack()
     const j = await json(['publish', 'confirm', SLUG, '--video-id', 'aB3dEfGh1jK', '--at', '2026-09-01T12:00:00Z', '--levers', 'face in thumbnail, number in title', '--predicted-ctr', '1.4', '--yes'])
     expect(j.parsed.row.hypothesis).toMatchObject({ levers: ['face in thumbnail', 'number in title'], predictedCtrMultiple: 1.4, registeredAt: '2026-09-01T12:00:00.000Z' })
+    // --levers replaces the package's list; the A/B angles it drops are named, not lost in silence.
+    expect(j.err).toContain(`--levers replaces the levers the package pre-registered: ${built.hypothesis.levers.join(', ')} are not on this row.`)
     // Pre-registration is the point: a lever named once the read is in would be hindsight, not a test.
     expect(await fails(['publish', 'confirm', SLUG, '--video-id', 'aB3dEfGh1jK', '--at', '2026-09-01T12:00:00Z', '--levers', 'hindsight', '--yes']))
       .toMatch(/pre-registered its hypothesis at 2026-09-01T12:00:00.000Z .* and it is not rewritable/)

@@ -20,7 +20,10 @@ npm ci
 npm run booster -- help
 npm run booster -- outliers channel-booster/examples/competitors.csv
 npm run booster -- audit channel-booster/examples/my-channel.csv
+npm run booster -- idea score "I lived off a solar generator for 30 days" --score "demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4" --outliers channel-booster/examples/competitors.csv
 ```
+
+The last line scores an idea against the example scan: YELLOW 72, with demand 3/5 from two solar-generator outliers. The bundled examples have fixed dates, so `outliers`, `audit` and the `demand=auto` read of `idea score` and `bank add` score them as of the date each file was written for: 2026-07-10 for the competitors and 2026-08-16 for the channel. Each prints `Example data: scored as of <date>, the date it was written for; pass --now to override.` Your own exports always use today's date, and `--now ISO` sets any date you choose.
 
 Export your own data from YouTube Studio (Content > Analytics > Advanced mode > Export) or any competitor-research tool as CSV with at least a title and a views column; published date, channel, and duration are used when present. Header names from common exports are recognised automatically.
 
@@ -54,7 +57,7 @@ booster thresholds [<key>]                                                    ev
 booster outliers <csv> [--since 90] [--fresh] [--by topic] [--saturation] [--diff last-scan.json] [--save]   competitors: views / channel median
 booster audit <csv> [--threshold 5] [--diff last-audit.json] [--save]         your own uploads: winners, format lift, proven formats
 booster direction [--scan last-audit.json]                                    positioning, proven formats, series trends, never-again, three bets
-booster idea score "<idea>" --score "demand=auto,packaging=3,..." --outliers <csv> | idea score <slug> [--out demand.json]
+booster idea score "<idea>" --score "demand=auto,packaging=3,..." --outliers <csv> | idea score <slug> [--out packages/<slug>/demand.json]
 booster bank add "<idea>" --score ".." [--promise ..] [--series ..] | bank list | bank approve <id> --yes | bank park|reject <id> --reason ".."
 booster bank rescore <competitors.csv> | bank sequels | bank import <ideas.json> | bank wip
 ```
@@ -64,8 +67,9 @@ A bare `--save` writes the scan into the store: `outliers` to `<data>/last-scan.
 **Package before you produce**
 
 ```
-booster package build "<idea>"|<idea:id> --promise ".." [--rounds 3] [--offline]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md
-booster titles "<topic>" | titles score "<title>"
+booster package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".." [--lever ".."]] [--rounds 3] [--offline]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md
+   offline the builder never picks a title: the title gate fails until you write one (--title); every rebuild, the workflow's included, keeps it
+booster titles "<topic>" | titles score "<title>"   the formulas as shapes with a blank (no scores); score what you write from them
 booster thumbnail brief "<idea>" --title ".." | thumbnail qa --subject ".." --elements "a,b,c" [--text ..]
 booster thumbnail proof <slug> [--images dir] | thumbnail render <slug> | thumbnail check <file.png>
 booster package review --title ".." --thumb-text ".."
@@ -103,7 +107,7 @@ booster review due | review run [--slug <slug> --bucket 48]                  the
 ```
 booster brief [--week | --today]                                              the Monday page
 booster retro [--since 7d] | retro --accept-rule ".." --into playbook/<file>.md --yes   the retro; the only writer to playbook/*.md
-booster rules compile | rules show                                            playbook/00-learned-rules.md from the ledger
+booster rules compile | rules show                                            playbook/00-learned-rules.md from the ledger: hypotheses under observation
 booster ai <engine> ...                                                       see below
 ```
 
@@ -122,7 +126,7 @@ booster ai postmortem        --title ".." --ctr .. [--impressions ..] [--avp ..]
 booster ai channel-audit     --csv my-channel.csv [--channel ".."]
 ```
 
-They need `ANTHROPIC_API_KEY` (or an `ant auth login` profile). The default model is `claude-opus-5`; override with `--model` or `BOOSTER_MODEL`, and reasoning depth with `--effort low|medium|high|xhigh|max`. `--dry-run` prints the exact system blocks and user message and stops; `--out file.json` keeps the result (`booster bank import` reads the idea engine's). Every engine loads the doctrine in a fixed order as its cached system prompt: `docs/02-strategist-playbook.md`, then `playbook/00-learned-rules.md` when it exists, then the other `playbook/*.md` files; without `--channel`, the channel line comes from `channel.json`. The model returns a structured answer and the deterministic scorer then runs over it, so a concept that breaks a rule is flagged even when the model liked it. `booster package build` uses the same engines as its generators and feeds every failed gate back through `package-fix` for up to three rounds; without a key it runs the offline generators once. Tests never call the network.
+They need `ANTHROPIC_API_KEY` (or an `ant auth login` profile). The default model is `claude-opus-5`; override with `--model` or `BOOSTER_MODEL`, and reasoning depth with `--effort low|medium|high|xhigh|max`. `--dry-run` prints the exact system blocks and user message and stops; `--out file.json` keeps the result (`booster bank import` reads the idea engine's). Every engine loads the doctrine in a fixed order as its cached system prompt: `docs/02-strategist-playbook.md`, then `playbook/00-learned-rules.md` when it exists (the channel's compiled rules, which the system prompt calls observations under test from a small sample that never override the doctrine), then the other `playbook/*.md` files; without `--channel`, the channel line comes from `channel.json`. The model returns a structured answer and the deterministic scorer then runs over it, so a concept that breaks a rule is flagged even when the model liked it. `booster package build` uses the same engines as its generators and feeds every failed gate back through `package-fix` for up to three rounds; without a key it runs the offline thumbnail generator once and leaves the title to you (`--title`), because a formula with the topic pasted in is not a title. A title you pass with `--title` wins over the model's too. Tests never call the network.
 
 In Claude Code, the same engines are skills: `/booster` routes, and `/booster-idea-engine`, `/booster-title-lab`, `/booster-thumbnail-factory`, `/booster-packaging-review`, `/booster-retention-map`, `/booster-workflow`, `/booster-postmortem`, `/booster-channel-audit` each run one stage. For other assistants, [`prompts/`](prompts/) has the same prompts as copy-paste text.
 
@@ -130,7 +134,9 @@ In Claude Code, the same engines are skills: `/booster` routes, and `/booster-id
 
 [`dashboard/index.html`](dashboard/index.html) is a single file: open it locally or publish it as an artifact. It runs the same engines in the browser (bundled from `src/` by `node channel-booster/dashboard/build.mjs`), keeps an idea bank and a packaging ledger, and, when published with the `db` and `sample` capabilities, shares those with your team and can ask Claude for titles and thumbnail concepts in place. Without those capabilities it falls back to the browser's local storage and says so in the header.
 
-Rebuild after changing an engine or the template:
+The page itself makes no network request (the shared db and Claude calls, when granted, go through the artifact host). Its fonts (Syne, IBM Plex Sans, IBM Plex Mono, each under the SIL Open Font License 1.1, in [`dashboard/fonts/`](dashboard/fonts/)) are inlined, and the two thumbnail exports you pick in Publish are read in the browser for their size and dimensions, never uploaded. Every human gate (approving a green idea, confirming the publish, approving a decision, accepting a rule, deleting an idea or a ledger row) asks inside the page, because a published artifact answers the browser's own confirm dialog with no. Its example scan is `examples/competitors.csv`, read as of 2026-07-10 as the CLI reads it. Offline, its title lab shows the formula shapes with a blank to write your own title from, not scored fills.
+
+Rebuild after changing an engine, the template or a font:
 
 ```bash
 node channel-booster/dashboard/build.mjs
@@ -159,7 +165,7 @@ channel-booster/
   src/                      engines + tests (thresholds.ts holds every gate with its evidence tag)
   src/ai/                   Claude-powered engines: prompt assembly, schemas, the one file that calls the API
   cli/                      booster.ts routes; commands/*.ts per group
-  dashboard/                template.html + build.mjs -> index.html
+  dashboard/                template.html + fonts/ + build.mjs -> index.html (one file, no network requests)
   examples/                 sample exports
   data/                     the store: ideas, ledger, decisions, experiments, rules, workflows (JSONL, git-ignored); last-scan.json and last-audit.json land here too
   inbox/                    drop Studio exports here for booster review run (git-ignored)

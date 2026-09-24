@@ -9,7 +9,7 @@ Ideas are borrowed formats plus your angle. Never brainstorm from a blank page.
 
 ## Steps
 
-1. Get demand data. Ask for one or more CSV exports (title, views, published, channel, duration) of adjacent channels, or use `channel-booster/examples/competitors.csv` to demonstrate. Run:
+1. Get demand data. Ask for one or more CSV exports (title, views, published, channel, duration) of adjacent channels, or use `channel-booster/examples/competitors.csv` to demonstrate (a bundled example reads as of the date it was written for and prints a line saying so; report that date, not today's). Run:
    `npm run booster -- outliers <csv> --top 25`
    Read the multipliers and the format lift table.
 2. Get the channel read: who watches, what the last three videos were, what already worked (`npm run booster -- audit <own csv>` if available).
