@@ -4,6 +4,8 @@
  * The data side of the booster: the channel profile (channel.json), the
  * packaging ledger (data/ledger.jsonl through the store), Studio exports
  * dropped in inbox/, the optional Data API fetch, and the threshold table.
+ * Every location comes from the shared helpers (cli/shared.ts), so a channel
+ * workspace holds all of it and the old --path, --data and --root still win.
  * Gate 6 of AGENTS.md is human-only: `set --lever`, `ingest --lever` and a
  * `profile refresh` that would move an existing baseline print what they are
  * about to write and need --yes.
@@ -14,17 +16,18 @@ import { fetchChannelVideos, resolveChannelRef, toCsv, CSV_HEADER } from '../../
 import { BUCKETS, BUCKET_HOURS, type Bucket } from '../../src/buckets.js'
 import { bucketFor, ledgerReadFromRow, readStudioRows } from '../../src/csv.js'
 import { addRow, ageHours, baselineFrom, dueReads, leverTally, ownOutliers, readLedger, recordRead, renderLedgerMarkdown } from '../../src/ledger.js'
-import { initProfile, loadProfile, movedMetrics, profileExists, refreshBaselines, renderProfileText, resolveProfilePath, saveProfile } from '../../src/profile.js'
+import { initProfile, loadProfile, movedMetrics, profileExists, refreshBaselines, renderProfileText, saveProfile } from '../../src/profile.js'
 import type { Baselines, LedgerRead, LedgerRow, ProfileDoc, Stat } from '../../src/schema.js'
 import { DEFAULT_THRESHOLDS, thresholds, type ThresholdKey } from '../../src/thresholds.js'
-import { bool, getStore, need, nowFrom, num, out, str, writeOut, type CommandModule, type Flags } from '../shared.js'
+import { resolveCsvArg } from '../example-clock.js'
+import { activeWorkspace, bool, getStore, inboxDir, need, nowFrom, num, out, packagesRoot, profilePath, str, writeOut, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_PROFILE = 'booster profile init|show|refresh [--path channel.json]'
 const USAGE_INGEST = 'booster ingest <studio-content.csv> [--at ISO] [--bucket 24|48|168|672] [--lever ".." --yes] [--dry-run]'
 const USAGE_SET = 'booster set <slug> --bucket 24|48|168|672 [--ret30 n] [--returning n] [--sub-share n] [--browse-suggested n] [--impressions n] [--ctr n] [--avp n] [--avd-sec n] [--views n] [--lever ".." --yes]'
 const USAGE_LEDGER = 'booster ledger add|show|baseline|levers|winners|due|export'
 const USAGE_LEDGER_ADD = 'booster ledger add --slug <slug> --title ".." --published-at ISO [--video-id id] [--thumb-a name] [--thumb-b name] [--sequel-of slug]'
-const USAGE_FETCH = 'booster fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv]'
+const USAGE_FETCH = 'booster fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]'
 
 const FACE_POLICIES = ['always', 'never', 'either'] as const
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
@@ -125,10 +128,10 @@ function writeText(file: string, text: string): void {
 // ---------------------------------------------------------------- profile
 
 async function runProfile(sub: string | undefined, flags: Flags): Promise<number> {
-  const file = str(flags, 'path')
+  const file = profilePath(flags)
   const now = nowFrom(flags)
   if (sub === 'init') {
-    if (profileExists(file) && !bool(flags, 'force')) throw new Error(`${resolveProfilePath(file)} exists; pass --force to overwrite`)
+    if (profileExists(file) && !bool(flags, 'force')) throw new Error(`${file} exists; pass --force to overwrite`)
     const profile = initProfile({
       positioning: str(flags, 'positioning'),
       persona: str(flags, 'persona'),
@@ -147,20 +150,18 @@ async function runProfile(sub: string | undefined, flags: Flags): Promise<number
       now,
     })
     const saved = saveProfile(profile, file, { now })
-    const where = resolveProfilePath(file)
-    out({ path: where, profile: saved }, flags, () => [`Wrote ${where}`, renderProfileText(saved), '', 'Next: booster profile refresh once the ledger has rows aged 7 days or more; edit series in the file by hand.'].join('\n'))
+    out({ path: file, profile: saved }, flags, () => [`Wrote ${file}`, renderProfileText(saved), '', 'Next: booster profile refresh once the ledger has rows aged 7 days or more; edit series in the file by hand.'].join('\n'))
     return 0
   }
   if (sub === 'show') {
     const profile: ProfileDoc = loadProfile(file)
-    out(profile, flags, () => renderProfileText(profile, { path: resolveProfilePath(file), exists: profileExists(file) }))
+    out(profile, flags, () => renderProfileText(profile, { path: file, exists: profileExists(file) }))
     return 0
   }
   if (sub === 'refresh') {
     const store = getStore(flags)
     const result = refreshBaselines(loadProfile(file), readLedger(store), { now, window: num(flags, 'window'), minAgeDays: num(flags, 'min-age-days') })
     const dryRun = bool(flags, 'dry-run')
-    const where = resolveProfilePath(file)
     const prev = result.previous
     const prev168 = result.previous168
     // Both sets are gated: a 7-day read is judged against baselines168, so moving it unasked
@@ -172,8 +173,8 @@ async function runProfile(sub: string | undefined, flags: Flags): Promise<number
     // Resetting the baseline is human-only (AGENTS.md gate 6), but only a reset is: the first
     // computation on a fresh channel and a recompute that lands on the same medians write freely.
     if (!dryRun && (prev || prev168) && moved.length > 0) {
-      requireYes(flags, { path: where, moved, previous: prev, previous168: prev168, baselines48: result.baselines48, baselines168: result.baselines168 }, [
-        `About to reset the baselines in ${where}: ${moved.join(', ')} ${moved.length === 1 ? 'moves' : 'move'}.`,
+      requireYes(flags, { path: file, moved, previous: prev, previous168: prev168, baselines48: result.baselines48, baselines168: result.baselines168 }, [
+        `About to reset the baselines in ${file}: ${moved.join(', ')} ${moved.length === 1 ? 'moves' : 'move'}.`,
         `  was: 48 h ${prev ? describeBaselines(prev) : 'not computed yet'} · 7 d ${prev168 ? describeBaselines(prev168) : 'not computed yet'}`,
         `  now: 48 h ${describeBaselines(result.baselines48)} · 7 d ${describeBaselines(result.baselines168)}`,
         'Every verdict after this is judged against the new medians; booster profile refresh --dry-run shows the whole profile first.',
@@ -181,8 +182,8 @@ async function runProfile(sub: string | undefined, flags: Flags): Promise<number
     }
     if (!dryRun) saveProfile(result.profile, file, { now })
     const b168 = result.baselines168
-    out({ path: where, dryRun, moved, baselines48: result.baselines48, baselines168: b168, previous: result.previous, shift: result.shift, shifted: result.shifted }, flags, () => [
-      dryRun ? `Dry run: ${where} not written.` : `Wrote ${where}`,
+    out({ path: file, dryRun, moved, baselines48: result.baselines48, baselines168: b168, previous: result.previous, shift: result.shift, shifted: result.shifted }, flags, () => [
+      dryRun ? `Dry run: ${file} not written.` : `Wrote ${file}`,
       renderProfileText(result.profile),
       result.shift ? `Baseline SHIFT: ${result.shifted.join(', ')} moved more than one MAD since ${result.previous?.computedAt ?? 'the previous refresh'}` : 'No baseline shift.',
       `7-day: views median ${b168.views ? n1(b168.views.median) : '—'}, returning ${b168.returningPct ? n1(b168.returningPct.median) : '—'}% (n=${b168.n}, ${b168.tier})`,
@@ -213,8 +214,9 @@ interface IngestSkip {
   reason: string
 }
 
-async function runIngest(file: string | undefined, flags: Flags): Promise<number> {
-  if (!file) throw new Error(`usage: ${USAGE_INGEST}`)
+async function runIngest(given: string | undefined, flags: Flags): Promise<number> {
+  if (!given) throw new Error(`usage: ${USAGE_INGEST}`)
+  const file = resolveCsvArg(given)
   if (!existsSync(file)) throw new Error(`${file} not found. Drop the Studio Content export in inbox/ and pass its path.`)
   const store = getStore(flags)
   const now = nowFrom(flags)
@@ -419,6 +421,16 @@ async function runLedger(sub: string | undefined, flags: Flags): Promise<number>
 
 // ---------------------------------------------------------------- fetch
 
+/**
+ * Where a fetched upload list lands without --out: the inbox (--inbox, or
+ * <workspace>/inbox) when either is given; with neither, <--root or the
+ * working directory>/inbox, where fetch has always written.
+ */
+function fetchInbox(flags: Flags): string {
+  if (str(flags, 'inbox')?.trim() || activeWorkspace(flags)) return inboxDir(flags)
+  return path.join(packagesRoot(flags), 'inbox')
+}
+
 async function runFetch(sub: string | undefined, rest: string[], flags: Flags): Promise<number> {
   if (sub !== 'channel') throw new Error(`usage: ${USAGE_FETCH}`)
   const ref = rest[0]
@@ -428,7 +440,7 @@ async function runFetch(sub: string | undefined, rest: string[], flags: Flags): 
   if (!apiKey || !apiKey.trim()) throw new Error('fetch channel: YOUTUBE_API_KEY is not set. Export a YouTube Data API v3 key (Google Cloud) in the environment; it is never printed or stored.')
   const max = num(flags, 'max') ?? 50
   if (max < 1) throw new Error('--max must be at least 1')
-  const target = path.resolve(str(flags, 'out') ?? path.join(str(flags, 'root') ?? process.cwd(), 'inbox', `${name}.csv`))
+  const target = path.resolve(str(flags, 'out') ?? path.join(fetchInbox(flags), `${name}.csv`))
   const rows = await fetchChannelVideos({ handleOrId: ref, apiKey, max })
   writeText(target, toCsv(rows))
   out({ channel: ref, videos: rows.length, out: target, columns: [...CSV_HEADER] }, flags, () => [
@@ -464,7 +476,7 @@ export const dataModule: CommandModule = {
     'ledger baseline [--bucket 48|168] [--exclude slug] [--window 10] [--min-age-days 7]   median and MAD from your own history',
     'ledger levers | ledger winners [--multiplier 5] | ledger due        lever tally, own outliers, reads due',
     'ledger export [--out file.json | --md [--out file.md]]              dump the ledger',
-    'fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv]  Data API v3 upload list (needs YOUTUBE_API_KEY)',
+    'fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]   Data API v3 upload list into the inbox (needs YOUTUBE_API_KEY)',
     'thresholds [<key>]                                                  every gate as "key value [evidence] note"',
   ],
   async run(cmd, sub, rest, flags) {

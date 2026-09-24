@@ -8,13 +8,20 @@
  * no BOOSTER_NOW, reads it as of the date the file was written for and prints
  * one line saying so. Every other CSV, a copy of an example included, runs on
  * the given clock or the wall clock.
+ *
+ * `example:<name>` names a bundled export from any folder (resolveCsvArg), so
+ * the first run works in a new workspace or an installed bin, where the
+ * repo-relative channel-booster/examples/ path does not exist.
  */
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { CODE_ROOT } from '../src/workspace.js'
 import { nowFrom, str, type Flags } from './shared.js'
 
-const EXAMPLES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'examples')
+const EXAMPLES_DIR = path.join(CODE_ROOT, 'examples')
+
+/** The prefix that names a bundled export: example:competitors, example:my-channel, example:studio-content. */
+export const EXAMPLE_PREFIX = 'example:'
 
 /**
  * The date each bundled export was written for, a few days after its newest
@@ -29,6 +36,26 @@ export const EXAMPLE_AS_OF: Readonly<Record<string, string>> = {
   'my-channel.csv': '2026-08-16T00:00:00Z',
   // The same channel's uploads as a Studio export.
   'studio-content.csv': '2026-08-16T00:00:00Z',
+}
+
+/** The names example:<name> accepts, one per bundled export. */
+export const EXAMPLE_NAMES: readonly string[] = Object.keys(EXAMPLE_AS_OF).map((file) => file.replace(/\.csv$/, ''))
+
+/**
+ * A CSV argument as a path: `example:<name>` is the bundled export
+ * examples/<name>.csv, wherever the command runs; anything else comes back
+ * unchanged. The resolved file is the bundled one, so exampleAsOf() pins it.
+ * `examplesDir` is where the bundled exports live (a test points it at a
+ * folder without them, as an install that left them out would be).
+ */
+export function resolveCsvArg(value: string, examplesDir: string = EXAMPLES_DIR): string {
+  if (!value.startsWith(EXAMPLE_PREFIX)) return value
+  const name = value.slice(EXAMPLE_PREFIX.length)
+  const known = EXAMPLE_NAMES.map((n) => `${EXAMPLE_PREFIX}${n}`).join(', ')
+  if (!EXAMPLE_NAMES.includes(name)) throw new Error(`unknown example "${value}": the bundled examples are ${known}`)
+  const file = path.join(examplesDir, `${name}.csv`)
+  if (!existsSync(file)) throw new Error(`${value} is the bundled export ${file}, which this install does not have; pass the path of a CSV of your own instead`)
+  return file
 }
 
 function realOrResolved(file: string): string {

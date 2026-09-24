@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +27,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   resetThresholds()
   if (savedKey === undefined) delete process.env.YOUTUBE_API_KEY
   else process.env.YOUTUBE_API_KEY = savedKey
@@ -504,6 +506,35 @@ describe('booster fetch channel', () => {
     expect(blank.message).not.toContain('AIza-secret-key-value')
   })
 
+  it('writes to the workspace inbox when a workspace is in use, to --inbox when given, else to <--root or the working directory>/inbox as always', async () => {
+    vi.stubEnv('YOUTUBE_API_KEY', 'stub-key')
+    vi.stubEnv('BOOSTER_HOME', '')
+    vi.stubGlobal('fetch', async (url: string | URL) => ({ ok: true, status: 200, text: async () => JSON.stringify(youtubeStub(String(url))) }))
+    const root = realpathSync(tmp)
+    const ws = path.join(root, 'ws')
+    expect((await run(['init', ws])).code).toBe(0)
+    // With a workspace the list is an inbox file, even when --root moves the packages somewhere else.
+    const inWorkspace = await json(['fetch', 'channel', '@stubchannel', '--workspace', ws, '--root', path.join(root, 'packages-elsewhere')])
+    expect(inWorkspace.out).toBe(path.join(ws, 'inbox', 'stubchannel.csv'))
+    expect(readFileSync(inWorkspace.out, 'utf8').split('\n')[0]).toBe(CSV_HEADER.join(','))
+    expect(existsSync(path.join(root, 'packages-elsewhere'))).toBe(false)
+    // --inbox names the inbox as it does for review run and brief, and the usage says so.
+    expect((await json(['fetch', 'channel', '@stubchannel', '--inbox', path.join(root, 'drop')])).out).toBe(path.join(root, 'drop', 'stubchannel.csv'))
+    expect((await fails(['fetch', 'channel'])).message).toBe('usage: booster fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]')
+    expect((await run(['help'])).out).toContain('  fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir] ')
+    // No workspace and no --inbox: where fetch has always written.
+    expect((await json(['fetch', 'channel', '@stubchannel', '--root', path.join(root, 'old')])).out).toBe(path.join(root, 'old', 'inbox', 'stubchannel.csv'))
+    const cwd = process.cwd()
+    const plain = path.join(root, 'plain')
+    mkdirSync(plain)
+    process.chdir(plain)
+    try {
+      expect((await json(['fetch', 'channel', '@stubchannel'])).out).toBe(path.join(plain, 'inbox', 'stubchannel.csv'))
+    } finally {
+      process.chdir(cwd)
+    }
+  })
+
   it('writes the competitor CSV shape the scanner reads', () => {
     expect([...CSV_HEADER]).toEqual(['title', 'views', 'published', 'channel', 'duration', 'url', 'videoId'])
     const csv = toCsv([{ title: 'Van, "Life"', views: 180000, published: '2026-09-10', channel: 'VanLifeCo', durationSec: 720, url: 'https://www.youtube.com/watch?v=aB3dEfGh1jK', videoId: 'aB3dEfGh1jK' }])
@@ -511,6 +542,13 @@ describe('booster fetch channel', () => {
     expect(csv).toBe('title,views,published,channel,duration,url,videoId\n"Van, ""Life""",180000,2026-09-10,VanLifeCo,720,https://www.youtube.com/watch?v=aB3dEfGh1jK,aB3dEfGh1jK\n')
   })
 })
+
+/** Canned YouTube Data API bodies for the three calls `fetch channel` makes. */
+function youtubeStub(url: string): unknown {
+  if (url.includes('/channels')) return { items: [{ id: 'UCstub', snippet: { title: 'Stub' }, contentDetails: { relatedPlaylists: { uploads: 'UUstub' } } }] }
+  if (url.includes('/playlistItems')) return { items: [{ contentDetails: { videoId: 'aB3dEfGh1jK' } }] }
+  return { items: [{ id: 'aB3dEfGh1jK', snippet: { title: 'Stub video', publishedAt: '2026-07-01T00:00:00Z', channelTitle: 'Stub' }, statistics: { viewCount: '1000' }, contentDetails: { duration: 'PT10M' } }] }
+}
 
 describe('booster thresholds', () => {
   it('prints every entry as "key value [evidence] note"', async () => {

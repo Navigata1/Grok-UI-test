@@ -12,7 +12,7 @@ import { computeOutliers, type OutlierRowV2 } from '../../src/outliers.js'
 import { IdeaStatus, type IdeaDoc } from '../../src/schema.js'
 import { thresholds } from '../../src/thresholds.js'
 import type { IdeaScore } from '../../src/types.js'
-import { exampleNote, scanClock } from '../example-clock.js'
+import { exampleNote, resolveCsvArg, scanClock } from '../example-clock.js'
 import { bool, getStore, list, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
 
 const SORT_KEYS: readonly BankSortKey[] = ['total', 'demand', 'updatedAt', 'createdAt', 'idea']
@@ -32,7 +32,8 @@ type ScanDemand = DemandSuggestion & { exampleAsOf?: string }
  * CSV (a bundled example at its own date), so the two never disagree; the
  * caller's own `now` still stamps anything it writes.
  */
-function demandFromScan(idea: string, csv: string, flags: Flags): { ranked: OutlierRowV2[]; suggestion: ScanDemand } {
+function demandFromScan(idea: string, csvArg: string, flags: Flags): { ranked: OutlierRowV2[]; suggestion: ScanDemand } {
+  const csv = resolveCsvArg(csvArg)
   const rows = readVideoRows(readFileSync(csv, 'utf8'))
   const { now, exampleAsOf } = scanClock(csv, flags)
   const since = num(flags, 'since')
@@ -232,7 +233,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
       const csv = rest[0]
       if (!csv) throw new Error('usage: booster bank rescore <competitors.csv> [--own my-channel.csv] [--since 90] [--decay-days 180]')
       const since = num(flags, 'since')
-      const ranked = computeOutliers(readVideoRows(readFileSync(csv, 'utf8')), { now, sinceDays: since })
+      const ranked = computeOutliers(readVideoRows(readFileSync(resolveCsvArg(csv), 'utf8')), { now, sinceDays: since })
       const report = rescore(store, ranked, { now, windowDays: since, decayDays: num(flags, 'decay-days'), source: 'cli' })
       const own = str(flags, 'own')
       let sequels: IdeaDoc[] = []
@@ -242,7 +243,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
         const ledger = readLedger(store)
         const bar = thresholds.ownWinnerMultiplier.value
         const inLedger = new Set(ledger.map((r) => r.title.trim().toLowerCase()))
-        ownWinners = computeOutliers(readVideoRows(readFileSync(own, 'utf8')), { now, sinceDays: since, threshold: bar })
+        ownWinners = computeOutliers(readVideoRows(readFileSync(resolveCsvArg(own), 'utf8')), { now, sinceDays: since, threshold: bar })
           .filter((r) => r.multiplier >= bar)
           .map((r) => ({ title: r.title, multiplier: Math.round(r.multiplier * 100) / 100, inLedger: inLedger.has(r.title.trim().toLowerCase()) }))
         sequels = sequelCandidates(store, ledger, { now, source: 'cli' })
@@ -289,7 +290,7 @@ export const ideasModule: CommandModule = {
   help: [
     'idea questions                                                     the six scorecard questions',
     'idea score "<idea>" --score "demand=4,packaging=3,fit=..."         verdict + fixes',
-    'idea score "<idea>" --score "demand=auto,..." --outliers <csv>     demand read from the scan [--since 90] [--min-age-days 7]; phrase the idea with the topic\'s two key nouns',
+    'idea score "<idea>" --score "demand=auto,..." --outliers <csv>     demand read from the scan [--since 90] [--min-age-days 7]; phrase the idea with the topic\'s two key nouns; --outliers example:competitors reads the bundled export',
     'idea score <slug>|<idea:id> [--out file.json]                      axes from the bank row when --score is omitted; the scorecard carries its bank status (the workflow demand stage)',
     'bank add "<idea>" --score "..." [--csv competitors.csv]            bank an idea (demand=auto reads --csv) [--series ..] [--promise ..]',
     'bank list [--status banked,green,..] [--sort total|demand|..]      the bank with verdicts, sequels first [--no-sequel-first]',
