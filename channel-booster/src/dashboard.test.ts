@@ -375,6 +375,34 @@ describe('desk template', () => {
       saved.set('booster.desk.theme', 'blue')
       expect(runTheme(storage).root.dataset.deskTheme).toBe('dark')
     })
+
+    /** The declarations of one rule inside the phone breakpoint, found by its exact selector. */
+    const phone = style.match(/\n {2}@media \(max-width: 760px\) \{\n([\s\S]*?)\n {2}\}\n/)?.[1] ?? ''
+    const phoneRule = (selector: string) => phone.match(new RegExp(`\\n {4}${escapeRe(selector)} \\{ ([^}]*) \\}`))?.[1] ?? ''
+    /** A padding or margin shorthand as [top, right, bottom, left] in px. */
+    const sides = (value: string) => {
+      const [t, r = t, b = t, l = r] = value.trim().split(/\s+/).map((v) => parseFloat(v))
+      return [t, r, b, l]
+    }
+
+    it('gives the phone rail room for the whole focus ring, since a sideways scroller clips what it paints', () => {
+      const ring = style.match(/:focus-visible \{ outline: (\d+)px solid var\(--ink\); outline-offset: (\d+)px; \}/)
+      expect(ring, 'one focus ring rule').toBeTruthy()
+      const reach = Number(ring![1]) + Number(ring![2])
+      const rail = phoneRule('nav.rail')
+      expect(rail).toContain('overflow-x: auto;')
+      const padding = sides(rail.match(/(?:^|; )padding: ([^;]+);/)?.[1] ?? '0')
+      expect(Math.min(...padding), `rail padding ${padding.join(' ')} leaves room for a ${reach}px ring`).toBeGreaterThanOrEqual(reach)
+      // Pulled back out by as much on the top and sides, so the buttons sit where they did.
+      expect(sides(rail.match(/(?:^|; )margin: ([^;]+);/)?.[1] ?? '0')).toEqual([-padding[0], -padding[1], 0, -padding[3]])
+      expect(parseFloat(rail.match(/scroll-padding-inline: ([^;]+);/)?.[1] ?? '0')).toBeGreaterThanOrEqual(reach)
+    })
+
+    it('lets a verdict’s explanation drop below a long label on a phone instead of squeezing it', () => {
+      expect(phoneRule('.verdict')).toContain('flex-wrap: wrap;')
+      const basis = phoneRule('.verdict > div').match(/flex: 1 1 (\d+)px; min-width: 0;/)
+      expect(Number(basis?.[1])).toBeGreaterThanOrEqual(200)
+    })
   })
 
   it('labels a compiled rule by where it stands, never as a bare store status', () => {

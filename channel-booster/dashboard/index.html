@@ -186,9 +186,14 @@
   @media (max-width: 760px) {
     body { padding-inline: 16px; }
     .layout { grid-template-columns: 1fr; gap: 16px; }
-    nav.rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 6px; }
+    /* The rail scrolls sideways here and so clips what it paints: pad it by the focus ring's reach (2px + 2px
+       offset) so the ring shows whole, and pull it back out by as much so the buttons stay where they were. */
+    nav.rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; margin: -4px -4px 0; padding: 4px 4px 6px; scroll-padding-inline: 4px; }
     nav.rail button { white-space: nowrap; border-color: var(--line); }
     nav.rail .count { display: none; }
+    /* A long verdict label (PACKAGING · REPACKAGE) would squeeze its explanation into a sliver: let it drop below. */
+    .verdict { flex-wrap: wrap; }
+    .verdict > div { flex: 1 1 200px; min-width: 0; }
     .funnel { grid-template-columns: 1fr 1fr; }
     .baseline { margin-left: 0; justify-content: flex-start; }
     .baseline > .muted { text-align: left; }

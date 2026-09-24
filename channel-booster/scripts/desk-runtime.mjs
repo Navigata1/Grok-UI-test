@@ -2,8 +2,9 @@
 // P1-G2, the Desk runtime journey: drives the built Desk (dashboard/index.html) in Chromium and checks what the
 // source tests cannot. It opens dark whatever the OS or the host page says, the theme control switches and
 // remembers, the human gates work inside a sandboxed artifact frame, nothing is requested from the network, a
-// phone never scrolls sideways, every control shows the focus ring, reduced motion stops the transitions, and
-// the text tokens meet 4.5:1 on their surfaces in both themes. Each check prints PASS or FAIL; any FAIL exits 1.
+// phone never scrolls sideways nor squeezes a verdict, every control shows the whole focus ring on desktop and
+// phone, reduced motion stops the transitions, and the text tokens meet 4.5:1 on their surfaces in both themes.
+// Each check prints PASS or FAIL; any FAIL exits 1.
 //
 //   node channel-booster/scripts/desk-runtime.mjs
 //
@@ -250,13 +251,35 @@ async function desktopJourney(browser, deskUrl, deskHtml, tmp) {
 }
 
 // ---------- (d): a phone in both themes, no stage scrolls the page sideways ----------
+/**
+ * How wide the page is against the layout viewport. Under mobile emulation innerWidth grows with the content when
+ * the page overflows, so it can never show the overflow; documentElement.clientWidth stays at the device width.
+ */
+const pageWidth = (page) => page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth, clientWidth: document.documentElement.clientWidth, innerWidth }))
+const widest = (w) => Math.max(w.scrollWidth, w.bodyScrollWidth)
+const fitsWidth = (w) => widest(w) <= w.clientWidth + 1
+
 async function phoneJourney(browser, deskUrl) {
   const { ctx, seen } = await context(browser, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'light' })
   const page = await ctx.newPage()
   try {
     await page.goto(deskUrl)
     await fontsReady(page)
-    await saveIdea(page, IDEA)
+    // Every stage with output in it, so the widths below are those of a Desk in use, not of empty forms.
+    await populate(page)
+
+    // The measure has to be able to say no: a 600px element in the page must read as overflow.
+    const probeName = 'phone: the sideways measure catches a 600px element, so the checks below can fail'
+    await step('d-probe', probeName, async () => {
+      await stage(page, 'today')
+      const before = await pageWidth(page)
+      await page.evaluate(() => { const wide = document.createElement('div'); wide.id = 'desk-runtime-wide'; wide.style.cssText = 'width:600px;height:1px'; document.querySelector('main').appendChild(wide) })
+      const injected = await pageWidth(page)
+      await page.evaluate(() => document.getElementById('desk-runtime-wide').remove())
+      const after = await pageWidth(page)
+      check('d-probe', probeName, fitsWidth(before) && !fitsWidth(injected) && fitsWidth(after), { before, injected, after }, `600px element: scrollWidth=${widest(injected)} clientWidth=${injected.clientWidth} innerWidth=${injected.innerWidth} reads as overflow=${!fitsWidth(injected)}; without it scrollWidth=${widest(after)}`)
+    })
+
     for (const theme of ['dark', 'light']) {
       const name = `phone 390x844, ${theme}: no stage scrolls sideways`
       await step(`d-${theme}`, name, async () => {
@@ -265,17 +288,42 @@ async function phoneJourney(browser, deskUrl) {
         const widths = []
         for (const id of STAGES) {
           await stage(page, id)
-          widths.push({ stage: id, ...(await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth, innerWidth }))) })
+          widths.push({ stage: id, ...(await pageWidth(page)) })
         }
-        const widest = (w) => Math.max(w.scrollWidth, w.bodyScrollWidth)
         const worst = widths.reduce((w, x) => (widest(x) > widest(w) ? x : w))
-        const fits = widths.every((w) => widest(w) <= w.innerWidth + 1)
-        check(`d-${theme}`, name, fits && (theme === 'dark' ? isDark(s) : isLight(s)), { theme: s, widths }, `widest ${worst.stage} scrollWidth=${widest(worst)} innerWidth=${worst.innerWidth} over ${widths.length} stages; ${describe(s)}`)
+        const fits = widths.every(fitsWidth)
+        check(`d-${theme}`, name, fits && (theme === 'dark' ? isDark(s) : isLight(s)), { theme: s, widths }, `widest ${worst.stage} scrollWidth=${widest(worst)} clientWidth=${worst.clientWidth} over ${widths.length} stages; ${describe(s)}`)
         await stage(page, 'today')
         await page.evaluate(() => window.scrollTo(0, 0))
         await page.screenshot({ path: path.join(EVIDENCE, `phone-${theme}.png`), fullPage: true })
       })
     }
+
+    // A verdict's label can run long (PACKAGING · REPACKAGE): its explanation must not be squeezed into a sliver.
+    const verdictName = 'phone: every verdict keeps its explanation at least 200px wide'
+    await step('d-verdict', verdictName, async () => {
+      await pickTheme(page, 'dark')
+      const verdicts = []
+      for (const id of ['ideas', 'package', 'thumb', 'story', 'review']) {
+        await stage(page, id)
+        verdicts.push(...(await page.evaluate(() => [...document.querySelectorAll('.verdict')].filter((v) => v.checkVisibility()).map((v) => {
+          const text = v.querySelector(':scope > div').getBoundingClientRect()
+          return { in: v.id || v.parentElement.id, label: v.querySelector('.big').textContent, width: Math.round(v.getBoundingClientRect().width), textWidth: Math.round(text.width), textHeight: Math.round(text.height) }
+        }))).map((v) => ({ stage: id, ...v })))
+      }
+      const narrow = verdicts.filter((v) => v.textWidth < 200)
+      const review = verdicts.find((v) => v.stage === 'review')
+      check('d-verdict', verdictName, narrow.length === 0 && Boolean(review), { verdicts }, (narrow.length ? 'too narrow: ' + narrow.map((v) => `${v.stage} #${v.in} "${v.label}" text ${v.textWidth}x${v.textHeight}`).join(' · ') : `${verdicts.length} verdicts, narrowest text ${Math.min(...verdicts.map((v) => v.textWidth))}px`) + (review ? `; review "${review.label}" text ${review.textWidth}x${review.textHeight}` : '; no review verdict rendered'))
+    })
+
+    // (f) on a phone the rail scrolls sideways, and a scrolling box clips whatever it paints, focus rings included.
+    const ringName = 'phone: every control reached by Tab shows its whole focus ring, never cut off by a scrolling box'
+    await step('f-phone', ringName, async () => {
+      const rings = await tabRound(page, ['ideas', 'review'])
+      const rail = new Set(rings.filter((r) => r.el.includes('[data-stage=')).map((r) => r.el)).size
+      const bad = rings.filter((r) => !ringDrawn(r) || r.cut.length)
+      check('f-phone', ringName, rail === STAGES.length && bad.length === 0, { reached: rings.length, railButtons: rail, bad }, bad.length ? bad.slice(0, 10).map((r) => `${r.stage} ${r.el} ${r.cut.join(', ') || `${r.style} ${r.width} offset ${r.offset}`}`).join(' · ') : `${rings.length} tab stops on ideas and review, all ${rail} rail buttons among them, no ring cut off`)
+    })
     check('d-clean', 'phone: no console errors and no request outside file: and data:', clean(seen), seen, cleanLine(seen))
   } finally {
     await ctx.close()
@@ -319,6 +367,62 @@ function sweepText() {
     out.push({ text: text.slice(0, 48), tag: el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : ''), fg: hex(fg), bg: hex(bg), ratio: Math.round(ratio(fg, bg) * 100) / 100, need })
   }
   return out
+}
+
+/**
+ * The focused control and its ring: the outline as computed, and where a scrolling ancestor cuts the ring off.
+ * A side counts only where the control itself is inside that box: a control scrolled out of view is not a cut ring.
+ */
+function focusedRing() {
+  const el = document.activeElement
+  if (!el || el === document.body) return null
+  const cs = getComputedStyle(el)
+  const reach = parseFloat(cs.outlineWidth) + parseFloat(cs.outlineOffset)
+  const box = el.getBoundingClientRect()
+  const cut = []
+  for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+    const s = getComputedStyle(a)
+    if (s.overflowX === 'visible' && s.overflowY === 'visible') continue
+    const r = a.getBoundingClientRect()
+    const clip = { left: r.left + a.clientLeft, top: r.top + a.clientTop, right: r.left + a.clientLeft + a.clientWidth, bottom: r.top + a.clientTop + a.clientHeight }
+    const sides = {
+      left: box.left >= clip.left - 0.5 ? clip.left - (box.left - reach) : 0,
+      top: box.top >= clip.top - 0.5 ? clip.top - (box.top - reach) : 0,
+      right: box.right <= clip.right + 0.5 ? box.right + reach - clip.right : 0,
+      bottom: box.bottom <= clip.bottom + 0.5 ? box.bottom + reach - clip.bottom : 0,
+    }
+    const name = a.tagName.toLowerCase() + (typeof a.className === 'string' && a.className.trim() ? '.' + a.className.trim().split(/\s+/).join('.') : '')
+    for (const [side, px] of Object.entries(sides)) if (px > 0.5) cut.push(`${side} ${Math.round(px * 10) / 10}px by ${name}`)
+  }
+  return { key: [...document.querySelectorAll('*')].indexOf(el), el: el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.dataset.stage ? `[data-stage=${el.dataset.stage}]` : ''), style: cs.outlineStyle, width: cs.outlineWidth, offset: cs.outlineOffset, color: cs.outlineColor, ink: getComputedStyle(document.body).color, cut }
+}
+/** A 2px solid ring in the ink colour, set off from the control. */
+const ringDrawn = (r) => r.style === 'solid' && r.width === '2px' && parseFloat(r.offset) >= 1 && r.color === r.ink
+
+/** Tab from the top of each stage, every sideways scroller at its start, until the focus comes back round. */
+async function tabRound(page, stageIds) {
+  const rings = []
+  for (const id of stageIds) {
+    await stage(page, id)
+    await page.evaluate(() => {
+      // Blurring leaves Tab starting after the rail button just clicked: focus the body instead, so the round
+      // starts at the top of the page.
+      document.body.tabIndex = -1
+      document.body.focus()
+      document.body.removeAttribute('tabindex')
+      for (const el of document.querySelectorAll('nav.rail, .tablewrap')) el.scrollLeft = 0
+      window.scrollTo(0, 0)
+    })
+    const visited = new Set()
+    for (let i = 0; i < 150; i += 1) {
+      await page.keyboard.press('Tab')
+      const r = await page.evaluate(focusedRing)
+      if (!r || visited.has(r.key)) break
+      visited.add(r.key)
+      rings.push({ stage: id, ...r })
+    }
+  }
+  return rings
 }
 
 /** Put output in the panels a person works through, so the sweep sees pills, verdicts, runbooks and the decision card. */
@@ -403,30 +507,12 @@ async function contrastJourney(browser, deskUrl) {
     }
 
     // (f) every control a keyboard reaches on the two busiest stages shows a 2px ink ring set off from it.
-    const ringName = 'every control reached by Tab shows a 2px ink focus ring with an offset'
+    const ringName = 'every control reached by Tab shows a 2px ink focus ring with an offset, never cut off'
     await step('f', ringName, async () => {
       await pickTheme(page, 'dark')
-      const rings = []
-      for (const id of ['ideas', 'review']) {
-        await stage(page, id)
-        await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0) })
-        // Tab until the focus comes back round to a control already visited.
-        const visited = new Set()
-        for (let i = 0; i < 150; i += 1) {
-          await page.keyboard.press('Tab')
-          const r = await page.evaluate(() => {
-            const el = document.activeElement
-            if (!el || el === document.body) return null
-            const cs = getComputedStyle(el)
-            return { key: [...document.querySelectorAll('*')].indexOf(el), el: el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.dataset.stage ? `[data-stage=${el.dataset.stage}]` : ''), style: cs.outlineStyle, width: cs.outlineWidth, offset: cs.outlineOffset, color: cs.outlineColor, ink: getComputedStyle(document.body).color }
-          })
-          if (!r || visited.has(r.key)) break
-          visited.add(r.key)
-          rings.push({ stage: id, ...r })
-        }
-      }
-      const noRing = rings.filter((r) => r.style !== 'solid' || r.width !== '2px' || parseFloat(r.offset) < 1 || r.color !== r.ink)
-      check('f', ringName, rings.length > 20 && noRing.length === 0, { reached: rings.length, missing: noRing }, noRing.length ? noRing.slice(0, 10).map((r) => `${r.el} ${r.style} ${r.width} offset ${r.offset} ${r.color}`).join(' · ') : `${rings.length} tab stops on ideas and review, all ${rings[0]?.style} ${rings[0]?.width} offset ${rings[0]?.offset}`)
+      const rings = await tabRound(page, ['ideas', 'review'])
+      const bad = rings.filter((r) => !ringDrawn(r) || r.cut.length)
+      check('f', ringName, rings.length > 20 && bad.length === 0, { reached: rings.length, bad }, bad.length ? bad.slice(0, 10).map((r) => `${r.el} ${r.cut.join(', ') || `${r.style} ${r.width} offset ${r.offset} ${r.color}`}`).join(' · ') : `${rings.length} tab stops on ideas and review, all ${rings[0]?.style} ${rings[0]?.width} offset ${rings[0]?.offset}, none cut off`)
     })
 
     // (g) the colour transitions run only for people who have not asked for less motion.
