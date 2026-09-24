@@ -8,7 +8,9 @@
  * v2 adds the read bucket (24/48/168/672 h), computed baselines with their
  * tier, cold-start mode with absolute priors and a 24-to-48 h growth read, a
  * Wilson interval on CTR so a borderline read says "insufficient-data" and how
- * many more impressions would settle it, and the traffic and loyalty reads
+ * many more impressions would settle it (at 48 h, while a swap is still
+ * possible; the 7 and 28-day reads call the band on the point estimate and keep
+ * the interval as evidence), and the traffic and loyalty reads
  * (returning share, subscriber share, browse + suggested). Every verdict's
  * first evidence line names the baseline it compared against and its source.
  */
@@ -342,6 +344,10 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
   const ctrHealthy = ctrRel !== undefined && input.ctr! >= healthyMark
   const ctrSoft = ctrRel !== undefined && !ctrLow && !ctrHealthy
   if (hasCtr) thresholdsUsed.push(`ctrLowRel ${tagged('ctrLowRel', 'x')}`, `ctrHealthyRel ${tagged('ctrHealthyRel', 'x')}`, `ctrHealthyAbs ${tagged('ctrHealthyAbs', '%')}`, `ctrLowAbs ${tagged('ctrLowAbs', '%')}`)
+  // The certainty gate exists to stop a premature swap. At 7 and 28 days the swap window is closed, so
+  // waiting for more impressions settles nothing: the band is called on the point estimate and the
+  // interval stays in the evidence.
+  const certaintyGate = bucket !== '168' && bucket !== '672'
   let straddle: Array<{ name: string; value: number }> = []
   if (hasCtr && impressions !== undefined && impressions > 0) {
     ctrInterval = wilsonCtrInterval(input.ctr!, impressions)
@@ -349,10 +355,13 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
     const marks = ctrLow ? [{ name: 'low', value: lowMark }] : ctrHealthy ? [{ name: 'healthy', value: healthyMark }] : [{ name: 'low', value: lowMark }, { name: 'healthy', value: healthyMark }]
     straddle = straddled(ctrInterval, marks)
     evidence.push(`CTR 95% interval ${pct(ctrInterval.low, 2)} to ${pct(ctrInterval.high, 2)} over ${fmtInt(impressions)} impressions (thresholds: low ${pct(lowMark, 2)}, healthy ${pct(healthyMark, 2)})`)
-    if (straddle.length) {
+    const straddles = `the interval straddles the ${straddle.map((m) => `${m.name} threshold ${pct(m.value, 2)}`).join(' and the ')}`
+    if (straddle.length && !certaintyGate) {
+      evidence.push(`${straddles}; the swap window is closed at the ${bucket}-hour read, so the band is called on the point estimate, not a certain one`)
+    } else if (straddle.length) {
       impressionsNeeded = impressionsToSettle(input.ctr!, straddle.map((m) => m.value), impressions)
       const more = impressionsNeeded === undefined ? 'no sample size settles a CTR sitting exactly on the threshold' : `about ${fmtInt(impressionsNeeded - impressions)} more impressions needed (${fmtInt(impressionsNeeded)} total)`
-      evidence.push(`the interval straddles the ${straddle.map((m) => `${m.name} threshold ${pct(m.value, 2)}`).join(' and the ')}: ${more}`)
+      evidence.push(`${straddles}: ${more}`)
     }
   }
   const ctrLowCertain = ctrLow && (ctrInterval === undefined || straddle.length === 0)
@@ -375,13 +384,18 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
   }
 
   const coldGateMet = mode !== 'cold-start' || (impressions !== undefined && impressions >= thresholds.coldStartMinImpressions.value) || hours >= thresholds.coldStartMinHours.value
-  const coldGate = (): DiagnosisV2 => {
+  // The gate holds good news as well as bad: a healthy-looking first sample is not yet a reason to double down.
+  const coldGate = (band: 'low' | 'soft' | 'healthy'): DiagnosisV2 => {
     const needImpr = Math.max(0, thresholds.coldStartMinImpressions.value - (impressions ?? 0))
     const needHours = Math.max(0, thresholds.coldStartMinHours.value - hours)
     thresholdsUsed.push(`coldStartMinImpressions ${tagged('coldStartMinImpressions')}`, `coldStartMinHours ${tagged('coldStartMinHours', 'h')}`)
-    const sentence = `Cold start: no packaging verdict before ${fmtInt(thresholds.coldStartMinImpressions.value)} impressions or ${thresholds.coldStartMinHours.value} hours (${impressions !== undefined ? fmtInt(impressions) : 'unknown'} impressions at ${hours}h: ${fmtInt(needImpr)} more impressions or ${needHours.toFixed(0)} more hours).`
+    const what = band === 'healthy' ? 'no healthy verdict' : 'no packaging verdict'
+    const sentence = `Cold start: ${what} before ${fmtInt(thresholds.coldStartMinImpressions.value)} impressions or ${thresholds.coldStartMinHours.value} hours (${impressions !== undefined ? fmtInt(impressions) : 'unknown'} impressions at ${hours}h: ${fmtInt(needImpr)} more impressions or ${needHours.toFixed(0)} more hours).`
     evidence.push(sentence)
-    return done('insufficient-data', `CTR ${input.ctr}% reads ${ctrLow ? 'low' : 'soft'} but the cold-start gate is not met: too early to call packaging.`, false, [sentence])
+    const headline = band === 'healthy'
+      ? 'The numbers look healthy so far, but a cold-start upload gets no verdict before the gate: too early to call it healthy.'
+      : `CTR ${input.ctr}% reads ${band} but the cold-start gate is not met: too early to call packaging.`
+    return done('insufficient-data', headline, false, [sentence])
   }
   const wilsonGate = (band: string): DiagnosisV2 => {
     const sentence = impressionsNeeded === undefined
@@ -395,8 +409,8 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
     return done('idea', 'Impressions never took off while CTR held: the system found no audience for this idea.')
   }
   if (ctrLow) {
-    if (!coldGateMet) return coldGate()
-    if (straddle.length) return wilsonGate('low')
+    if (!coldGateMet) return coldGate('low')
+    if (straddle.length && certaintyGate) return wilsonGate('low')
     const repackage = hours <= thresholds.repackageWindowHours.value && !impressionsLow
     thresholdsUsed.push(`repackageWindowHours ${tagged('repackageWindowHours', 'h')}`)
     return done('packaging', 'People saw it and did not click: packaging is the bottleneck.', repackage)
@@ -404,15 +418,16 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
   if (hookBroken) return done('hook', 'People clicked and left in the first 30 seconds: the open does not deliver the promise.')
   if (retentionSoft) return done('retention', 'The open holds but the middle loses them: retention structure is the bottleneck.')
   if (ctrSoft) {
-    if (!coldGateMet) return coldGate()
-    if (straddle.length) return wilsonGate('soft')
+    if (!coldGateMet) return coldGate('soft')
+    if (straddle.length && certaintyGate) return wilsonGate('soft')
     return done('packaging-soft', 'CTR is under baseline but not broken: re-test the title before swapping the thumbnail.')
   }
   if (impressions !== undefined && impressions < minImpr) {
     evidence.push(`impressions ${fmtInt(impressions)} are under ${fmtInt(minImpr)}: no "healthy" verdict on this sample`)
     return done('insufficient-data', 'Nothing is broken yet, but the sample is too small to call it healthy.')
   }
-  if (ctrHealthy && straddle.length) return wilsonGate('healthy')
+  if (!coldGateMet && (ctrHealthy || avpRel !== undefined)) return coldGate('healthy')
+  if (ctrHealthy && straddle.length && certaintyGate) return wilsonGate('healthy')
   if (ctrHealthy || avpRel !== undefined) return done('none', 'Packaging and retention are both at or above baseline. Double down.')
   return done('insufficient-data', 'Metrics are borderline; collect another day of data.')
 }

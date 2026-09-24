@@ -11,6 +11,9 @@
  *   SEQUEL         7-day multiple >= 3x with returning share >= 0.9x baseline and AVP >= 0.9x.
  *   EXPAND         7-day multiple 1.5x to 3x with healthy retention.
  *   PARK           7-day multiple < 0.7x with an idea bottleneck.
+ *                  All three need a 7-day median views resting on at least five 7-day reads
+ *                  (the prior/thin boundary of tierFor()); a 48-hour median or a typed number
+ *                  never stands in for it. Short of that the call is HOLD, with the multiple shown.
  *   HOLD           nothing to change now; the flip condition says what would change it.
  *   WAIT           the read is missing or the diagnosis is insufficient-data.
  *
@@ -20,6 +23,7 @@
  * person applies it. All gates live in src/thresholds.ts with evidence tags.
  */
 import { BUCKET_HOURS, BUCKETS, type Bucket } from './buckets.js'
+import { tierFor } from './ledger-core.js'
 import type { Baselines, DecisionDoc, LedgerRow } from './schema.js'
 import type { DiagnosisV2 } from './postmortem.js'
 import { tagged, thresholds } from './thresholds.js'
@@ -38,6 +42,13 @@ export interface DecideInput {
 }
 
 type Numbers = Record<string, number | string | boolean>
+
+/** Fewest 7-day reads behind the median views before SEQUEL, EXPAND or PARK: the first n that tierFor() lifts out of `prior`. */
+const MIN_WEEK_READS = (() => {
+  let n = 0
+  while (tierFor(n) === 'prior') n += 1
+  return n
+})()
 
 function round(v: number, places = 2): number {
   const f = 10 ** places
@@ -69,7 +80,10 @@ export function decide(input: DecideInput): DecisionDoc {
   const read = row.reads[bucket]
   const hours = hoursSince(row.publishedAt, now)
   const base = diagnosis.baselineUsed
-  const baselineViews = baselines?.views?.median ?? base.views
+  // 7 and 28-day reads judge on the 7-day median views alone; at 48 h any median views the caller has.
+  const onMultiple = bucket === '168' || bucket === '672'
+  const weekViews = baselines?.bucket === '168' ? baselines.views : undefined
+  const baselineViews = onMultiple ? weekViews?.median : baselines?.views?.median ?? base.views
   const numbers: Numbers = {
     bucket,
     hoursSincePublish: round(hours, 1),
@@ -159,10 +173,25 @@ export function decide(input: DecideInput): DecisionDoc {
   numbers.expandMultipleLow = expandX
   numbers.parkMultiple = parkX
 
+  // The views baseline the multiple rests on: how many genuine 7-day reads, and their tier.
+  const weekReads = weekViews?.n ?? 0
+  numbers.baselineViewsN = weekReads
+  numbers.baselineViewsTier = tierFor(weekReads)
+  const moreReads = MIN_WEEK_READS - weekReads
+  const readsToGo = moreReads > 0 ? `${moreReads} more video${moreReads === 1 ? ' has' : 's have'} a 7-day read with views` : 'the 7-day median views is above zero'
+
   if (multiple === undefined) {
     return finish('HOLD', views === undefined
       ? `Record views on the ${bucket}-hour read; the multiple cannot be computed without them.`
-      : 'No median views yet (cold start): the multiple cannot be computed. Flips to SEQUEL/EXPAND/PARK once five videos give a baseline.')
+      : `No 7-day median views yet (${weekReads} of ${MIN_WEEK_READS} reads): the multiple cannot be computed, and a 48-hour or typed median never stands in for it. Flips to SEQUEL/EXPAND/PARK once ${readsToGo}.`)
+  }
+  if (weekReads < MIN_WEEK_READS) {
+    const carry = diagnosis.bottleneck === 'packaging' || diagnosis.bottleneck === 'packaging-soft'
+      ? ' CTR was the bottleneck and the swap window has closed: write the lever; the next package inherits it.'
+      : diagnosis.bottleneck === 'hook' || diagnosis.bottleneck === 'retention'
+        ? ` The ${diagnosis.bottleneck} is broken: fix it in the next edit.`
+        : ''
+    return finish('HOLD', `${multiple.toFixed(2)}x median views, but the 7-day median rests on ${weekReads} of ${MIN_WEEK_READS} reads; SEQUEL/EXPAND/PARK wait for ${MIN_WEEK_READS}.${carry} Flips once ${readsToGo}.`)
   }
   if (multiple >= sequelX) {
     const returningOk = read.returningPct !== undefined && (returningRel === undefined || returningRel >= thresholds.sequelReturningRel.value)

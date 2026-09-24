@@ -238,7 +238,13 @@ describe('decide: 7-day and 28-day reads', () => {
     const cold = judge(row(168, { '168': { impressions: 60_000, ctr: 5.5, avpPct: 42, views: 9_000 } }), '168', null)
     expect(cold.decision).toBe('HOLD')
     expect(cold.numbers.mode).toBe('cold-start')
-    expect(cold.flipCondition).toMatch(/No median views yet \(cold start\)/)
+    expect(cold.numbers).toMatchObject({ baselineViewsN: 0, baselineViewsTier: 'prior' })
+    expect(cold.flipCondition).toBe('No 7-day median views yet (0 of 5 reads): the multiple cannot be computed, and a 48-hour or typed median never stands in for it. Flips to SEQUEL/EXPAND/PARK once 5 more videos have a 7-day read with views.')
+  })
+
+  it('records the views baseline behind the multiple: n and tier', () => {
+    const d = judge(row(168, { '168': { impressions: 80_000, ctr: 5.5, avpPct: 42, views: 18_000, returningPct: 40 } }), '168', b168)
+    expect(d.numbers).toMatchObject({ baselineViews: 5_000, baselineViewsN: 10, baselineViewsTier: 'solid' })
   })
 
   it('judges the 28-day read the same way', () => {
@@ -246,6 +252,87 @@ describe('decide: 7-day and 28-day reads', () => {
     expect(d.decision).toBe('SEQUEL')
     expect(d.id).toBe('solar:672')
     expect(d.numbers.multiple).toBe(4)
+  })
+})
+
+describe('decide: SEQUEL, EXPAND and PARK need five 7-day reads', () => {
+  /** A 168-hour baseline whose views median rests on `n` reads. */
+  const week = (n: number, median = 12_000) => baselines({ bucket: '168', n, tier: n < 5 ? 'prior' : n < 10 ? 'thin' : 'solid', views: { median, mad: 1_000, n }, impressions: { median: 200_000, mad: 9_000, n } })
+  const hit = row(192, { '168': { impressions: 150_000, ctr: 5.5, avpPct: 42, retention30sPct: 70, views: 40_000, returningPct: 40 } })
+
+  it('holds a 3.33x video on a median of one other video, keeps the multiple and says why', () => {
+    // Before the fix this was SEQUEL (multiple 3.33 over one read), a false win for the flywheel.
+    const d = judge(hit, '168', week(1))
+    expect(d.decision).toBe('HOLD')
+    expect(d.numbers).toMatchObject({ multiple: 3.33, baselineViews: 12_000, baselineViewsN: 1, baselineViewsTier: 'prior' })
+    expect(d.flipCondition).toBe('3.33x median views, but the 7-day median rests on 1 of 5 reads; SEQUEL/EXPAND/PARK wait for 5. Flips once 4 more videos have a 7-day read with views.')
+  })
+
+  it('opens at exactly five reads, the boundary where tierFor() leaves prior', () => {
+    expect(judge(hit, '168', week(4)).decision).toBe('HOLD')
+    expect(judge(hit, '168', week(4)).flipCondition).toMatch(/rests on 4 of 5 reads; .* Flips once 1 more video has a 7-day read/)
+    const five = judge(hit, '168', week(5))
+    expect(five.decision).toBe('SEQUEL')
+    expect(five.numbers).toMatchObject({ baselineViewsN: 5, baselineViewsTier: 'thin' })
+    // EXPAND and PARK are gated the same way, at 168 and at 672 hours.
+    const expand = row(192, { '168': { impressions: 90_000, ctr: 5.5, avpPct: 42, views: 24_000, returningPct: 40 } })
+    expect(judge(expand, '168', week(4)).decision).toBe('HOLD')
+    expect(judge(expand, '168', week(5)).decision).toBe('EXPAND')
+    const flop = row(700, { '672': { impressions: 6_000, ctr: 5, avpPct: 42, views: 2_500 } })
+    const parked = judge(flop, '672', week(5, 5_000))
+    expect(parked.decision).toBe('PARK')
+    // Forced established so the diagnosis still reads idea on the thin median: the gate alone holds it.
+    const thin = judge(flop, '672', week(3, 5_000), { mode: 'established' })
+    expect(thin.decision).toBe('HOLD')
+    expect(thin.numbers).toMatchObject({ multiple: 0.5, bottleneck: 'idea', baselineViewsN: 3 })
+  })
+
+  it('carries the broken stage into the held call', () => {
+    const packaging = judge(row(192, { '168': { impressions: 200_000, ctr: 2, avpPct: 42, views: 30_000 } }), '168', week(2))
+    expect(packaging.decision).toBe('HOLD')
+    expect(packaging.flipCondition).toMatch(/rests on 2 of 5 reads; SEQUEL\/EXPAND\/PARK wait for 5\. CTR was the bottleneck and the swap window has closed: write the lever/)
+    const hook = judge(row(192, { '168': { impressions: 200_000, ctr: 5.5, avpPct: 42, retention30sPct: 40, views: 30_000 } }), '168', week(2))
+    expect(hook.flipCondition).toMatch(/The hook is broken: fix it in the next edit\./)
+  })
+
+  it('never lets a 48-hour median or a typed number stand in for the 7-day median', () => {
+    // A 48-hour set passed at the 7-day read: the old code multiplied against its 5,000 views (EXPAND at 2x).
+    const read = row(192, { '168': { impressions: 150_000, ctr: 5.5, avpPct: 42, views: 10_000, returningPct: 40 } })
+    const on48 = judge(read, '168', baselines())
+    expect(on48.decision).toBe('HOLD')
+    expect(on48.numbers.multiple).toBeUndefined()
+    expect(on48.numbers.baselineViews).toBeUndefined()
+    expect(on48.flipCondition).toMatch(/^No 7-day median views yet \(0 of 5 reads\)/)
+    // A typed or profile number (the flat baseline) at the 7-day read: the old code called SEQUEL at 3.3x.
+    const typed = judge(read, '168', null, { baseline: { ctr: 5, avpPct: 40, views: 3_000 } })
+    expect(typed.decision).toBe('HOLD')
+    expect(typed.numbers.multiple).toBeUndefined()
+    // The 48-hour decision still reads the 48-hour median views for its floor and flips.
+    expect(judge(row(48, { '48': { impressions: 22_000, ctr: 5.5, avpPct: 42 } }), '48').flipCondition).toMatch(/median \(15,000\)/)
+  })
+})
+
+describe('decide: the gates that belong to one window stay in it', () => {
+  it('reaches a 7-day decision on a CTR the 48-hour certainty gate would still be waiting on', () => {
+    // 150,000 impressions at 3.1% straddle the low mark (0.75 x 4.1%): the 7-day read used to be WAIT until ~1.83M impressions.
+    const week = baselines({ bucket: '168', ctr: { median: 4.1, mad: 0.2, n: 6 }, avpPct: { median: 42, mad: 1, n: 6 }, views: { median: 9_000, mad: 900, n: 6 }, n: 6, tier: 'thin' })
+    const d = judge(row(192, { '168': { impressions: 150_000, ctr: 3.1, avpPct: 42, views: 9_000 } }), '168', week)
+    expect(d.decision).toBe('HOLD')
+    expect(d.numbers).toMatchObject({ bottleneck: 'packaging-soft', multiple: 1 })
+    expect(d.numbers.impressionsNeeded).toBeUndefined()
+    // The 48-hour read of the same numbers still waits for the band to be certain.
+    const at48 = judge(row(48, { '48': { impressions: 150_000, ctr: 3.1, avpPct: 42 } }), '48', baselines({ ctr: { median: 4.1, mad: 0.2, n: 10 }, avpPct: { median: 42, mad: 1, n: 10 }, impressions: { median: 150_000, mad: 9_000, n: 10 } }))
+    expect(at48.decision).toBe('WAIT')
+    expect(at48.numbers.impressionsNeeded).toBe(1_831_948)
+  })
+
+  it('waits on a healthy-looking cold-start read before the gate instead of holding it as healthy', () => {
+    const early = judge(row(30, { '48': { impressions: 1_500, ctr: 6, avpPct: 45 } }), '48', null)
+    expect(early.decision).toBe('WAIT')
+    expect(early.numbers.bottleneck).toBe('insufficient-data')
+    expect(early.flipCondition).toMatch(/cold start 2000 \[house\] or 72h \[house\]/)
+    // Past 72 hours the gate is met and the read holds as healthy, as before.
+    expect(judge(row(80, { '48': { impressions: 1_500, ctr: 6, avpPct: 45 } }), '48', null).flipCondition).toMatch(/^Every stage is healthy; let it run/)
   })
 })
 
