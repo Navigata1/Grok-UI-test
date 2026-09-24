@@ -29,6 +29,7 @@ export const BOOLEAN_FLAGS = new Set([
   'json', 'help', 'md', 'offline', 'record', 'dry-run', 'fresh', 'solo', 'team', 'next', 'override', 'week', 'today',
   'force', 'all', 'verbose', 'quiet', 'no-save', 'apply', 'pinned', 'accept', 'cold-start', 'by-topic', 'stale', 'open',
   'thumb-files-ok', 'window-confirmed', 'review-scheduled', 'no-sequel-first', 'no-signature', 'saturation', 'confirm', 'yes',
+  'no-doctrine', 'isolate',
 ])
 
 export function parseArgs(argv: string[]): Args {
