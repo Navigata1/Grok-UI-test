@@ -29,6 +29,7 @@ const REPO = path.resolve(BOOSTER, '..')
 const EVIDENCE = path.join(REPO, 'ops', 'mission', 'evidence', 'package-smoke.txt')
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const TSX_CLI = createRequire(path.join(BOOSTER, 'package.json')).resolve('tsx/cli')
+const VERSION = JSON.parse(readFileSync(path.join(BOOSTER, 'package.json'), 'utf8')).version
 const KEEP = process.argv.includes('--keep')
 
 // The first run init prints (cli/commands/workspace.ts), plus the rest of the loop the smoke drives.
@@ -225,7 +226,7 @@ try {
     needs(installed, 'the install')
     const help = bin(['help'], project)
     exited(help, 0, 'help')
-    for (const want of ['channel-booster 0.1.0: YouTube Channel Booster', '  outliers <csv>', '  workflow run <slug>', '  package build', 'channel-booster init <folder>']) {
+    for (const want of [`channel-booster ${VERSION}: YouTube Channel Booster`, '  outliers <csv>', '  workflow run <slug>', '  package build', 'channel-booster init <folder>']) {
       assert(help.stdout.includes(want), `help does not print ${JSON.stringify(want)}`)
     }
     return `${help.stdout.split('\n').filter((l) => l.startsWith('  ')).length} command lines`
@@ -286,7 +287,7 @@ try {
 
   check('(b) ai idea-engine --dry-run --json inside ws: the shipped doctrine and no overlay', () => {
     needs(workspaceMade, 'init')
-    const ai = bin(['ai', 'idea-engine', '--niche', 'budget solar power', '--csv', 'example:competitors', '--dry-run', '--json'], ws)
+    const ai = bin(['ai', 'idea-engine', '--niche', 'budget solar power', '--dry-run', '--json'], ws)
     exited(ai, 0, 'ai idea-engine --dry-run --json')
     const dry = parseJson(ai.stdout, 'ai idea-engine --dry-run --json')
     assert(dry.doctrine && Array.isArray(dry.overlay), 'the dry run has no doctrine and overlay fields (the doctrine lane adds them)')
@@ -296,19 +297,24 @@ try {
     return `doctrine ${dry.doctrine.hash}, overlay []`
   })
 
-  // (c) The first run, inside ws. A step that needs an earlier one is still run: its own exit code is the evidence.
+  // (c) The first run, inside ws: the three commands init prints, the person's title, the learned rules and the
+  // workflow. A step that needs an earlier one is still run: its own exit code is the evidence.
   const steps = [
     ['scan: outliers example:competitors --save', ['outliers', 'example:competitors', '--save'], 0],
     ['idea score with demand=auto from example:competitors', ['idea', 'score', IDEA, '--score', SCORE, '--outliers', 'example:competitors'], 0],
     ['bank add with --csv example:competitors', ['bank', 'add', IDEA, '--score', SCORE, '--csv', 'example:competitors', '--promise', PROMISE], 0],
+    // Offline the builder never picks a title: the first build writes the package and stops at the title gate.
+    ['package build "<idea>" --offline stops at the title gate', ['package', 'build', IDEA, '--offline'], 1, `No title yet for ${SLUG}`],
     ['package build <slug> --title .. --offline', ['package', 'build', SLUG, '--title', TITLE, '--offline'], 0],
     ['rules compile', ['rules', 'compile'], 0],
     ['workflow "<idea>" --out packages', ['workflow', IDEA, '--out', 'packages'], 0],
   ]
-  for (const [name, args, code] of steps) {
+  for (const [name, args, code, says] of steps) {
     check(`(c) ${name}`, () => {
       needs(workspaceMade, 'init')
-      exited(bin(args, ws), code, args.slice(0, 2).join(' '))
+      const r = bin(args, ws)
+      exited(r, code, args.slice(0, 2).join(' '))
+      if (says) assert(r.stderr.includes(says), `stderr does not say ${JSON.stringify(says)}`)
     })
   }
   check('(c) workflow run <slug> --next --agent smoke runs the next stage in this process', () => {
