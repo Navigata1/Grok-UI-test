@@ -24,11 +24,13 @@ export function help(): string {
   lines.push(
     '',
     'Add --json to any command for machine-readable output. --data <dir> and --path <channel.json> override the store and profile locations.',
-    `A workspace is one folder per channel: channel.json, data/, packages/, inbox/ and playbook/. Create one with \`${cli} init <folder>\`.`,
+    // From source, npm run starts at the repository root, so the folder the help names sits beside the checkout: a
+    // workspace inside it would leave the channel's private files where `git add` finds them.
+    `A workspace is one folder per channel: channel.json, data/, packages/, inbox/ and playbook/. Create one with \`${cli} init ${BUNDLED ? '<folder>' : '../<folder>'}\`.`,
     ...(BUNDLED
       ? ['Run commands inside it, or name it from anywhere with --workspace <folder> or BOOSTER_HOME=<folder>. A command that reads or writes a channel\'s files needs one.']
       : [
-          'npm run starts at the repository root, so name it with --workspace <folder> or BOOSTER_HOME=<folder>.',
+          'npm run starts at the repository root, so keep the workspace outside the checkout and name it with --workspace ../<folder> or BOOSTER_HOME=<folder>.',
           'Without one, a source checkout keeps its files in channel-booster/data/ and channel-booster/channel.json, as before.',
         ]),
     `\`${cli} where\` prints the folder each location resolves to and where it came from.`,
@@ -53,12 +55,19 @@ function badWorkspace(flags: Flags): boolean {
 }
 
 /**
+ * Commands that never read the channel profile at startup: init creates the
+ * workspace --workspace or BOOSTER_HOME may already name, and where reports a
+ * workspace that is not one itself.
+ */
+const NO_STARTUP_PROFILE = new Set(['init', 'where'])
+
+/**
  * Read channel.json once so its threshold overrides are live for every engine.
  * A bad profile is reported, not fatal. Having no workspace is not reported
  * here: the packaged bin has no default channel.json, and a command that needs
  * the channel's files stops and says how to create one. A --workspace or
  * BOOSTER_HOME that names no workspace is still reported, even to a command
- * that never reads it.
+ * that never reads the profile, except init and where (NO_STARTUP_PROFILE).
  */
 function loadStartupProfile(flags: Flags): void {
   try {
@@ -76,7 +85,7 @@ export async function main(argv: string[]): Promise<number> {
     writeOut(help())
     return 0
   }
-  loadStartupProfile(flags)
+  if (!NO_STARTUP_PROFILE.has(cmd)) loadStartupProfile(flags)
   const mod = MODULES.find((m) => m.verbs.includes(cmd))
   if (!mod) throw new Error(`unknown command "${cmd}". Run ${cliName()} help.`)
   return mod.run(cmd, sub, rest, flags)

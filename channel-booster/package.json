@@ -20,6 +20,7 @@
     "NOTICE"
   ],
   "scripts": {
+    "booster": "cd .. && tsx channel-booster/cli/booster.ts",
     "check": "tsc -p tsconfig.json",
     "test": "vitest run",
     "build": "tsx scripts/build.ts && node dashboard/build.mjs",

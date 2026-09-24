@@ -13,7 +13,7 @@ The YouTube Channel Booster: a pre-shoot check for YouTube packaging. It scores 
 ## Commands
 
 ```bash
-npm ci
+npm install                   # the first run writes package-lock.json; commit it so npm ci works
 npm run booster -- help       # the command line from source (tsx)
 npm run verify                # typecheck, every test, the bundle and the Desk
 npm run test:package          # pack the bin, install it in an empty folder, and drive it
