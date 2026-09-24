@@ -41,11 +41,14 @@ describe('dashboard build', () => {
     expect(actual === html, 'dashboard/index.html is stale: run `node channel-booster/dashboard/build.mjs`').toBe(true)
   }, 30_000)
 
-  it('template starts with a title and declares both theme blocks', () => {
+  it('template starts with a title, dark on bare :root, light only through the Desk’s own control', () => {
     const template = readFileSync(path.join(dashboard, 'template.html'), 'utf8')
     expect(template.startsWith('<title>')).toBe(true)
-    expect(template).toContain(':root:not([data-theme="light"])')
-    expect(template).toContain(':root[data-theme="dark"]')
+    expect(template).toMatch(/\n {2}:root \{\n {4}color-scheme: dark;\n {4}--bg: #0A0A0B;/)
+    expect(template).toMatch(/\n {2}:root\[data-desk-theme="light"\] \{\n {4}color-scheme: light;\n/)
+    // The viewer stamps data-theme on the root from its own setting and the OS has its own preference: neither decides.
+    expect(template).not.toMatch(/prefers-color-scheme/)
+    expect(template).not.toMatch(/\[data-theme\b|dataset\.theme\b/)
     expect(template).not.toMatch(/<!doctype|<html|<head>|<body>/i)
   })
 
@@ -153,7 +156,7 @@ describe('desk template', () => {
     // The gate passes only on its action button; Cancel has the focus, so Enter or Escape cancel. The focus is
     // set when the gate opens: autofocus in a cross-origin frame (the published Desk runs in one) is blocked
     // and logs a console error on every load.
-    expect(template).toContain('<button class="btn" value="cancel" id="gate-cancel">Cancel</button><button class="btn primary" value="ok" id="gate-ok"></button>')
+    expect(template).toContain('<button class="btn" value="cancel" id="gate-cancel">Cancel</button><button class="btn human" value="ok" id="gate-ok"></button>')
     expect(template).not.toMatch(/<[a-z]+\b[^>]*\sautofocus\b/)
     expect(deskFunction('gate')).toMatch(/gateBox\.showModal\(\)[\s\S]*\$\('gate-cancel'\)\.focus\(\)/)
     expect(template).toContain("resolve(gateBox.returnValue === 'ok')")
@@ -166,6 +169,24 @@ describe('desk template', () => {
       'Accept this rule into the playbook? The CLI appends it under Learned rules on the next sync.',
       'Delete "${i.idea}" from the idea bank?',
     ]) expect(template).toMatch(new RegExp(`!\\(await gate\\(\\{ title: '[^']+', text: ['\`]${escapeRe(words)}`))
+  })
+
+  it('closes the gate from its own buttons, so a frame sandboxed without allow-forms still gets an answer', () => {
+    // There the form's method="dialog" submit is blocked: Cancel and the action button did nothing and the gate
+    // stayed open. Run the line as shipped against two fake buttons and a fake dialog.
+    const line = template.match(/\n {2}(for \(const b of \[\$\('gate-cancel'\), \$\('gate-ok'\)\]\)[^\n]*)/)?.[1]
+    expect(line, 'template wires the gate buttons').toBeTruthy()
+    const handlers: Record<string, (e: { preventDefault: () => void }) => void> = {}
+    const button = (id: string, value: string) => ({ value, addEventListener: (type: string, f: (e: { preventDefault: () => void }) => void) => { if (type === 'click') handlers[id] = f } })
+    const buttons: Record<string, ReturnType<typeof button>> = { 'gate-cancel': button('gate-cancel', 'cancel'), 'gate-ok': button('gate-ok', 'ok') }
+    const closed: string[] = []
+    new Function('$', 'gateBox', line!)((id: string) => buttons[id], { close: (v: string) => closed.push(v) })
+    let prevented = 0
+    const click = { preventDefault: () => { prevented += 1 } }
+    handlers['gate-cancel'](click)
+    handlers['gate-ok'](click)
+    expect(closed).toEqual(['cancel', 'ok'])
+    expect(prevented).toBe(2)
   })
 
   it('deletes a banked idea only after the gate, from a labelled button', () => {
@@ -271,10 +292,117 @@ describe('desk template', () => {
   })
 
   it('declares a colour scheme so native controls follow the theme', () => {
-    expect(template).toMatch(/:root \{\n\s*color-scheme: light;/)
-    expect(template).toMatch(/:root:not\(\[data-theme="light"\]\) \{\n\s*color-scheme: dark;/)
-    expect(template).toMatch(/:root\[data-theme="dark"\] \{\n\s*color-scheme: dark;/)
-    expect(template).toContain('.stack input, td select { padding: 7px 9px; border: 1px solid var(--line);')
+    expect(template).toMatch(/\n {2}:root \{\n {4}color-scheme: dark;/)
+    expect(template).toMatch(/\n {2}:root\[data-desk-theme="light"\] \{\n {4}color-scheme: light;/)
+    // Inputs outside a .field share the .field box by construction: one rule, one selector list.
+    expect(template).toContain('.field input, .field select, .field textarea, .stack input, td select { padding: 8px 12px; border: 1px solid var(--line-strong);')
+  })
+
+  describe('theme', () => {
+    const style = template.slice(template.indexOf('<style>\n'), template.indexOf('</style>'))
+    const dark = style.match(/\n {2}:root \{\n([\s\S]*?)\n {2}\}/)?.[1] ?? ''
+    const light = style.match(/\n {2}:root\[data-desk-theme="light"\] \{\n([\s\S]*?)\n {2}\}/)?.[1] ?? ''
+    const names = (block: string) => [...block.matchAll(/--([a-z0-9-]+):/g)].map((m) => m[1])
+
+    it('takes every colour from a token defined on bare :root; the light block only redefines them', () => {
+      expect(names(dark)).toEqual(expect.arrayContaining(['bg', 'panel', 'panel-2', 'raised', 'ink', 'muted', 'line', 'line-strong', 'primary', 'primary-ink', 'accent', 'accent-ink', 'good', 'warn', 'bad', 'good-soft', 'warn-soft', 'bad-soft']))
+      expect(names(light).filter((n) => !names(dark).includes(n))).toEqual([])
+      const rules = style.replace(dark, '').replace(light, '')
+      expect(rules.match(/#[0-9a-f]{3,8}\b|\b(?:rgb|hsl)a?\(/gi)).toBeNull()
+      expect([...rules.matchAll(/var\(--([a-z0-9-]+)\)/g)].map((m) => m[1]).filter((n) => !names(dark).includes(n))).toEqual([])
+      expect([...template.matchAll(/style="([^"]*)"/g)].map((m) => m[1]).filter((s) => /#|rgb|hsl|color/i.test(s))).toEqual([])
+      expect(style).toContain('body { margin: 0; background: var(--bg);')
+    })
+
+    it('keeps the Grok roles: a white pill for primary actions, amber only where a person decides', () => {
+      expect(dark).toContain('--bg: #0A0A0B;')
+      expect(dark).toContain('--primary: #F2F2F0;')
+      expect(dark).toContain('--primary-ink: #0A0A0B;')
+      expect(dark).toContain('--accent: #F5B400;')
+      expect(style).toContain('.btn.primary { background: var(--primary); color: var(--primary-ink);')
+      expect(style).toContain('.btn.human { background: var(--accent); color: var(--accent-ink);')
+      // The buttons that open a human gate, and the gate's own action button.
+      for (const id of ['pb-confirm', 'retro-accept', 'rv-approve', 'gate-ok']) expect(template).toMatch(new RegExp(`<button class="btn human"[^>]* id="${id}"`))
+      expect(style).toContain(':focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }')
+      expect(style).not.toMatch(/outline: [^;]*var\(--accent\)/)
+      expect(style).toMatch(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*transition:/)
+      expect(style.match(/transition:/g)).toHaveLength(1)
+    })
+
+    /** The theme script as the Desk ships it, run against a fake root, the two buttons and a storage. */
+    function runTheme(storage: { getItem: (key: string) => string | null; setItem: (key: string, value: string) => void }) {
+      const body = template.match(/\n {2}<script>\n( {2}\/\/ The theme[\s\S]*?)<\/script>/)?.[1]
+      expect(body, 'template ships the theme script after the header').toBeTruthy()
+      const root = { dataset: {} as Record<string, string> }
+      const buttons = ['dark', 'light'].map((choice) => {
+        let onClick = () => {}
+        const attrs: Record<string, string> = {}
+        return { choice, attrs, dataset: { deskThemeChoice: choice }, setAttribute: (k: string, v: string) => { attrs[k] = v }, addEventListener: (type: string, f: () => void) => { if (type === 'click') onClick = f }, click: () => onClick() }
+      })
+      new Function('document', 'localStorage', body!)({ documentElement: root, querySelectorAll: () => buttons }, storage)
+      const pressed = () => Object.fromEntries(buttons.map((b) => [b.choice, b.attrs['aria-pressed']]))
+      return { root, pressed, click: (choice: string) => buttons.find((b) => b.choice === choice)!.click() }
+    }
+
+    it('offers Dark and Light as a pressed-state pair in the header, Dark pressed in the markup', () => {
+      expect(template).toContain('<div class="theme" role="group" aria-label="Theme"><button type="button" data-desk-theme-choice="dark" aria-pressed="true">Dark</button><button type="button" data-desk-theme-choice="light" aria-pressed="false">Light</button></div>\n  </header>\n  <script>\n  // The theme')
+    })
+
+    it('opens dark and still switches where storage throws, as in the sandboxed artifact frame', () => {
+      const denied = () => { throw new Error('SecurityError') }
+      const t = runTheme({ getItem: denied, setItem: denied })
+      expect(t.root.dataset.deskTheme).toBe('dark')
+      expect(t.pressed()).toEqual({ dark: 'true', light: 'false' })
+      t.click('light')
+      expect(t.root.dataset.deskTheme).toBe('light')
+      expect(t.pressed()).toEqual({ dark: 'false', light: 'true' })
+    })
+
+    it('remembers the pick in this browser under booster.desk.theme, and opens with it', () => {
+      const saved = new Map<string, string>()
+      const storage = { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => { saved.set(k, v) } }
+      const first = runTheme(storage)
+      expect(first.root.dataset.deskTheme).toBe('dark')
+      first.click('light')
+      expect([...saved]).toEqual([['booster.desk.theme', 'light']])
+      const second = runTheme(storage)
+      expect(second.root.dataset.deskTheme).toBe('light')
+      expect(second.pressed()).toEqual({ dark: 'false', light: 'true' })
+      second.click('dark')
+      expect(saved.get('booster.desk.theme')).toBe('dark')
+      expect(runTheme(storage).root.dataset.deskTheme).toBe('dark')
+      // Anything but "light" in the store is the default.
+      saved.set('booster.desk.theme', 'blue')
+      expect(runTheme(storage).root.dataset.deskTheme).toBe('dark')
+    })
+
+    /** The declarations of one rule inside the phone breakpoint, found by its exact selector. */
+    const phone = style.match(/\n {2}@media \(max-width: 760px\) \{\n([\s\S]*?)\n {2}\}\n/)?.[1] ?? ''
+    const phoneRule = (selector: string) => phone.match(new RegExp(`\\n {4}${escapeRe(selector)} \\{ ([^}]*) \\}`))?.[1] ?? ''
+    /** A padding or margin shorthand as [top, right, bottom, left] in px. */
+    const sides = (value: string) => {
+      const [t, r = t, b = t, l = r] = value.trim().split(/\s+/).map((v) => parseFloat(v))
+      return [t, r, b, l]
+    }
+
+    it('gives the phone rail room for the whole focus ring, since a sideways scroller clips what it paints', () => {
+      const ring = style.match(/:focus-visible \{ outline: (\d+)px solid var\(--ink\); outline-offset: (\d+)px; \}/)
+      expect(ring, 'one focus ring rule').toBeTruthy()
+      const reach = Number(ring![1]) + Number(ring![2])
+      const rail = phoneRule('nav.rail')
+      expect(rail).toContain('overflow-x: auto;')
+      const padding = sides(rail.match(/(?:^|; )padding: ([^;]+);/)?.[1] ?? '0')
+      expect(Math.min(...padding), `rail padding ${padding.join(' ')} leaves room for a ${reach}px ring`).toBeGreaterThanOrEqual(reach)
+      // Pulled back out by as much on the top and sides, so the buttons sit where they did.
+      expect(sides(rail.match(/(?:^|; )margin: ([^;]+);/)?.[1] ?? '0')).toEqual([-padding[0], -padding[1], 0, -padding[3]])
+      expect(parseFloat(rail.match(/scroll-padding-inline: ([^;]+);/)?.[1] ?? '0')).toBeGreaterThanOrEqual(reach)
+    })
+
+    it('lets a verdict’s explanation drop below a long label on a phone instead of squeezing it', () => {
+      expect(phoneRule('.verdict')).toContain('flex-wrap: wrap;')
+      const basis = phoneRule('.verdict > div').match(/flex: 1 1 (\d+)px; min-width: 0;/)
+      expect(Number(basis?.[1])).toBeGreaterThanOrEqual(200)
+    })
   })
 
   it('labels a compiled rule by where it stands, never as a bare store status', () => {
