@@ -34,7 +34,7 @@ export interface DoctrineFile {
 export interface ShippedDoctrine {
   /** docs/02 first, then playbook/*.md alphabetically, without the learned rules. */
   files: DoctrineFile[]
-  /** Short content hash of files (names and text): the doctrine version printed with every AI run. */
+  /** Short content hash of files and the package-fix template (names and text): the doctrine version printed with every AI run. */
   hash: string
   /** prompts/package-fix.md, or '' when absent. */
   packageFixTemplate: string
@@ -67,7 +67,17 @@ export function readShippedDoctrine(root: string = CODE_ROOT): ShippedDoctrine {
     }
   }
   const template = path.join(root, PACKAGE_FIX_TEMPLATE_FILE)
-  return { files, hash: doctrineHash(files), packageFixTemplate: existsSync(template) ? readFileSync(template, 'utf8') : '' }
+  const packageFixTemplate = existsSync(template) ? readFileSync(template, 'utf8') : ''
+  return { files, hash: doctrineVersion(files, packageFixTemplate), packageFixTemplate }
+}
+
+/**
+ * The doctrine version: doctrineHash over the doctrine files plus the package-fix
+ * template, which is sent to the model too (ai package-fix), so a change to it
+ * changes the version printed with every run.
+ */
+export function doctrineVersion(files: DoctrineFile[], packageFixTemplate: string): string {
+  return doctrineHash(packageFixTemplate ? [...files, { name: PACKAGE_FIX_TEMPLATE_FILE, text: packageFixTemplate }] : files)
 }
 
 /** The doctrine this build ships: embedded in the bundle, read from the checkout from source. */

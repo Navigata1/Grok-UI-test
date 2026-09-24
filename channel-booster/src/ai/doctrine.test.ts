@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CODE_ROOT } from '../workspace.js'
-import { DOCTRINE_FILE, doctrineHash, LEARNED_RULES_NAME, readShippedDoctrine, shippedDoctrine } from './doctrine.js'
+import { DOCTRINE_FILE, doctrineHash, LEARNED_RULES_NAME, PACKAGE_FIX_TEMPLATE_FILE, readShippedDoctrine, shippedDoctrine } from './doctrine.js'
 
 describe('the shipped doctrine', () => {
   it('is docs/02 then every playbook file alphabetically, never the learned rules', () => {
@@ -31,7 +31,15 @@ describe('the shipped doctrine', () => {
       expect(first.files.map((f) => f.name)).toEqual([DOCTRINE_FILE, 'playbook/b.md'])
       expect(first.packageFixTemplate).toBe('')
       writeFileSync(path.join(root, 'playbook', 'b.md'), 'b2')
-      expect(readShippedDoctrine(root).hash).not.toBe(first.hash)
+      const second = readShippedDoctrine(root)
+      expect(second.hash).not.toBe(first.hash)
+      // The package-fix template is sent to the model as well, so it moves the hash too.
+      mkdirSync(path.join(root, 'prompts'))
+      writeFileSync(path.join(root, PACKAGE_FIX_TEMPLATE_FILE), 'fix {{fixes}}')
+      const third = readShippedDoctrine(root)
+      expect(third.packageFixTemplate).toBe('fix {{fixes}}')
+      expect(third.files).toEqual(second.files)
+      expect(third.hash).not.toBe(second.hash)
       expect(doctrineHash([])).toMatch(/^[0-9a-f]{12}$/)
     } finally {
       rmSync(root, { recursive: true, force: true })

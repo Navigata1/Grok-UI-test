@@ -193,7 +193,7 @@ let status = 1
 try {
   // Pack from a checkout with no bundle: npm pack must build the one it packs (prepack), never ship a missing or stale dist/.
   let tarball
-  check('pack: npm pack builds the bundle it packs, and holds the bin, the bundle, the examples and the notices, and no source', () => {
+  check('pack: npm pack builds the bundle it packs, and holds the bin, the bundle, the examples, AGENTS.md and the notices, and no source', () => {
     const bundle = path.join(BOOSTER, 'dist', 'channel-booster.mjs')
     rmSync(bundle, { force: true })
     const pack = run(NPM, ['pack', '--json', '--pack-destination', packDir], { cwd: BOOSTER, env: npmEnv() })
@@ -201,7 +201,7 @@ try {
     assert(existsSync(bundle), 'npm pack did not build dist/channel-booster.mjs: the prepack script is missing or failed')
     const report = parseJson(pack.stdout.slice(pack.stdout.indexOf('[')), 'npm pack --json')[0]
     const files = tarballFiles(report)
-    const required = ['package.json', 'bin/channel-booster.mjs', 'dist/channel-booster.mjs', 'examples/competitors.csv', 'examples/my-channel.csv', 'examples/studio-content.csv', 'README.md', 'LICENSE', 'NOTICE']
+    const required = ['package.json', 'bin/channel-booster.mjs', 'dist/channel-booster.mjs', 'examples/competitors.csv', 'examples/my-channel.csv', 'examples/studio-content.csv', 'README.md', 'AGENTS.md', 'LICENSE', 'NOTICE']
     const missing = required.filter((f) => !files.includes(f))
     assert(missing.length === 0, `the tarball lacks ${missing.join(', ')}`)
     const stray = files.filter((f) => !required.includes(f) && !f.startsWith('examples/'))

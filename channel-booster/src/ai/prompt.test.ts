@@ -6,7 +6,7 @@ import {
   assemblePrompt, describeDoctrine, describeOverlay, formatDryRun, loadPlaybook, parseEffort, outlierContext, renderPackageFixUser,
   DOCTRINE_FILE, LEARNED_RULES_FILE, NO_DOCTRINE_HASH, NO_DOCTRINE_NOTE, PLAYBOOK_MAX_CHARS, SYSTEM_PREAMBLE, type PlaybookFs,
 } from './prompt.js'
-import { doctrineHash, shippedDoctrine, type ShippedDoctrine } from './doctrine.js'
+import { doctrineHash, doctrineVersion, shippedDoctrine, type ShippedDoctrine } from './doctrine.js'
 import { ENGINE_NAMES, isEngineName } from './schemas.js'
 import { renderLearnedRules } from '../rules.js'
 import { RuleDoc } from '../schema.js'
@@ -122,7 +122,7 @@ describe('loadPlaybook', () => {
     const capped = loadPlaybook(CHANNEL, { fs: channelFs, doctrine: SHIPPED, maxChars: 160 })
     expect(capped.files).toEqual([DOCTRINE_FILE, 'channel playbook/00-learned-rules.md'])
     expect(capped.text.length).toBeLessThanOrEqual(160)
-    expect(capped.doctrine).toEqual({ hash: doctrineHash([SHIPPED.files[0]]), files: [DOCTRINE_FILE] })
+    expect(capped.doctrine).toEqual({ hash: doctrineVersion([SHIPPED.files[0]], SHIPPED.packageFixTemplate), files: [DOCTRINE_FILE] })
     expect(capped.doctrine.hash).not.toBe(SHIPPED.hash)
   })
 

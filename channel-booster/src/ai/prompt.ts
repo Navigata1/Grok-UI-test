@@ -22,7 +22,7 @@ import { diagnose } from '../postmortem.js'
 import { isShippedPlaybookDir } from '../rules.js'
 import type { PostMortemInput } from '../types.js'
 import { CODE_ROOT } from '../workspace.js'
-import { DOCTRINE_FILE, doctrineHash, LEARNED_RULES_NAME, shippedDoctrine, type DoctrineFile, type ShippedDoctrine } from './doctrine.js'
+import { DOCTRINE_FILE, doctrineVersion, LEARNED_RULES_NAME, shippedDoctrine, type DoctrineFile, type ShippedDoctrine } from './doctrine.js'
 import { ENGINES, ENGINE_NAMES, isEngineName, type EngineName } from './schemas.js'
 
 export { DOCTRINE_FILE }
@@ -195,7 +195,7 @@ export function loadPlaybook(overlayDir?: string, options: LoadPlaybookOptions =
     if (c.overlay) overlay.push(c.overlay)
   }
   const doctrine: DoctrineSummary = shipped
-    ? { hash: loadedShipped.length === shipped.files.length ? shipped.hash : doctrineHash(loadedShipped), files: loadedShipped.map((f) => f.name) }
+    ? { hash: loadedShipped.length === shipped.files.length ? shipped.hash : doctrineVersion(loadedShipped, shipped.packageFixTemplate), files: loadedShipped.map((f) => f.name) }
     : { hash: NO_DOCTRINE_HASH, files: [] }
   return { text: chunks.join('\n\n'), files, doctrine, overlay, ...(overlayDir !== undefined ? { overlayDir } : {}) }
 }
