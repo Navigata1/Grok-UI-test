@@ -5,21 +5,26 @@
  * up where the last one stopped.
  *
  * `evaluateGate` is pure over the file system (read only). `runStage` is the
- * only function here that spawns a process; it never advances a stage on its
- * own. `applyStageResult` writes status and refuses out-of-order results, so
- * the story stage cannot be marked passed before the package (R1, R2).
+ * only function here that runs a stage: a `booster` stage in this process
+ * when the caller hands it the CLI (`runBooster`), and any other command, or
+ * every stage when isolated, as a child process. It never advances a stage on
+ * its own. `applyStageResult` writes status and refuses out-of-order results,
+ * so the story stage cannot be marked passed before the package (R1, R2).
  * Overrides are recorded with a reason and never silently.
  *
  * This file uses node built-ins; the browser bundle imports workflow.ts only.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { BUNDLED, cliName } from './build-info.js'
+import { captureIo } from './io.js'
 import type { WorkflowStatusDoc } from './schema.js'
 import type { Store } from './store.js'
 import type { GatePredicate, Workflow, WorkflowStage } from './types.js'
-import { assertRunnable, getJsonPath, newWorkflowStatus, nextRunnable, resolveCommand } from './workflow.js'
+import { assertRunnable, BOOSTER, boosterArgs, getJsonPath, newWorkflowStatus, nextRunnable, resolveCommand } from './workflow.js'
+import { CODE_ROOT } from './workspace.js'
 
 export { nextRunnable, assertRunnable, newWorkflowStatus, describeGate, describeRun } from './workflow.js'
 
@@ -107,24 +112,36 @@ export interface SpawnOutcome {
 
 export type SpawnFn = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => SpawnOutcome
 
-/** The repository root (two levels above channel-booster/src). */
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-const BOOSTER_PREFIX = ['npm', 'run', 'booster', '--']
+/** Runs the booster command line in this process and resolves to its exit code: main() from cli/main.ts. */
+export type RunBoosterFn = (argv: string[]) => Promise<number>
 
 /**
- * `npm run booster -- ...` only works with the repository's package.json in
- * the working directory. A stage run from `--root <dir>` keeps that argv as
- * its record but is spawned as the CLI by absolute path (node + tsx +
- * cli/booster.ts) with `--root <dir>` appended, so every stage command
- * resolves packages/<slug>/ under the same root the gate checks. Any other
- * command is spawned as given.
+ * tsx's command line, for an isolated stage run from source: resolved the way
+ * node resolves any dependency, so an install that hoists tsx into another
+ * node_modules still finds it; else the host repository's node_modules, one
+ * level above channel-booster/.
  */
-export function toSpawnable(command: string, args: string[], root: string): { file: string; args: string[] } {
-  const argv = [command, ...args]
-  if (argv.length < BOOSTER_PREFIX.length || BOOSTER_PREFIX.some((a, i) => argv[i] !== a)) return { file: command, args }
-  const tsx = path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
-  const cli = path.join(REPO_ROOT, 'channel-booster', 'cli', 'booster.ts')
-  return { file: process.execPath, args: [tsx, cli, ...argv.slice(BOOSTER_PREFIX.length), '--root', root] }
+export function resolveTsxCli(resolve: (id: string) => string = createRequire(import.meta.url).resolve): string {
+  try {
+    return resolve('tsx/cli')
+  } catch {
+    return path.join(CODE_ROOT, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs')
+  }
+}
+
+/**
+ * A `booster` stage spawned as a child process runs the command line by
+ * absolute path with `--root <dir>` appended, so every stage command resolves
+ * packages/<slug>/ under the same root the gate checks: from source node +
+ * tsx + cli/booster.ts, from the packaged bin the bin itself (node and
+ * process.argv[1]). The legacy `npm run booster --` prefix is the same
+ * command. Any other command is spawned as given.
+ */
+export function toSpawnable(command: string, args: string[], root: string, bundled: boolean = BUNDLED): { file: string; args: string[] } {
+  const booster = boosterArgs([command, ...args])
+  if (!booster) return { file: command, args }
+  if (bundled) return { file: process.execPath, args: [process.argv[1], ...booster, '--root', root] }
+  return { file: process.execPath, args: [resolveTsxCli(), path.join(CODE_ROOT, 'cli', 'booster.ts'), ...booster, '--root', root] }
 }
 
 function defaultSpawn(command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }): SpawnOutcome {
@@ -133,18 +150,85 @@ function defaultSpawn(command: string, args: string[], options: { cwd: string; e
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error }
 }
 
+/** Where a run keeps its store, profile and workspace, and its pinned clock: what every stage shares with it. */
+export interface StageLocations {
+  /** The store folder: --data, or BOOSTER_DATA for a spawned stage. */
+  data?: string
+  /** channel.json: --path, or BOOSTER_PROFILE. */
+  profile?: string
+  /** The channel workspace root when one is active: --workspace, or BOOSTER_HOME. */
+  workspace?: string
+  /** The run's clock as an ISO date, only when --now pinned it: --now, or BOOSTER_NOW. */
+  now?: string
+}
+
+/** The flags an in-process stage gets after its own, so the run's locations win: --data, --path, --root, --workspace, --now. */
+export function stageFlags(root: string, locations: StageLocations = {}): string[] {
+  return [
+    ...(locations.data ? ['--data', locations.data] : []),
+    ...(locations.profile ? ['--path', locations.profile] : []),
+    '--root', root,
+    ...(locations.workspace ? ['--workspace', locations.workspace] : []),
+    ...(locations.now ? ['--now', locations.now] : []),
+  ]
+}
+
+/** The environment a spawned stage gets: the base, plus the run's locations in the variables the command line reads. */
+export function stageEnv(base: NodeJS.ProcessEnv, locations: StageLocations = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base }
+  if (locations.data) env.BOOSTER_DATA = locations.data
+  if (locations.profile) env.BOOSTER_PROFILE = locations.profile
+  if (locations.workspace) env.BOOSTER_HOME = locations.workspace
+  if (locations.now) env.BOOSTER_NOW = locations.now
+  return env
+}
+
+/**
+ * Run a booster stage in this process, from `cwd` as a spawned stage was, so
+ * a relative path in its command (`--out packages/<slug>/demand.json`) and
+ * the paths it prints come out the same; the working directory is put back
+ * whatever happens. Its output is captured as the stage's record, and a throw
+ * is recorded the way the entry (cli/booster.ts) prints one: exit 1 and
+ * `booster: <message>`.
+ */
+async function runInProcess(runBooster: RunBoosterFn, argv: string[], cwd: string): Promise<SpawnOutcome> {
+  const previous = process.cwd()
+  try {
+    process.chdir(cwd)
+  } catch (error) {
+    return { status: null, stdout: '', stderr: '', error: error instanceof Error ? error : new Error(String(error)) }
+  }
+  try {
+    const r = await captureIo(() => runBooster(argv))
+    if (!r.threw) return { status: r.value ?? 0, stdout: r.stdout, stderr: r.stderr }
+    const message = r.error instanceof Error ? r.error.message : String(r.error)
+    return { status: 1, stdout: r.stdout, stderr: `${r.stderr}booster: ${message}\n` }
+  } finally {
+    process.chdir(previous)
+  }
+}
+
 export interface RunStageOptions {
-  /** Repository root: commands run here and `packages/<slug>/` is resolved against it. */
+  /** The packages root: stages run from here and `packages/<slug>/` is resolved against it. */
   cwd: string
   /** Who ran it, recorded on the status document. */
   agent?: string
-  /** Resolve the command and evaluate the gate, but spawn nothing. */
+  /** Resolve the command and evaluate the gate, but run nothing. */
   dryRun?: boolean
   /** Reference clock for startedAt / finishedAt. Defaults to the wall clock. */
   now?: () => Date
+  /**
+   * Runs a `booster` stage in this process; `booster workflow run` passes
+   * main() from cli/main.ts. Without it, or with `isolate`, the stage is spawned.
+   */
+  runBooster?: RunBoosterFn
+  /** Spawn `booster` stages as child processes even when runBooster is given (--isolate, BOOSTER_STAGE_ISOLATION=process). */
+  isolate?: boolean
+  /** The run's store, profile, workspace and pinned clock: flags for an in-process stage, the environment for a spawned one. */
+  locations?: StageLocations
   /** Process spawner, injectable for tests. Defaults to node:child_process spawnSync. */
   spawn?: SpawnFn
-  /** Environment for spawned stage commands; `booster workflow run` passes BOOSTER_DATA and BOOSTER_PROFILE so stages share its store and profile. */
+  /** The environment spawned stages start from, before the locations are added. Defaults to process.env. */
   env?: NodeJS.ProcessEnv
 }
 
@@ -175,13 +259,16 @@ export function findStage(workflow: Workflow, stageId: string): WorkflowStage {
 }
 
 /**
- * Execute one stage. Command stages spawn their resolved argv from `cwd`
- * (with `dryRun` the command is returned unrun); human stages check that the
- * evidence file exists under packages/<slug>/. The gate is evaluated in every
- * case and a stage passes only when the run succeeded and the gate passed.
- * Nothing is persisted here: see applyStageResult.
+ * Execute one stage. A `booster` command stage runs in this process through
+ * `runBooster`, with the run's locations as flags; with `isolate`, without
+ * `runBooster`, and for any other command, the resolved argv is spawned from
+ * `cwd` with the locations in its environment. With `dryRun` the command is
+ * returned unrun. Human stages check that the evidence file exists under
+ * packages/<slug>/. The gate is evaluated in every case and a stage passes
+ * only when the run succeeded and the gate passed. Nothing is persisted
+ * here: see applyStageResult.
  */
-export function runStage(workflow: Workflow, stageId: string, options: RunStageOptions): StageResult {
+export async function runStage(workflow: Workflow, stageId: string, options: RunStageOptions): Promise<StageResult> {
   const stage = findStage(workflow, stageId)
   const now = options.now ?? (() => new Date())
   const startedAt = now().toISOString()
@@ -195,8 +282,10 @@ export function runStage(workflow: Workflow, stageId: string, options: RunStageO
       const gate = evaluateGate(stage.check, dir)
       return { stageId, kind: 'command', command, dryRun: true, gate, status: 'dry-run', startedAt, finishedAt: now().toISOString(), agent: options.agent }
     }
-    const spawn = options.spawn ?? defaultSpawn
-    const r = spawn(command[0], command.slice(1), { cwd: options.cwd, env: options.env ?? process.env })
+    const inProcess = command[0] === BOOSTER[0] && options.runBooster !== undefined && !options.isolate
+    const r = inProcess
+      ? await runInProcess(options.runBooster!, [...command.slice(1), ...stageFlags(options.cwd, options.locations)], options.cwd)
+      : (options.spawn ?? defaultSpawn)(command[0], command.slice(1), { cwd: options.cwd, env: stageEnv(options.env ?? process.env, options.locations) })
     const exitCode = r.error ? -1 : (r.status ?? -1)
     const gate = evaluateGate(stage.check, dir)
     if (r.error) gate.detail = `FAIL: could not start ${command[0]} (${r.error.message}); ${gate.detail}`
@@ -230,7 +319,7 @@ export function startWorkflow(store: Store, workflow: Workflow, now: Date, sourc
 
 function loadStatus(store: Store, slug: string): WorkflowStatusDoc {
   const doc = store.get('workflows', slug)
-  if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: booster workflow "<idea>" (startWorkflow)`)
+  if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: ${cliName()} workflow "<idea>" (startWorkflow)`)
   return doc
 }
 
@@ -293,12 +382,12 @@ export function overrideStage(store: Store, slug: string, stageId: string, reaso
  * the result and the updated document; `done` is true when nothing is left.
  * The CLI's `workflow run <slug> --next`.
  */
-export function runNext(store: Store, workflow: Workflow, options: RunStageOptions): { result?: StageResult; status: WorkflowStatusDoc; done: boolean } {
+export async function runNext(store: Store, workflow: Workflow, options: RunStageOptions): Promise<{ result?: StageResult; status: WorkflowStatusDoc; done: boolean }> {
   const now = options.now ?? (() => new Date())
   const doc = startWorkflow(store, workflow, now())
   const stageId = nextRunnable(doc)
   if (!stageId) return { status: doc, done: true }
-  const result = runStage(workflow, stageId, options)
+  const result = await runStage(workflow, stageId, options)
   if (result.status === 'dry-run') return { result, status: doc, done: false }
   return { result, status: applyStageResult(store, workflow.slug, stageId, result, now()), done: false }
 }

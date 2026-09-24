@@ -1,15 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { WorkflowStatusDoc } from './schema.js'
 import { thresholds } from './thresholds.js'
 import type { GatePredicate } from './types.js'
 import {
   assertRunnable,
+  BOOSTER,
+  boosterArgs,
   buildCalendar,
+  commandLine,
   describeGate,
   describeRun,
   generateWorkflow,
   getJsonPath,
   governCalendar,
+  LEGACY_BOOSTER_PREFIX,
   newWorkflowStatus,
   nextRunnable,
   publishDaysFor,
@@ -45,17 +49,19 @@ describe('generateWorkflow', () => {
     }
   })
 
+  // Stage commands are stored version-neutral as `booster <verb> ..` (they were `npm run booster -- <verb> ..`).
   it('makes the agent stages booster commands with <slug> placeholders and the creative stages human with evidence files', () => {
     const wf = generateWorkflow('Test idea')
     const byId = Object.fromEntries(wf.stages.map((s) => [s.id, s]))
     for (const id of ['demand', 'packaging', 'story', 'plan', 'thumbnail', 'publish', 'review48', 'postmortem']) {
       const run = byId[id].run!
       expect(run.kind).toBe('command')
-      expect(run.command!.slice(0, 4)).toEqual(['npm', 'run', 'booster', '--'])
+      expect(run.command![0]).toBe('booster')
+      expect(run.command).not.toContain('npm')
       expect(run.command!.join(' ')).toContain('<slug>')
       expect(run.evidence).toBeUndefined()
     }
-    expect(byId.plan.run).toEqual({ kind: 'command', command: ['npm', 'run', 'booster', '--', 'plan', 'shots', '<slug>', '--format', 'talking-head'], artifact: 'shots.md' })
+    expect(byId.plan.run).toEqual({ kind: 'command', command: ['booster', 'plan', 'shots', '<slug>', '--format', 'talking-head'], artifact: 'shots.md' })
     expect(generateWorkflow('Test idea', { format: 'challenge' }).stages.find((s) => s.id === 'plan')!.run!.command!.slice(-1)).toEqual(['challenge'])
     expect(byId.production.run).toEqual({ kind: 'human', artifact: 'footage.txt', evidence: 'footage.txt' })
     expect(byId.edit.run).toEqual({ kind: 'human', artifact: 'cut.txt', evidence: 'cut.txt' })
@@ -82,7 +88,7 @@ describe('generateWorkflow', () => {
 
   it('scores the banked idea by slug and gates demand on the score and a person\'s approval', () => {
     const demand = generateWorkflow('Test idea').stages.find((s) => s.id === 'demand')!
-    expect(demand.run).toEqual({ kind: 'command', command: ['npm', 'run', 'booster', '--', 'idea', 'score', '<slug>', '--out', '<dir>/demand.json'], artifact: 'demand.json' })
+    expect(demand.run).toEqual({ kind: 'command', command: ['booster', 'idea', 'score', '<slug>', '--out', '<dir>/demand.json'], artifact: 'demand.json' })
     expect(demand.check).toEqual({
       kind: 'all-of',
       checks: [
@@ -95,7 +101,7 @@ describe('generateWorkflow', () => {
 
   it('carries the scheduled-review confirmation into the publish command so its gate is reachable', () => {
     const publish = generateWorkflow('Test idea').stages.find((s) => s.id === 'publish')!
-    expect(publish.run!.command).toEqual(['npm', 'run', 'booster', '--', 'publish', 'check', '<slug>', '--review-scheduled'])
+    expect(publish.run!.command).toEqual(['booster', 'publish', 'check', '<slug>', '--review-scheduled'])
     expect(publish.checklist.join(' ')).toMatch(/Put the 48-hour review on the calendar/)
   })
 
@@ -108,18 +114,63 @@ describe('generateWorkflow', () => {
 
   it('prints the resolved command and the machine check for every stage in the runbook', () => {
     const md = renderWorkflowMarkdown(generateWorkflow('Test idea'))
+    // From source the command line is `npm run booster --` (cliName), so the runbook reads as before.
     expect(md).toContain('Run: `npm run booster -- package build test-idea`')
     expect(md).toContain('Run: `npm run booster -- plan shots test-idea --format talking-head`')
     expect(md).toContain('Run: `human step; evidence: packages/test-idea/footage.txt`')
     expect(md).toContain('Check: story.json: hookScore >= 70 and story.json: promiseInFirst25Words == true')
-    expect(md).toContain('workflow run test-idea --next --agent <name>')
+    expect(md).toContain('Drive it one stage at a time: `npm run booster -- workflow run test-idea --next --agent <name>`')
     expect(md).not.toContain('<slug>')
+  })
+
+  it('renders a workflow stored with the legacy `npm run booster --` prefix exactly like the neutral one', () => {
+    const wf = generateWorkflow('Test idea')
+    const legacy = { ...wf, stages: wf.stages.map((s) => (s.run?.kind === 'command' ? { ...s, run: { ...s.run, command: [...LEGACY_BOOSTER_PREFIX, ...s.run.command!.slice(1)] } } : s)) }
+    expect(renderWorkflowMarkdown(legacy)).toBe(renderWorkflowMarkdown(wf))
+    for (const [i, s] of legacy.stages.entries()) expect(describeRun(s, wf.slug)).toBe(describeRun(wf.stages[i], wf.slug))
+  })
+
+  it('prints every hint with the bin name inside the packaged bundle', async () => {
+    // The bundle defines __BOOSTER_BUNDLED__ (src/build-info.ts); a fresh import reads it.
+    vi.stubGlobal('__BOOSTER_BUNDLED__', true)
+    vi.resetModules()
+    try {
+      const bundled = await import('./workflow.js')
+      const md = bundled.renderWorkflowMarkdown(bundled.generateWorkflow('Test idea'))
+      expect(md).toContain('Drive it one stage at a time: `channel-booster workflow run test-idea --next --agent <name>`')
+      expect(md).toContain('Run: `channel-booster package build test-idea`')
+      expect(md).not.toContain('npm run booster')
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
   })
 })
 
 describe('resolveCommand, describeGate, describeRun, getJsonPath', () => {
   it('substitutes every placeholder', () => {
     expect(resolveCommand(['x', '<slug>', '--out', '<dir>/a.json', 'a<slug>b'], 'my-video')).toEqual(['x', 'my-video', '--out', 'packages/my-video/a.json', 'amy-videob'])
+  })
+
+  it('resolves a legacy `npm run booster --` command to the neutral `booster` one, and leaves other commands alone', () => {
+    const neutral = resolveCommand(['booster', 'idea', 'score', '<slug>', '--out', '<dir>/demand.json'], 'my-video')
+    expect(neutral).toEqual(['booster', 'idea', 'score', 'my-video', '--out', 'packages/my-video/demand.json'])
+    expect(resolveCommand(['npm', 'run', 'booster', '--', 'idea', 'score', '<slug>', '--out', '<dir>/demand.json'], 'my-video')).toEqual(neutral)
+    expect(resolveCommand(['npm', 'run', 'build'], 'my-video')).toEqual(['npm', 'run', 'build'])
+    expect(resolveCommand(['npm', 'run', 'booster'], 'my-video')).toEqual(['npm', 'run', 'booster'])
+  })
+
+  it('reads the booster arguments off either prefix, and prints a command the way this build is typed', () => {
+    expect(BOOSTER).toEqual(['booster'])
+    expect(boosterArgs(['booster', 'plan', 'shots'])).toEqual(['plan', 'shots'])
+    expect(boosterArgs(['npm', 'run', 'booster', '--', 'plan', 'shots'])).toEqual(['plan', 'shots'])
+    expect(boosterArgs(['npm', 'run', 'booster', '--'])).toEqual([])
+    expect(boosterArgs(['node', 'booster'])).toBeUndefined()
+    expect(boosterArgs([])).toBeUndefined()
+    expect(commandLine(['booster', 'plan', 'shots', 'x'], false)).toBe('npm run booster -- plan shots x')
+    expect(commandLine(['booster', 'plan', 'shots', 'x'], true)).toBe('channel-booster plan shots x')
+    expect(commandLine(['npm', 'run', 'booster', '--', 'plan', 'shots', 'x'], true)).toBe('channel-booster plan shots x')
+    expect(commandLine(['node', '-e', 'x'], true)).toBe('node -e x')
   })
   it('describes each predicate kind', () => {
     expect(describeGate(undefined)).toMatch(/no machine check/)

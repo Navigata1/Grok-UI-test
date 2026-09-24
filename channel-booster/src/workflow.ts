@@ -2,16 +2,17 @@
  * Workflow v2 (architecture 2.13): one video moves through ten gated stages.
  *
  * Every stage carries three things: the prose `gate` the runbook and the Desk
- * print, a `run` (a `booster` command the runner spawns, or a human step that
+ * print, a `run` (a `booster` command the runner executes, or a human step that
  * leaves an evidence file) and a `check` (a machine-checkable predicate over
  * the files in `packages/<slug>/`). The order never changes because the
  * gates depend on it: demand before packaging, packaging before story, story
  * before the shoot (R1, R2).
  *
  * This file stays free of node built-ins so the Desk bundle can import it;
- * the parts that touch the file system and spawn processes live in runner.ts.
+ * the parts that touch the file system and run stages live in runner.ts.
  */
 import { BUCKET_HOURS } from './buckets.js'
+import { cliName } from './build-info.js'
 import type { WorkflowStatusDoc } from './schema.js'
 import { thresholds } from './thresholds.js'
 import type { GatePredicate, Workflow, WorkflowFormat, WorkflowRun, WorkflowStage } from './types.js'
@@ -26,8 +27,36 @@ const WEEKDAY_NAMES: Record<Weekday, string> = { mon: 'Monday', tue: 'Tuesday', 
 /** Placeholder tokens substituted into stage commands at run time. */
 export const COMMAND_PLACEHOLDERS = { slug: '<slug>', dir: '<dir>' } as const
 
-/** The command every stage command starts with: `npm run booster -- <subcommand>`. */
-const BOOSTER = ['npm', 'run', 'booster', '--']
+/**
+ * The command every stage command starts with: `booster <subcommand>`. It is
+ * stored version-neutral; the runner runs it in-process (or as the CLI when
+ * isolated) and the renderers print it the way this build is typed (cliName).
+ */
+export const BOOSTER = ['booster'] as const
+
+/** How stage commands were stored before the bin existed. Still accepted everywhere, and the same command. */
+export const LEGACY_BOOSTER_PREFIX = ['npm', 'run', 'booster', '--'] as const
+
+/**
+ * The booster arguments of a stage command (everything after `booster`, or
+ * after the legacy `npm run booster --`), or undefined for any other command.
+ */
+export function boosterArgs(argv: readonly string[]): string[] | undefined {
+  if (argv[0] === BOOSTER[0]) return argv.slice(1)
+  if (argv.length >= LEGACY_BOOSTER_PREFIX.length && LEGACY_BOOSTER_PREFIX.every((a, i) => argv[i] === a)) return argv.slice(LEGACY_BOOSTER_PREFIX.length)
+  return undefined
+}
+
+/**
+ * A stage command as a person types it in this build: `booster idea score x`
+ * prints as `npm run booster -- idea score x` from source and as
+ * `channel-booster idea score x` from the packaged bin. Any other command is
+ * printed as given.
+ */
+export function commandLine(argv: readonly string[], bundled?: boolean): string {
+  const booster = boosterArgs(argv)
+  return (booster ? [cliName(bundled), ...booster] : argv).join(' ')
+}
 
 export function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'video'
@@ -303,10 +332,16 @@ export function generateWorkflow(idea: string, options: { format?: WorkflowForma
   return { idea, slug: slugify(idea), format, stages, timelineDays: days }
 }
 
-/** Substitute `<slug>` and `<dir>` (packages/<slug>) into a stage command. */
+/**
+ * Substitute `<slug>` and `<dir>` (packages/<slug>) into a stage command. A
+ * command stored with the legacy `npm run booster --` prefix comes back as
+ * `booster ...`, so a workflow written before the bin runs and records the same.
+ */
 export function resolveCommand(argv: string[], slug: string): string[] {
   const dir = `packages/${slug}`
-  return argv.map((a) => a.split(COMMAND_PLACEHOLDERS.dir).join(dir).split(COMMAND_PLACEHOLDERS.slug).join(slug))
+  const booster = boosterArgs(argv)
+  const neutral = booster ? [...BOOSTER, ...booster] : argv
+  return neutral.map((a) => a.split(COMMAND_PLACEHOLDERS.dir).join(dir).split(COMMAND_PLACEHOLDERS.slug).join(slug))
 }
 
 /** A gate predicate in one line of prose, for the runbook and the status printout. */
@@ -326,11 +361,11 @@ export function describeGate(check: GatePredicate | undefined): string {
   }
 }
 
-/** One line describing how a stage runs: the resolved command, or the human evidence file. */
+/** One line describing how a stage runs: the resolved command as a person types it, or the human evidence file. */
 export function describeRun(stage: WorkflowStage, slug: string): string {
   if (!stage.run) return 'no run declared; a person confirms the gate'
   if (stage.run.kind === 'human') return `human step; evidence: packages/${slug}/${stage.run.evidence ?? stage.run.artifact}`
-  return resolveCommand(stage.run.command ?? [], slug).join(' ')
+  return commandLine(resolveCommand(stage.run.command ?? [], slug))
 }
 
 /**
@@ -360,7 +395,7 @@ export function renderWorkflowMarkdown(wf: Workflow, kickoff?: Date): string {
   lines.push('')
   lines.push(`Format: ${wf.format} · Cycle: ${wf.timelineDays} days · Slug: ${wf.slug}`)
   lines.push('')
-  lines.push(`Drive it one stage at a time: \`npm run booster -- workflow run ${wf.slug} --next --agent <name>\`. Artifacts live in \`packages/${wf.slug}/\`.`)
+  lines.push(`Drive it one stage at a time: \`${cliName()} workflow run ${wf.slug} --next --agent <name>\`. Artifacts live in \`packages/${wf.slug}/\`.`)
   lines.push('')
   lines.push('| # | Stage | Owner | Due | Gate |')
   lines.push('| --- | --- | --- | --- | --- |')
