@@ -429,19 +429,66 @@ describe('publish check', () => {
     writeStory()
     await json(['publish', 'pack', SLUG, '--related', 'I Powered My Shed With a Car Battery', ...extra])
   }
-  it('passes a complete pack, writes publish-check.json, and exits 1 until the human items are asserted', async () => {
+  it('passes a complete pack, writes publish-check.json, and exits 1 until the files are there and the human items are asserted', async () => {
     await packIt()
     const notYet = await json(['publish', 'check', SLUG], 1)
     expect(notYet.pass).toBe(false)
-    expect(notYet.items.filter((i: any) => !i.ok).map((i: any) => i.label)).toEqual(['The 48-hour review is on the calendar with the baseline numbers ready.'])
+    expect(notYet.items.filter((i: any) => !i.ok).map((i: any) => i.label)).toEqual([
+      'Thumbnails A and B exported at 1280x720, under 2MB, graded "ship", two different concepts; a person turns Test & Compare on at upload.',
+      'The 48-hour review is on the calendar with the baseline numbers ready.',
+    ])
     expect(notYet.thumbs.a).toMatchObject({ name: 'stakes', grade: 'ship', text: 'Or Else' })
     const written = JSON.parse(readFileSync(path.join(slugDir, 'publish-check.json'), 'utf8'))
     expect(written.pass).toBe(false)
     expect(written.items).toHaveLength(9)
-    const { code, out } = await run(['publish', 'check', SLUG, '--review-scheduled', '--thumb-files-ok', '--window-confirmed'])
+    writeFileSync(path.join(slugDir, 'thumb-A.png'), png(1280, 720))
+    writeFileSync(path.join(slugDir, 'thumb-B.png'), png(1280, 720))
+    const { code, out } = await run(['publish', 'check', SLUG, '--review-scheduled', '--window-confirmed'])
     expect(code).toBe(0)
     expect(out).toMatch(/^Publish checklist: PASS/)
     expect(JSON.parse(readFileSync(path.join(slugDir, 'publish-check.json'), 'utf8')).pass).toBe(true)
+  })
+  it('reads thumb-A.png and thumb-B.png itself: a missing file names the file and the command that checks it', async () => {
+    await packIt()
+    const missing = await json(['publish', 'check', SLUG, '--review-scheduled'], 1)
+    expect(missing.items[1].ok).toBe(false)
+    const fileA = path.join(slugDir, 'thumb-A.png')
+    const fileB = path.join(slugDir, 'thumb-B.png')
+    expect(missing.items[1].detail).toBe(`${fileA} is missing: export variant A ("stakes") there, then run booster thumbnail check ${fileA}; ${fileB} is missing: export variant B ("result") there, then run booster thumbnail check ${fileB}`)
+    expect(missing.thumbFiles.map((f: any) => [f.variant, f.found, f.pass])).toEqual([['A', false, false], ['B', false, false]])
+    // With no concept picked the names default to the letters, and the detail does not repeat them.
+    await json(['publish', 'pack', SLUG, '--thumb-a', 'A', '--thumb-b', 'B'])
+    expect((await json(['publish', 'check', SLUG], 1)).items[1].detail).toContain(`${fileA} is missing: export variant A there, then run booster thumbnail check ${fileA}`)
+  })
+  it('fails the thumbnail line on a file that fails the header check, with the check\'s own reason', async () => {
+    await packIt()
+    writeFileSync(path.join(slugDir, 'thumb-A.png'), png(800, 450))
+    writeFileSync(path.join(slugDir, 'thumb-B.png'), png(1280, 720, 2_097_153))
+    const bad = await json(['publish', 'check', SLUG, '--review-scheduled'], 1)
+    expect(bad.items[1].ok).toBe(false)
+    expect(bad.items[1].detail).toContain(`${path.join(slugDir, 'thumb-A.png')} fails booster thumbnail check: 800x450 is smaller than 1280x720`)
+    expect(bad.items[1].detail).toContain(`${path.join(slugDir, 'thumb-B.png')} fails booster thumbnail check: 2,097,153 bytes is over the 2,097,152 byte limit (2 MB)`)
+    expect(bad.thumbFiles[0]).toMatchObject({ variant: 'A', found: true, pass: false, meta: { format: 'png', width: 800, height: 450 } })
+    writeFileSync(path.join(slugDir, 'thumb-A.png'), 'not an image')
+    expect((await json(['publish', 'check', SLUG, '--review-scheduled'], 1)).items[1].detail).toContain('unreadable: not a PNG or JPEG file')
+  })
+  it('takes no attestation for the files: --thumb-files-ok ticks nothing and says so', async () => {
+    await packIt()
+    let err = ''
+    const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => { err += String(chunk); return true })
+    let code: number
+    try {
+      code = await main(['publish', 'check', SLUG, '--review-scheduled', '--thumb-files-ok', '--window-confirmed', ...common()])
+    } finally {
+      outSpy.mockRestore()
+      errSpy.mockRestore()
+    }
+    expect(code).toBe(1)
+    expect(err).toContain('--thumb-files-ok no longer ticks the thumbnails line: publish check reads thumb-A.png and thumb-B.png in packages/scrap-solar/ itself')
+    const written = JSON.parse(readFileSync(path.join(slugDir, 'publish-check.json'), 'utf8'))
+    expect(written.items[1].ok).toBe(false)
+    expect(written.pass).toBe(false)
   })
   it('grades an unknown concept rethink, re-scores when --thumb-text overrides, and needs publish.json', async () => {
     await packIt(['--thumb-b', 'mystery'])
