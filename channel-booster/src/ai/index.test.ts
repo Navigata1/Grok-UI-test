@@ -211,6 +211,6 @@ describe('booster ai --csv example:<name>', () => {
     expect(dry.user).not.toContain('No competitor CSV supplied')
     const wrong = await captureIo(() => main(['ai', 'channel-audit', '--csv', 'example:nope', '--dry-run', '--playbook', overlay, '--path', profile]))
     expect(wrong.threw).toBe(true)
-    expect((wrong.error as Error).message).toBe('--csv example:nope: there is no bundled example "nope". The bundled examples are example:competitors, example:my-channel, example:studio-content; any other --csv is a path to your own export.')
+    expect((wrong.error as Error).message).toBe('unknown example "example:nope": the bundled examples are example:competitors, example:my-channel, example:studio-content')
   })
 })

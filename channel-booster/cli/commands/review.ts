@@ -15,6 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Bucket } from '../../src/buckets.js'
+import { cliName } from '../../src/build-info.js'
 import { decide, describeDecision } from '../../src/decide.js'
 import { ageHours, baselineFrom, readAgeHours, readLedger } from '../../src/ledger.js'
 import { diagnose, type DiagnosisMode, type DiagnosisV2, type PostMortemInputV2 } from '../../src/postmortem.js'
@@ -332,6 +333,6 @@ export const reviewModule: CommandModule = {
       if (sub === 'prepare') return runRepackagePrepare(rest[0] ?? str(flags, 'slug'), flags)
       throw new Error(`unknown repackage command "${sub ?? ''}". Usage: ${USAGE_PREPARE}`)
     }
-    throw new Error(`unknown command "${cmd}". Run booster help.`)
+    throw new Error(`unknown command "${cmd}". Run ${cliName()} help.`)
   },
 }
