@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { decide, describeDecision } from './decide.js'
+import { baselineFrom, readAgeHours } from './ledger-core.js'
 import { diagnose, type PostMortemInputV2 } from './postmortem.js'
 import { DecisionDoc, type Baselines, type Bucket, type LedgerRead, type LedgerRow } from './schema.js'
 import { applyOverrides, resetThresholds } from './thresholds.js'
@@ -25,19 +26,21 @@ function baselines(overrides: Partial<Baselines> = {}): Baselines {
   }
 }
 
-function row(hoursAgo: number, reads: Partial<Record<Bucket, Omit<LedgerRead, 'at'>>>, extra: Partial<LedgerRow> = {}): LedgerRow {
+/** A row published `hoursAgo` before `now`; its reads were taken `readAfterHours` after publish (default: now). */
+function row(hoursAgo: number, reads: Partial<Record<Bucket, Omit<LedgerRead, 'at'>>>, extra: Partial<LedgerRow> = {}, readAfterHours = hoursAgo): LedgerRow {
   const publishedAt = new Date(now.getTime() - hoursAgo * 3_600_000).toISOString()
-  const withAt = Object.fromEntries(Object.entries(reads).map(([k, v]) => [k, { ...v, at: publishedAt }])) as LedgerRow['reads']
+  const at = new Date(Date.parse(publishedAt) + readAfterHours * 3_600_000).toISOString()
+  const withAt = Object.fromEntries(Object.entries(reads).map(([k, v]) => [k, { ...v, at }])) as LedgerRow['reads']
   return { id: 'solar', slug: 'solar', publishedAt, title: 'I built a solar generator from scrap', reads: withAt, updatedAt: publishedAt, source: 'cli', ...extra }
 }
 
-/** Diagnose from the row's own read at the bucket, the way the review agent does. */
+/** Diagnose from the row's own read at the bucket, the way the review agent does: on the hours of data the read holds. */
 function judge(r: LedgerRow, bucket: Bucket, given: Baselines | null = baselines(), extra: Partial<PostMortemInputV2> = {}) {
   const b = given ?? undefined
-  const read = r.reads[bucket] ?? {}
-  const hours = (now.getTime() - Date.parse(r.publishedAt)) / 3_600_000
+  const read = r.reads[bucket]
+  const hours = read ? readAgeHours(r, read) : (now.getTime() - Date.parse(r.publishedAt)) / 3_600_000
   const prev = bucket === '48' ? r.reads['24'] : undefined
-  const diagnosis = diagnose({ ...read, bucket, baselines: b, hoursSincePublish: hours, previousRead: prev, ...extra })
+  const diagnosis = diagnose({ ...(read ?? {}), bucket, baselines: b, hoursSincePublish: hours, previousRead: prev, ...extra })
   return decide({ diagnosis, row: r, bucket, baselines: b, now })
 }
 
@@ -57,9 +60,40 @@ describe('decide: WAIT', () => {
     const day1idea = judge(row(24, { '24': { impressions: 300, ctr: 6 } }), '24')
     expect(day1idea.decision).toBe('WAIT')
     expect(day1idea.numbers.bottleneck).toBe('idea')
+    // Numbers a person can still record on this read: the flip says so, and names the read after it, never "the next read" in general.
+    const bare = judge(row(48, { '48': { impressions: 5_000 } }), '48')
+    expect(bare.decision).toBe('WAIT')
+    expect(bare.flipCondition).toBe('Flips when a read clears the data gates (1000 [house] impressions and 24h [house]; cold start 2000 [house] or 72h [house]): record the missing numbers on the 48-hour read and review it again, or the 168-hour read judges it.')
+    expect(judge(row(700, { '672': { impressions: 5_000 } }), '672').flipCondition).toMatch(/record the missing numbers on the 672-hour read and review it again\.$/)
+  })
+})
+
+describe('decide: a cold-start read the gate held', () => {
+  // A new channel's 48-hour read under 2,000 impressions. The schedule's next read is at 168 hours, so a WAIT
+  // for "the next read" blocked the review stage until then, and a re-run after 72 wall-clock hours released
+  // the verdict on the same numbers.
+  it('holds a low CTR, swaps nothing on it, and says which re-recorded read could still reach a swap', () => {
     const cold = judge(row(48, { '48': { impressions: 1_500, ctr: 1.5, avpPct: 42 } }), '48', null)
-    expect(cold.decision).toBe('WAIT')
-    expect(cold.flipCondition).toMatch(/cold start 2000 \[house\] or 72h \[house\]/)
+    expect(cold.decision).toBe('HOLD')
+    expect(cold.numbers).toMatchObject({ bottleneck: 'insufficient-data', readHours: 48, coldStartMinImpressions: 2_000, coldStartMinHours: 72 })
+    expect(cold.flipCondition).toBe('Cold start: too early to call. CTR reads low, but a first upload gets no packaging verdict before 2000 [house] impressions or 72h [house] of data (this read: 1,500 impressions at 48 h), so nothing is swapped on it. The 168-hour read judges it on views against the 7-day median. Flips to REPACKAGE only if this read is re-recorded inside the 72-hour window with 2,000 impressions and CTR still low, then reviewed again (booster review run --slug solar --bucket 48).')
+    // Past the window no swap is on offer, so the flip does not promise one.
+    const closed = judge(row(80, { '48': { impressions: 1_500, ctr: 1.5, avpPct: 42 } }, {}, 48), '48', null)
+    expect(closed.decision).toBe('HOLD')
+    expect(closed.flipCondition).not.toMatch(/REPACKAGE/)
+  })
+
+  it('holds a healthy-looking read as too early, and a later review of the same numbers changes nothing', () => {
+    const early = judge(row(30, { '48': { impressions: 1_500, ctr: 6, avpPct: 45 } }), '48', null)
+    expect(early.decision).toBe('HOLD')
+    expect(early.numbers.bottleneck).toBe('insufficient-data')
+    expect(early.flipCondition).toBe('Cold start: too early to call. The numbers read healthy, but a first upload gets no verdict before 2000 [house] impressions or 72h [house] of data (this read: 1,500 impressions at 30 h); nothing to change. The 168-hour read judges it on views against the 7-day median.')
+    // Reviewed again at 80 hours: the read still holds 48 hours of data, so the gate still holds it.
+    const late = judge(row(80, { '48': { impressions: 1_500, ctr: 6, avpPct: 45 } }, {}, 48), '48', null)
+    expect(late.numbers.bottleneck).toBe('insufficient-data')
+    expect(late.flipCondition).toMatch(/^Cold start: too early to call\. The numbers read healthy/)
+    // A read taken after 72 hours holds 72 hours of data: the gate is met and the read holds as healthy.
+    expect(judge(row(80, { '48': { impressions: 1_500, ctr: 6, avpPct: 45 } }), '48', null).flipCondition).toMatch(/^Every stage is healthy; let it run/)
   })
 })
 
@@ -326,13 +360,60 @@ describe('decide: the gates that belong to one window stay in it', () => {
     expect(at48.numbers.impressionsNeeded).toBe(1_831_948)
   })
 
-  it('waits on a healthy-looking cold-start read before the gate instead of holding it as healthy', () => {
+  it('never calls a cold-start read healthy before the gate', () => {
     const early = judge(row(30, { '48': { impressions: 1_500, ctr: 6, avpPct: 45 } }), '48', null)
-    expect(early.decision).toBe('WAIT')
     expect(early.numbers.bottleneck).toBe('insufficient-data')
-    expect(early.flipCondition).toMatch(/cold start 2000 \[house\] or 72h \[house\]/)
-    // Past 72 hours the gate is met and the read holds as healthy, as before.
-    expect(judge(row(80, { '48': { impressions: 1_500, ctr: 6, avpPct: 45 } }), '48', null).flipCondition).toMatch(/^Every stage is healthy; let it run/)
+    expect(early.flipCondition).not.toMatch(/Every stage is healthy/)
+  })
+})
+
+describe('decide and the diagnosis tell one story', () => {
+  // The diagnosis is printed right above the decision (booster decide, the digest, the Desk review card), so
+  // a healthy verdict must never prescribe the sequel that decide() holds back.
+  const prescribesSequel = /double down|make the sequel(?! when the decision says SEQUEL)/i
+
+  /** `others` earlier videos with a 7-day read at `views` views, and the target at 180 h, all judged at 168 h as the review agent does. */
+  function weekCall(others: number, target: Omit<LedgerRead, 'at'>) {
+    const at = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString()
+    const back: LedgerRow[] = Array.from({ length: others }, (_, i) => ({
+      id: `back-${i}`, slug: `back-${i}`, title: `b${i}`, publishedAt: at((40 + i) * 24), updatedAt: at(0), source: 'cli',
+      reads: { '168': { at: at((33 + i) * 24), impressions: 200_000, ctr: 4.1, views: 12_000, avpPct: 42, retention30sPct: 62, returningPct: 30 } },
+    }))
+    const r: LedgerRow = { id: 'target', slug: 'target', title: 'T', publishedAt: at(180), updatedAt: at(0), source: 'cli', reads: { '168': { at: at(12), ...target } } }
+    const b = baselineFrom([...back, r], { bucket: '168', now, excludeSlug: 'target' })
+    const read = r.reads['168']!
+    const diagnosis = diagnose({ ...read, bucket: '168', baselines: b, hoursSincePublish: readAgeHours(r, read), returningViewerPct: read.returningPct })
+    return { diagnosis, doc: decide({ diagnosis, row: r, bucket: '168', baselines: b, now }) }
+  }
+
+  it('holds a 3x video on a 7-day median of one read without the diagnosis saying "make the sequel"', () => {
+    const { diagnosis, doc } = weekCall(1, { impressions: 150_000, ctr: 4.3, views: 40_000, avpPct: 42, retention30sPct: 62, returningPct: 30 })
+    expect(diagnosis.bottleneck).toBe('none')
+    expect(doc.decision).toBe('HOLD')
+    expect(doc.flipCondition).toMatch(/rests on 1 of 5 reads; SEQUEL\/EXPAND\/PARK wait for 5/)
+    expect([diagnosis.headline, ...diagnosis.actions].join('\n')).not.toMatch(prescribesSequel)
+    expect(diagnosis.actions[0]).toBe('Every stage is healthy. Make the sequel when the decision says SEQUEL: views at 3x [house] the 7-day median, with enough 7-day reads behind that median, not healthy rates alone.')
+  })
+
+  it('never prescribes the sequel from a healthy verdict unless the decision is SEQUEL, at any scheduled read', () => {
+    const cases = [
+      weekCall(1, { impressions: 150_000, ctr: 4.3, views: 40_000, avpPct: 42, retention30sPct: 62, returningPct: 30 }),
+      weekCall(6, { impressions: 150_000, ctr: 4.3, views: 12_000, avpPct: 42, retention30sPct: 62, returningPct: 30 }),
+      weekCall(6, { impressions: 150_000, ctr: 4.3, views: 24_000, avpPct: 42, retention30sPct: 62, returningPct: 30 }),
+      weekCall(6, { impressions: 150_000, ctr: 4.3, views: 40_000, avpPct: 42, retention30sPct: 62, returningPct: 30 }),
+    ]
+    const at48 = judge(row(48, { '48': { impressions: 22_000, ctr: 5.5, avpPct: 45, retention30sPct: 70 } }), '48')
+    const d48 = diagnose({ ...row(48, { '48': { impressions: 22_000, ctr: 5.5, avpPct: 45, retention30sPct: 70 } }).reads['48']!, bucket: '48', baselines: baselines(), hoursSincePublish: 48 })
+    expect(d48.bottleneck).toBe('none')
+    expect(at48.decision).toBe('HOLD')
+    expect([d48.headline, ...d48.actions].join('\n')).not.toMatch(prescribesSequel)
+    expect(cases.map((c) => c.doc.decision)).toEqual(['HOLD', 'HOLD', 'EXPAND', 'SEQUEL'])
+    for (const { diagnosis, doc } of cases) {
+      expect(diagnosis.bottleneck).toBe('none')
+      if (doc.decision !== 'SEQUEL') expect([diagnosis.headline, ...diagnosis.actions].join('\n')).not.toMatch(prescribesSequel)
+    }
+    // A one-off postmortem with no bucket has no decision after it, and keeps its plain advice.
+    expect(diagnose({ impressions: 22_000, ctr: 5.5, avpPct: 45, retention30sPct: 70, baselines: baselines() }).headline).toBe('Packaging and retention are both at or above baseline. Double down.')
   })
 })
 

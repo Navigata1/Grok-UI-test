@@ -67,7 +67,7 @@ A bare `--save` writes the scan into the store: `outliers` to `<data>/last-scan.
 **Package before you produce**
 
 ```
-booster package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".."] [--rounds 3] [--offline]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md
+booster package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".." [--lever ".."]] [--rounds 3] [--offline]   titles, concepts, QA, A/B pair, gates -> packages/<slug>/package.json + .md
    offline the builder never picks a title: the title gate fails until you write one (--title); every rebuild, the workflow's included, keeps it
 booster titles "<topic>" | titles score "<title>"   the formulas as shapes with a blank (no scores); score what you write from them
 booster thumbnail brief "<idea>" --title ".." | thumbnail qa --subject ".." --elements "a,b,c" [--text ..]

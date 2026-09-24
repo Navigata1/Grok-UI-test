@@ -34,7 +34,7 @@ const USAGE_CHECK = 'booster thumbnail check <file.png|file.jpg>'
 const USAGE_SIG_SET = 'booster signature set --colors "yellow,black" [--face always|never|either] [--max-words 3] [--framing ".."] [--typeface ".."] [--notes ".."]'
 const USAGE_HOOK = 'booster hook score --script <file> --slug <slug> [--title ".."] [--promise ".."] [--thumbnail-moment ".."] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]'
 const USAGE_PROMISE = 'booster promise check --promise ".." [--title ".."] [--script <file>] [--description <file>|".."] [--thumb-text ".."]'
-const USAGE_BUILD = 'booster package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".."] [--subject ..] [--stake ..] [--result ..] [--number ..] [--audience ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--no-signature] [--root dir] [--out dir]'
+const USAGE_BUILD = 'booster package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".." [--lever ".."]] [--subject ..] [--stake ..] [--result ..] [--number ..] [--audience ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--no-signature] [--root dir] [--out dir]'
 const USAGE_TITLES = 'booster titles "<topic>" [--number ..] [--subject ..] [--audience ..]'
 
 /** One thumbnail concept as packages/<slug>/package.json stores it (section 2.5). */
@@ -53,7 +53,7 @@ interface PackageFile {
   /** 'person' when a person wrote chosenTitle (package build --title); a rebuild keeps only that one. */
   titleSource?: string
   ownTitles?: string[]
-  titles?: Array<{ title: string; score?: number }>
+  titles?: Array<{ title: string; score?: number; lever?: string }>
   promise?: string
   thumbnails?: Array<Partial<PackagedConcept> & { name: string }>
   abPick?: { a?: string; b?: string }
@@ -303,10 +303,11 @@ async function promiseCheck(flags: Flags): Promise<number> {
 /**
  * What an earlier build left in `dir`/package.json that a rebuild must keep:
  * the idea and promise (so `package build <slug>` works for any built
- * package), the title a person wrote and their own-title lines. A model's
- * chosen title is never carried: every model run chooses again.
+ * package), the title a person wrote with the lever they named for it, and
+ * their own-title lines. A model's chosen title is never carried: every model
+ * run chooses again.
  */
-function storedPackage(dir: string): { idea?: string; promise?: string; personTitle?: string; ownTitles?: string[] } | undefined {
+function storedPackage(dir: string): { idea?: string; promise?: string; personTitle?: string; personLever?: string; ownTitles?: string[] } | undefined {
   const file = path.join(dir, 'package.json')
   let pkg: PackageFile | undefined
   try {
@@ -317,19 +318,39 @@ function storedPackage(dir: string): { idea?: string; promise?: string; personTi
   }
   if (!pkg) return undefined
   const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined)
+  const personTitle = pkg.titleSource === 'person' ? text(pkg.chosenTitle)?.trim() : undefined
+  // The person's title is titles[0] and carries the lever they named with --lever, if any.
+  const first = Array.isArray(pkg.titles) ? pkg.titles[0] : undefined
   return {
     idea: text(pkg.idea),
     promise: text(pkg.promise),
-    personTitle: pkg.titleSource === 'person' ? text(pkg.chosenTitle)?.trim() : undefined,
+    personTitle,
+    personLever: personTitle !== undefined && text(first?.title)?.trim() === personTitle ? text(first?.lever)?.trim() : undefined,
     ownTitles: Array.isArray(pkg.ownTitles) && pkg.ownTitles.every((t) => typeof t === 'string') ? pkg.ownTitles : undefined,
   }
 }
 
-/** The command that rebuilds this package with a title, repeating the options this run was given so the concepts come out the same. */
+/**
+ * The command that rebuilds this package with a title, repeating the options
+ * this run was given so the concepts come out the same. The places it read
+ * and wrote are repeated as absolute paths: --out and --root, and the store
+ * and profile (--data or BOOSTER_DATA, --path or BOOSTER_PROFILE, which
+ * `workflow run` sets for its stages). The runner appends --root to every
+ * stage and runs it from that root, while a person's `npm run booster` starts
+ * at the repository root in a shell that has neither variable, so a relative
+ * path or a missing --root would write the title into another packages/
+ * folder than the one the stage gate reads.
+ */
 function rebuildCommand(slug: string, flags: Flags): string {
-  const repeat = ['subject', 'stake', 'result', 'number', 'audience', 'predicted-ctr', 'out']
+  const repeat = ['subject', 'stake', 'result', 'number', 'audience', 'predicted-ctr', 'rounds']
     .flatMap((k) => (str(flags, k) !== undefined ? [`--${k} ${JSON.stringify(str(flags, k))}`] : []))
-  return ['booster package build', slug, '--title "<your title>"', ...repeat, ...(bool(flags, 'no-signature') ? ['--no-signature'] : [])].join(' ')
+  const places: Array<[flag: string, env?: string]> = [['out'], ['root'], ['data', 'BOOSTER_DATA'], ['path', 'BOOSTER_PROFILE']]
+  const dirs = places.flatMap(([k, env]) => {
+    const v = str(flags, k) ?? (env ? process.env[env] : undefined)
+    return v ? [`--${k} ${JSON.stringify(path.resolve(v))}`] : []
+  })
+  const switches = ['offline', 'no-signature'].filter((k) => bool(flags, k)).map((k) => `--${k}`)
+  return ['booster package build', slug, '--title "<your title>"', ...repeat, ...dirs, ...switches].join(' ')
 }
 
 /**
@@ -353,6 +374,7 @@ function rebuildCommand(slug: string, flags: Flags): string {
 async function packageBuild(raw: string | undefined, flags: Flags): Promise<number> {
   if (!raw) throw new Error(`usage: ${USAGE_BUILD}`)
   if (flags.title === true) throw new Error(`--title needs the title text: --title "<your title>". Usage: ${USAGE_BUILD}`)
+  if (flags.lever === true) throw new Error(`--lever needs the lever your title pulls: --lever "<lever>". Usage: ${USAGE_BUILD}`)
   const store = getStore(flags)
   const packagesDir = path.resolve(str(flags, 'out') ?? path.join(rootFrom(flags), 'packages'))
   let doc = store.get('ideas', raw.startsWith('idea:') ? raw : ideaId(raw))
@@ -386,6 +408,9 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
   const predictedCtrMultiple = num(flags, 'predicted-ctr')
   if (predictedCtrMultiple === undefined && str(flags, 'predicted-ctr') !== undefined) throw new Error(`--predicted-ctr must be a number, got "${str(flags, 'predicted-ctr')}"`)
   const given = str(flags, 'title')?.trim() || undefined
+  const givenLever = str(flags, 'lever')?.trim() || undefined
+  // A stored lever belongs to the stored title: a new --title starts without one unless --lever names it.
+  const keepsStoredTitle = given === undefined || given === stored?.personTitle
   const built = await buildPackage({
     idea,
     promise,
@@ -397,6 +422,7 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
     signature,
     generate,
     title: given ?? stored?.personTitle,
+    titleLever: givenLever ?? (keepsStoredTitle ? stored?.personLever : undefined),
     ownTitles: stored?.ownTitles,
     rounds,
     predictedCtrMultiple,
@@ -415,6 +441,8 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
   const rebuild = rebuildCommand(built.slug, flags)
   // stderr, so the workflow runner (which shows a failed stage's stderr) carries the instruction too.
   if (!built.chosenTitle) warn(`No title yet for ${built.slug}: a person writes it, then ${rebuild}`)
+  if (givenLever && built.titleSource !== 'person') warn(`--lever "${givenLever}" is not registered: it names the lever of a title you wrote, and this package has none. Pass it with --title.`)
+  const personLever = built.titleSource === 'person' ? built.titles[0]?.lever : undefined
   const titleLine = built.chosenTitle
     ? `Title: ${built.chosenTitle} (${built.titleSource === 'person' ? 'yours' : 'model'}, ${built.titles[0]?.score ?? 0}/100)`
     : 'Title: none yet (offline, the builder never picks one; a person writes it)'
@@ -431,7 +459,7 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
     `Package · ${built.slug} · ${g.pass ? 'GATES PASS' : 'GATES FAIL'} (${offline ? 'offline generators, one round' : `model, ${built.rounds} round${built.rounds === 1 ? '' : 's'}`})`,
     titleLine,
     `A/B: ${built.abPick.a || '—'} vs ${built.abPick.b || '—'} · ${built.abPick.reason}`,
-    `Hypothesis: levers ${built.hypothesis.levers.join(', ') || '(none)'} · predicted CTR multiple ${built.hypothesis.predictedCtrMultiple}. booster publish confirm registers them on the ledger row.`,
+    `Hypothesis: levers ${built.hypothesis.levers.join(', ') || '(none)'} · predicted CTR multiple ${built.hypothesis.predictedCtrMultiple}. booster publish confirm registers them on the ledger row.${built.titleSource === 'person' && !personLever ? ' Your title names no lever: rebuild with --lever "<the lever it pulls>" so rules compile counts the title too.' : ''}`,
     gateLine('title', g.titleGate.pass, g.titleGate.reason),
     gateLine('thumbnails', g.thumbGate.pass, g.thumbGate.reason),
     gateLine('overlap', g.overlapGate.pass, g.overlapGate.reason),
@@ -491,7 +519,7 @@ export const packageModule: CommandModule = {
     'signature set --colors "yellow,black" [--face ..] [--max-words ..] [--framing ..] [--typeface ..] [--notes ..]',
     'hook score --script <file> --slug <slug> [--title ..] [--promise ..] [--thumbnail-moment ..] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]   writes packages/<slug>/story.json (payoffLadder from --payoffs); exit 1 when the gate fails',
     'promise check --promise ".." [--title ..] [--script <file>] [--description <file>|".."] [--thumb-text ..]   exit 1 on drift',
-    'package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".."] [--subject ..] [--stake ..] [--result ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--root dir]   titles, concepts, QA, A/B pair, the pre-registered levers, gates -> packages/<slug>/package.json + .md; offline the title is yours (--title, kept on rebuild); exit 1 when a gate fails',
+    'package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".." [--lever ".."]] [--subject ..] [--stake ..] [--result ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--root dir]   titles, concepts, QA, A/B pair, the pre-registered levers, gates -> packages/<slug>/package.json + .md; offline the title is yours (--title, kept on rebuild; --lever names what it tests); exit 1 when a gate fails',
     'package review --title ".." --thumb-text ".." [--elements ..]     title + thumbnail coherence',
   ],
   async run(cmd, sub, rest, flags) {

@@ -191,6 +191,33 @@ describe('booster review', () => {
     expect(JSON.parse(readFileSync(stageFile, 'utf8'))).toMatchObject({ bucket: '48', pass: true, review: null, decision: { decision: 'REPACKAGE', appliedAt: NOW } })
   })
 
+  it('passes a new channel\'s 48-hour stage on a cold-start HOLD, and a later run on the same numbers changes nothing', async () => {
+    // Three uploads, no computed baseline: the third one's 48-hour read (taken at 48 h) is under 2,000 impressions.
+    seedRow('v1', 500, { impressions: 1_800, ctr: 5.1, avpPct: 44, retention30sPct: 64 })
+    seedRow('v2', 300, { impressions: 1_400, ctr: 4.2, avpPct: 41, retention30sPct: 61 })
+    seedRow('v3', 49, { impressions: 1_500, ctr: 6, avpPct: 45, retention30sPct: 65 })
+    const stageFile = path.join(tmp, 'packages', 'v3', 'review-48.json')
+    const first = await run(['review', 'run', '--slug', 'v3', '--bucket', '48', '--json'])
+    // It used to WAIT on "the next read", which the schedule takes at 168 h: the stage stayed shut for five days.
+    expect(first.code).toBe(0)
+    const r = JSON.parse(first.out)
+    expect(r.stageFile).toBe(stageFile)
+    const review = r.reviews.find((x: any) => x.slug === 'v3')
+    expect(review.diagnosis.bottleneck).toBe('insufficient-data')
+    expect(review.decision.decision).toBe('HOLD')
+    expect(review.decision.flipCondition).toMatch(/^Cold start: too early to call\. The numbers read healthy, .* \(this read: 1,500 impressions at 48 h\); nothing to change\. The 168-hour read judges it/)
+    // 73 hours after publish, same numbers: the read still holds 48 hours of data, so no verdict appears by the clock alone.
+    const later = await json(['review', 'run', '--slug', 'v3', '--bucket', '48'], ['--now', '2026-09-15T12:00:00Z'])
+    const again = later.reviews.find((x: any) => x.slug === 'v3')
+    expect(again.diagnosis.bottleneck).toBe('insufficient-data')
+    expect(again.decision.decision).toBe('HOLD')
+    expect(later.digest).not.toMatch(/Double down|Every stage is healthy/)
+    const decided = await run(['decide', '--slug', 'v3', '--bucket', '48'], ['--now', '2026-09-15T12:00:00Z'])
+    expect(decided.out).toContain('Bottleneck: INSUFFICIENT-DATA')
+    expect(decided.out).toContain('Decision: HOLD (v3 at 48 h)')
+    expect(decided.out).not.toMatch(/Double down/)
+  })
+
   it('prints the 7-day typing hint with the --yes the lever gate asks for', async () => {
     writeFileSync(profile, JSON.stringify({ positioning: 'x', baselines: solidBaselines() }))
     seedRow('noread', 200)

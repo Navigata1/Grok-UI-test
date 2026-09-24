@@ -493,6 +493,13 @@ describe('buildPackage (pre-registered hypothesis)', () => {
     // Offline a person's title carries no lever, and no formula is invented for it.
     const offline = await buildPackage(TITLED)
     expect(offline.hypothesis.levers).toEqual(['result', 'identity'])
+    // The lever the person names for it (package build --lever) is registered first, like a model title's own.
+    const named = await buildPackage({ ...TITLED, titleLever: ' price in the title ' })
+    expect(named.hypothesis.levers).toEqual(['price in the title', 'result', 'identity'])
+    expect(named.titles[0]).toMatchObject({ title: PERSON_TITLE, lever: 'price in the title' })
+    // Without a person's title there is nothing for it to name.
+    const untitled = await buildPackage({ ...SOLAR, titleLever: 'price in the title' })
+    expect(untitled.hypothesis.levers).toEqual(['result', 'identity'])
   })
 
   it('takes the model hook lever over the formula and de-duplicates case-insensitively', async () => {

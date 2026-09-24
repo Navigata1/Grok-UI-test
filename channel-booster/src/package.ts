@@ -198,6 +198,12 @@ export interface BuildPackageInput {
    * gets one (AGENTS.md, human gate 2).
    */
   title?: string
+  /**
+   * The lever the person's title pulls (`booster package build --lever`), pre-registered with the two A/B
+   * angles so `booster rules compile` can count the title as a test. Ignored without a person's title: a
+   * model title names its own.
+   */
+  titleLever?: string
   /** The person's own-title lines from an earlier build, carried so a rebuild never blanks them. */
   ownTitles?: string[]
   /** Fix rounds when hooks are given; offline generation is deterministic and runs once. */
@@ -454,11 +460,11 @@ function rankTitles(inputs: TitleInput[]): PackageTitle[] {
   return out.sort((a, b) => Number(titlePublishable(b.title, b.score)) - Number(titlePublishable(a.title, a.score)) || b.score - a.score)
 }
 
-/** The person's title first, scored like any other, whatever the ranking says; the hook's copy of it is dropped. */
-function withPersonTitle(ranked: PackageTitle[], person: string | undefined): PackageTitle[] {
+/** The person's title first, scored like any other, whatever the ranking says, with the lever they named; the hook's copy of it is dropped. */
+function withPersonTitle(ranked: PackageTitle[], person: string | undefined, lever: string | undefined): PackageTitle[] {
   if (!person) return ranked
   const { score, notes } = scoreTitle(person)
-  return [{ title: person, score, notes }, ...ranked.filter((t) => t.title.toLowerCase() !== person.toLowerCase())]
+  return [{ title: person, score, ...(lever ? { lever } : {}), notes }, ...ranked.filter((t) => t.title.toLowerCase() !== person.toLowerCase())]
 }
 
 /** A hook concept as a full spec: elements derived when missing. */
@@ -680,7 +686,7 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
 
   for (let round = 1; round <= maxRounds; round += 1) {
     const rawTitles = hooks.titles ? await hooks.titles({ round, fixes, previous: prevTitles }) : []
-    const titles = withPersonTitle(rankTitles(rawTitles), person)
+    const titles = withPersonTitle(rankTitles(rawTitles), person, input.titleLever?.trim() || undefined)
     const chosenTitle = titles[0]?.title ?? ''
     const rawConcepts = hooks.concepts ? await hooks.concepts({ round, fixes, previous: prevConcepts, title: chosenTitle }) : offlineConcepts(input, chosenTitle)
     ev = evaluate(titles, rawConcepts, input.promise, input.signature, titlePending)
@@ -721,11 +727,12 @@ export async function buildPackage(input: BuildPackageInput): Promise<PackageDoc
 
 /**
  * The levers this package pre-registers: the chosen title's lever (a model
- * title's; a person's title names none, so `publish confirm --levers` is where
- * a person adds it) and the two A/B angles, de-duplicated case-insensitively. `booster
- * rules compile` counts only ledger rows whose `hypothesis.levers` is non-empty,
- * so an empty list here keeps every published package out of the flywheel —
- * and the pair was picked precisely because it pulls two named levers.
+ * title's own, or the one a person names for their title with `package build
+ * --lever`; a person's title without one adds none) and the two A/B angles,
+ * de-duplicated case-insensitively. `booster rules compile` counts only ledger
+ * rows whose `hypothesis.levers` is non-empty, so an empty list here keeps
+ * every published package out of the flywheel — and the pair was picked
+ * precisely because it pulls two named levers.
  */
 function preRegisteredLevers(ev: Evaluation): string[] {
   const seen = new Map<string, string>()

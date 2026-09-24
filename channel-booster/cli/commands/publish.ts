@@ -227,6 +227,9 @@ function hypothesisFor(slug: string, pkg: PackageFile | undefined, flags: Flags,
   }
   const fromPackage = pkg?.hypothesis
   if (!levers && predicted === undefined && !fromPackage) return undefined
+  // --levers replaces the package's list: say which pre-registered levers the row loses, so dropping the A/B angles is a choice.
+  const dropped = levers ? (fromPackage?.levers ?? []).filter((l) => !levers.some((g) => g.toLowerCase() === l.toLowerCase())) : []
+  if (dropped.length > 0) warn(`--levers replaces the levers the package pre-registered: ${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not on this row. List ${dropped.length === 1 ? 'it' : 'them'} in --levers too to keep ${dropped.length === 1 ? 'it' : 'them'}, or name the title's lever at build time: booster package build ${slug} --lever "<lever>".`)
   return {
     levers: levers ?? fromPackage?.levers ?? [],
     angle: fromPackage?.angle,

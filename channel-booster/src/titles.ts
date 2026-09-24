@@ -119,7 +119,11 @@ const ING_VERBS: ReadonlySet<string> = new Set(['bring', 'cling', 'fling', 'ring
 interface Token {
   raw: string
   word: string
-  /** First letter upper- or lowercase; `other` for numbers, prices, symbols and brand spellings ("iPhone", "eBay"). */
+  /**
+   * First letter upper- or lowercase; `other` for numbers, prices, symbols, brand spellings ("iPhone",
+   * "eBay") and all-caps words of two or more letters ("NOT", "WORST", "USB"): emphasis or an acronym,
+   * written the same in every case style, so never evidence of Title Case.
+   */
   kind: 'cap' | 'lower' | 'other'
   /** First word of the title or of a sentence inside it (after . ! ? : ; or a dash), where every case style capitalises. */
   start: boolean
@@ -131,10 +135,12 @@ function tokenize(title: string): Token[] {
     const prev = raws[i - 1]
     const bare = raw.replace(/^[^A-Za-z0-9$]+/, '')
     const first = bare.charAt(0)
+    const letters = bare.replace(/[^A-Za-z]/g, '')
+    const shouted = letters.length >= 2 && letters === letters.toUpperCase()
     return {
       raw,
       word: norm(raw),
-      kind: /[A-Z]/.test(first) ? 'cap' : /[a-z]/.test(first) && !/[A-Z]/.test(bare) ? 'lower' : 'other',
+      kind: shouted ? 'other' : /[A-Z]/.test(first) ? 'cap' : /[a-z]/.test(first) && !/[A-Z]/.test(bare) ? 'lower' : 'other',
       start: prev === undefined || /[.!?:;]$/.test(prev) || /^[-\u2013\u2014|/]+$/.test(prev),
     }
   })
@@ -149,19 +155,27 @@ function tokenize(title: string): Token[] {
  *                title that also has a lowercase phrase of two or more content
  *                words ("solar generator"), or one lowercase word right after a
  *                capitalised topic word ("Cold showers"): Title Case and
- *                sentence case at once
+ *                sentence case at once. An all-caps word ("are NOT worth it")
+ *                is emphasis, not Title Case
  *   pronoun      a subject pronoun straight after a frame word ("Tried I",
  *                "About I", "I Did I"): the topic was pasted in as a sentence
  *   article      two articles in a row ("The A"), an article after "Cheap" or
  *                "Expensive", or a capitalised article after "I Did" / "Stop"
- *                ("I Did A", "Stop A"): the topic was pasted in with its article
+ *                with a lowercase content word later ("I Did A $300 solar
+ *                generator"): the topic was pasted in with its article. In
+ *                Start Case ("I Did A Backflip Every Day") the capital is style
  *   how I        "How I" followed by an article, a pronoun or a gerund
  *                ("How I Living off ..."): the formula needs a past-tense verb
- *   doubled      the same number phrase twice ("30 days ... 30 days"): the
- *                number was pasted into a topic that already carried it (a
- *                comparison, "$300 vs $3000 Solar Generator", may repeat itself)
+ *   doubled      the same number phrase twice in one sentence, or at most one
+ *                word apart ("30 days for 30 days", "30 Days: 30 Days Later"):
+ *                the number was pasted into a topic that already carried it. A
+ *                person restating it in a new sentence ("30 Days Of Cold
+ *                Showers: What 30 Days Did To Me") and a comparison ("$300 vs
+ *                $3000 Solar Generator") are left alone
  *
- * A sentence-case title with a proper noun that happens to be a frame word
+ * Pronoun and article pairs never span a sentence break: after "Cheap vs
+ * Expensive:" or "Cheap?" a new sentence may open on "The", "A" or "We". A
+ * sentence-case title with a proper noun that happens to be a frame word
  * ("Best Buy") next to a lowercase phrase is the known false positive.
  */
 export function templateArtifacts(title: string): string[] {
@@ -199,20 +213,27 @@ export function templateArtifacts(title: string): string[] {
   const comparison = toks.some((t) => t.word === 'vs' || t.word === 'versus' || t.word === 'or')
   const pairs = toks.slice(1).map((t, i) => `${toks[i]!.word} ${t.word}`)
   const weight = (p: string): number => p.split(' ').filter((w) => !FUNCTION_WORDS.has(w)).length
-  // Name the doubled pair with the most content in it: "30 days", not "for 30".
-  const doubled = comparison ? undefined : pairs.filter((p, i) => /\d/.test(p) && pairs.indexOf(p, i + 2) >= 0).sort((x, y) => weight(y) - weight(x))[0]
+  // Name the doubled pair with the most content in it: "30 days", not "for 30". The second copy (pair j,
+  // j >= i + 2 leaves j - i - 2 words between) starts at most one word after the first ends, or in the
+  // same sentence; a person restating the number after a colon or a full stop is writing, not pasting.
+  const sameSentence = (i: number, j: number): boolean => !toks.slice(i + 1, j + 1).some((t) => t.start)
+  const doubled = comparison ? undefined : pairs.filter((p, i) => /\d/.test(p) && pairs.some((q, j) => j >= i + 2 && q === p && (j <= i + 3 || sameSentence(i, j)))).sort((x, y) => weight(y) - weight(x))[0]
   if (doubled) found.push(`template fill: "${doubled}" appears twice; the formula pasted it into a topic that already had it`)
 
+  // A lowercase content word after token i: the rest of the topic kept its own case, so a capital right after the frame was cap(), not style.
+  const lowerContentAfter = (i: number): boolean => toks.slice(i + 1).some((t) => t.kind === 'lower' && !FUNCTION_WORDS.has(t.word))
   for (let i = 0; i + 1 < toks.length; i += 1) {
     const a = toks[i]!
     const b = toks[i + 1]!
+    // A new sentence ("Cheap vs Expensive: The ...", "Cheap? A ...", "Expensive. We ...") opens on any word.
+    if (b.start) continue
     const before = toks[i - 1]?.word
     const afterIDid = a.word === 'did' && (before === 'i' || before === 'we')
     const afterHowI = a.word === 'i' && before === 'how'
     const pair = `${afterHowI ? `${toks[i - 1]!.raw} ` : ''}${a.raw} ${b.raw}`
     if (SUBJECT_PRONOUNS.has(b.word) && (NO_PRONOUN_AFTER.has(a.word) || afterIDid || afterHowI)) {
       found.push(`template fill: "${pair}" puts a pronoun straight after the frame; the topic was pasted in as a sentence`)
-    } else if (ARTICLES.has(b.word) && (NO_ARTICLE_AFTER.has(a.word) || afterHowI || ((afterIDid || a.word === 'stop') && b.kind === 'cap'))) {
+    } else if (ARTICLES.has(b.word) && (NO_ARTICLE_AFTER.has(a.word) || afterHowI || ((afterIDid || a.word === 'stop') && b.kind === 'cap' && lowerContentAfter(i + 1)))) {
       found.push(`template fill: "${pair}" starts the pasted-in topic with its article; no article belongs after "${a.raw}" here`)
     } else if (afterHowI && b.kind !== 'other' && b.word.length > 4 && b.word.endsWith('ing') && !ING_VERBS.has(b.word)) {
       found.push(`template fill: "How I ${b.raw}" needs a past-tense verb after "How I" (How I Built ..., not How I Building ...)`)

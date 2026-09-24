@@ -40,6 +40,10 @@ describe('scoreTitle (template-fill guard)', () => {
     ['I Did Solar generator vs power station Until It Worked', 'around the lowercase phrase "Solar generator vs power station"'],
     ['Why Cold showers Is Not What You Think', 'around the lowercase phrase "Cold showers"'],
     ['I Tried cold showers for 30 days for 30 days', '"30 days" appears twice'],
+    // A Start Case topic that already ends on the number: only the doubling gives the paste away.
+    ['I Tried Cold Showers for 30 Days for 30 Days', '"30 days" appears twice'],
+    ['Cold Showers for 30 Days: 30 Days Later', '"30 days" appears twice'],
+    ['30 Days Cold Showers for 30 Days Ideas Ranked Worst to Best', '"30 days" appears twice'],
     ['Solar Generator asdf qwer Power Station Until It Broke', 'around the lowercase phrase "Generator asdf qwer"'],
   ]
 
@@ -84,7 +88,35 @@ describe('scoreTitle (template-fill guard)', () => {
     'I tried The Home Edit method for a week',
   ]
 
-  it.each([...TITLE_CASE, ...SENTENCE_CASE].map((title) => ({ title })))('does not penalise the human-written $title', ({ title }) => {
+  // Every word capitalised, articles included ("Start Case"): a capital after "Did" or "Stop" is house style
+  // there, not a topic pasted in with its article.
+  const START_CASE = [
+    'I Did A 24 Hour Fast And This Happened',
+    'We Did A Full Van Build In 7 Days',
+    'I Did A Backflip Every Day For 30 Days',
+    'I Did A 7 Day Fridge Test On A $200 Solar Generator',
+    'Stop A Leaking Roof In 10 Minutes',
+    'Stop A Leak In 5 Minutes Without Tools',
+  ]
+  // A sentence inside the title opens on any word: an article or a pronoun after ":", "?" or "." is no paste,
+  // and a number phrase restated in a new sentence is a person writing.
+  const SENTENCE_BREAKS = [
+    'Cheap vs Expensive: The Real Difference in 30 Days',
+    'Why I Went Expensive: A $2,000 Van Power Setup',
+    'Is Solar Worth It If You Go Cheap? A 30 Day Test',
+    'Everything Was Expensive. We Built Our Own',
+    '30 Days Of Cold Showers: What 30 Days Did To Me',
+  ]
+  // One all-caps word for emphasis in a sentence-case title: the same in every case style, so never Title Case.
+  const EMPHASIS = [
+    'Why cheap solar generators are NOT worth it',
+    'I tried the WORST rated restaurant in my city',
+    'The BEST budget solar generator for vans',
+    'The TRUTH about solar generators',
+    'This solar generator is a MISTAKE',
+  ]
+
+  it.each([...TITLE_CASE, ...SENTENCE_CASE, ...START_CASE, ...SENTENCE_BREAKS, ...EMPHASIS].map((title) => ({ title })))('does not penalise the human-written $title', ({ title }) => {
     expect(templateArtifacts(title)).toEqual([])
     expect(scoreTitle(title).notes.some((n) => n.startsWith('template fill'))).toBe(false)
   })
@@ -93,6 +125,22 @@ describe('scoreTitle (template-fill guard)', () => {
     expect(scoreTitle('I Lived Off a $300 Solar Generator for 30 Days').score).toBe(85)
     expect(scoreTitle('I lived off a $300 solar generator for 30 days').score).toBe(85)
     expect(scoreTitle('I Did a 30-Day Water Fast Until It Worked').score).toBe(93)
+    // The scores these titles had before the guard existed (the review's repro), not 28-55 under the gate.
+    expect(scoreTitle('Why cheap solar generators are NOT worth it').score).toBe(85)
+    expect(scoreTitle('I tried the WORST rated restaurant in my city').score).toBe(83)
+    expect(scoreTitle('I Did A Backflip Every Day For 30 Days').score).toBe(93)
+    expect(scoreTitle('Stop A Leaking Roof In 10 Minutes').score).toBe(88)
+    expect(scoreTitle('Cheap vs Expensive: The Real Difference in 30 Days').score).toBe(90)
+    expect(scoreTitle('Why I Went Expensive: A $2,000 Van Power Setup').score).toBe(100)
+    expect(scoreTitle('30 Days Of Cold Showers: What 30 Days Did To Me').score).toBe(75)
+  })
+
+  it('still reads a lowercase topic after a capitalised article as a paste, and ALL CAPS never hides one', () => {
+    // Start Case is style only when the whole title is in it: here the topic kept its lowercase words.
+    expect(templateArtifacts('We Did A full van build in 7 days')).toContain('template fill: "Did A" starts the pasted-in topic with its article; no article belongs after "Did" here')
+    expect(templateArtifacts('Stop A leaking roof Like This').some((n) => n.includes('"Stop A" starts the pasted-in topic'))).toBe(true)
+    // An emphasis word is neither a frame word nor a break in the lowercase phrase; the Title Case frame still gives it away.
+    expect(templateArtifacts('Why Cheap solar generator Is NOT What You Think').some((n) => n.includes('around the lowercase phrase "solar generator"'))).toBe(true)
   })
 })
 

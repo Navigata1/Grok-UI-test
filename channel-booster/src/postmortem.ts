@@ -86,6 +86,13 @@ export interface DiagnosisV2 extends Diagnosis {
   growthPct?: number
   /** False when browse + suggested is under the gate ("not yet algorithmic"); absent when the share is unknown. */
   algorithmic?: boolean
+  /**
+   * Set when the cold-start gate held the verdict: the band the numbers read (`low`, `soft` or
+   * `healthy`), the impressions and hours of data the read holds, and what the gate still needs.
+   * `decide()` turns it into a HOLD that names the next scheduled read, not a WAIT on a read the
+   * schedule never takes.
+   */
+  coldStartHeld?: { band: 'low' | 'soft' | 'healthy'; impressions?: number; hours: number; moreImpressions: number; moreHours: number }
   /** Verdicts this bucket may return. */
   allowedVerdicts: Diagnosis['bottleneck'][]
 }
@@ -125,6 +132,36 @@ const ACTIONS: Record<Diagnosis['bottleneck'], string[]> = {
     'Log the packaging as a proven format in the ledger and remix it for the next idea.',
     'Cut two Shorts from the best moments and point them at this video.',
   ],
+}
+
+/**
+ * The healthy verdict on a scheduled read. Without a bucket (a one-off
+ * postmortem) it is the plain "double down". On a 48, 168 or 672-hour read
+ * `decide()` runs next and owns the sequel call: it judges views against the
+ * 7-day median (with enough 7-day reads behind it), which healthy rates do not
+ * show, so the verdict leaves the sequel to it instead of contradicting a HOLD.
+ */
+function healthyVerdict(bucket: Bucket | undefined): { headline: string; actions: string[] } {
+  const shorts = ACTIONS.none[2]!
+  if (bucket === undefined || bucket === '24') return { headline: 'Packaging and retention are both at or above baseline. Double down.', actions: ACTIONS.none }
+  if (bucket === '48') {
+    return {
+      headline: 'Packaging and retention are both at or above baseline so far: let it run. Whether it earns a sequel is the 7-day decision.',
+      actions: [
+        'Every stage is healthy so far: change nothing, and leave the packaging alone.',
+        `Hold the sequel for the 7-day decision: it needs views at ${tagged('sequelMultiple', 'x')} the 7-day median, which healthy rates at 48 hours do not show. Outline it now if you like.`,
+        shorts,
+      ],
+    }
+  }
+  return {
+    headline: 'Packaging and retention are both at or above baseline. The sequel call is the 7-day decision\'s: it judges views against the 7-day median, not these rates.',
+    actions: [
+      `Every stage is healthy. Make the sequel when the decision says SEQUEL: views at ${tagged('sequelMultiple', 'x')} the 7-day median, with enough 7-day reads behind that median, not healthy rates alone.`,
+      'Log the packaging as a format that worked here and remix it for the next idea.',
+      shorts,
+    ],
+  }
 }
 
 /** Verdicts each bucket may return. 24 h is distribution only; later buckets allow everything (but never a swap after 48 h). */
@@ -313,7 +350,7 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
 
   if (!hasCtr && !hasRetention && !(bucket === '24' && impressions !== undefined)) return done('insufficient-data', 'Not enough data to diagnose yet.')
   if (impressions !== undefined && impressions < minImpr && hours < minHours) {
-    evidence.push(`impressions ${fmtInt(impressions)} at ${hours}h`)
+    evidence.push(`impressions ${fmtInt(impressions)} at ${Number(hours.toFixed(1))}h`)
     thresholdsUsed.push(`minImpressionsForVerdict ${tagged('minImpressionsForVerdict')}`, `minHoursForVerdict ${tagged('minHoursForVerdict', 'h')}`)
     return done('insufficient-data', `Fewer than ${fmtInt(minImpr)} impressions in the first ${minHours} hours: too early to call.`)
   }
@@ -390,12 +427,12 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
     const needHours = Math.max(0, thresholds.coldStartMinHours.value - hours)
     thresholdsUsed.push(`coldStartMinImpressions ${tagged('coldStartMinImpressions')}`, `coldStartMinHours ${tagged('coldStartMinHours', 'h')}`)
     const what = band === 'healthy' ? 'no healthy verdict' : 'no packaging verdict'
-    const sentence = `Cold start: ${what} before ${fmtInt(thresholds.coldStartMinImpressions.value)} impressions or ${thresholds.coldStartMinHours.value} hours (${impressions !== undefined ? fmtInt(impressions) : 'unknown'} impressions at ${hours}h: ${fmtInt(needImpr)} more impressions or ${needHours.toFixed(0)} more hours).`
+    const sentence = `Cold start: ${what} before ${fmtInt(thresholds.coldStartMinImpressions.value)} impressions or ${thresholds.coldStartMinHours.value} hours (${impressions !== undefined ? fmtInt(impressions) : 'unknown'} impressions at ${Number(hours.toFixed(1))}h: ${fmtInt(needImpr)} more impressions or ${needHours.toFixed(0)} more hours).`
     evidence.push(sentence)
     const headline = band === 'healthy'
       ? 'The numbers look healthy so far, but a cold-start upload gets no verdict before the gate: too early to call it healthy.'
       : `CTR ${input.ctr}% reads ${band} but the cold-start gate is not met: too early to call packaging.`
-    return done('insufficient-data', headline, false, [sentence])
+    return { ...done('insufficient-data', headline, false, [sentence]), coldStartHeld: { band, ...(impressions !== undefined ? { impressions } : {}), hours, moreImpressions: needImpr, moreHours: needHours } }
   }
   const wilsonGate = (band: string): DiagnosisV2 => {
     const sentence = impressionsNeeded === undefined
@@ -428,6 +465,9 @@ export function diagnose(input: PostMortemInputV2): DiagnosisV2 {
   }
   if (!coldGateMet && (ctrHealthy || avpRel !== undefined)) return coldGate('healthy')
   if (ctrHealthy && straddle.length && certaintyGate) return wilsonGate('healthy')
-  if (ctrHealthy || avpRel !== undefined) return done('none', 'Packaging and retention are both at or above baseline. Double down.')
+  if (ctrHealthy || avpRel !== undefined) {
+    const healthy = healthyVerdict(bucket)
+    return { ...done('none', healthy.headline), actions: healthy.actions }
+  }
   return done('insufficient-data', 'Metrics are borderline; collect another day of data.')
 }

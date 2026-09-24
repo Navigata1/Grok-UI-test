@@ -205,10 +205,28 @@ describe('the flywheel: package build -> publish confirm -> 7-day read -> rules 
     expect(shown.out).toMatch(/ {2}under test: "[^"]+" \(1 test, /)
   })
 
-  it('takes --levers and --predicted-ctr over the package, and never rewrites a registered hypothesis', async () => {
+  it('counts the lever a person names for their title at package build, next to the two A/B angles', async () => {
+    // Offline the title is the person's and names no formula; a rebuild with --lever (what the build prints) puts it in
+    // the hypothesis before any number is in, and keeps the title.
     await walkToPack()
+    const built = await json(['package', 'build', SLUG, '--lever', 'every failure shown', '--offline'])
+    expect(built.parsed.chosenTitle).toBe(TITLE)
+    expect(built.parsed.hypothesis.levers[0]).toBe('every failure shown')
+    expect(built.parsed.hypothesis.levers.length).toBe(3)
+    const confirmed = await json(['publish', 'confirm', SLUG, '--video-id', 'aB3dEfGh1jK', '--at', '2026-09-01T12:00:00Z', '--yes'])
+    expect(confirmed.parsed.row.hypothesis.levers).toEqual(built.parsed.hypothesis.levers)
+    expect(confirmed.err).not.toMatch(/--levers replaces/)
+    await run(['set', SLUG, '--bucket', '168', '--impressions', '300000', '--ctr', '5.8', '--views', '17000', '--avp', '42', '--lever', 'failures up front held the audience', '--yes'])
+    const compiled = await json(['rules', 'compile', '--playbook', playbook])
+    expect(compiled.parsed.rules.map((r: any) => r.lever)).toContain('every failure shown')
+  })
+
+  it('takes --levers and --predicted-ctr over the package, and never rewrites a registered hypothesis', async () => {
+    const { built } = await walkToPack()
     const j = await json(['publish', 'confirm', SLUG, '--video-id', 'aB3dEfGh1jK', '--at', '2026-09-01T12:00:00Z', '--levers', 'face in thumbnail, number in title', '--predicted-ctr', '1.4', '--yes'])
     expect(j.parsed.row.hypothesis).toMatchObject({ levers: ['face in thumbnail', 'number in title'], predictedCtrMultiple: 1.4, registeredAt: '2026-09-01T12:00:00.000Z' })
+    // --levers replaces the package's list; the A/B angles it drops are named, not lost in silence.
+    expect(j.err).toContain(`--levers replaces the levers the package pre-registered: ${built.hypothesis.levers.join(', ')} are not on this row.`)
     // Pre-registration is the point: a lever named once the read is in would be hindsight, not a test.
     expect(await fails(['publish', 'confirm', SLUG, '--video-id', 'aB3dEfGh1jK', '--at', '2026-09-01T12:00:00Z', '--levers', 'hindsight', '--yes']))
       .toMatch(/pre-registered its hypothesis at 2026-09-01T12:00:00.000Z .* and it is not rewritable/)

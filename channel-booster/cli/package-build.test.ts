@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { main } from '../cli/booster.js'
 import { PackageDocSchema } from '../src/package.js'
 import { openStore } from '../src/store.js'
@@ -58,6 +60,22 @@ async function json(argv: string[]): Promise<{ code: number; parsed: any }> {
   return { code, parsed: JSON.parse(out) }
 }
 
+/** The repository root: `npm run booster --` runs cli/booster.ts through tsx from here. */
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+/**
+ * Run a `booster ...` line the CLI printed, word for word, the way a person pastes it after
+ * `npm run booster --`: a new process in `cwd`, with only the environment given (no scoped() flags).
+ * Double-quoted words are JSON strings, as the CLI prints them; `<your title>` becomes `title`.
+ */
+function runPrinted(line: string, title: string, cwd: string, env: NodeJS.ProcessEnv): { status: number | null; stdout: string; stderr: string } {
+  const words = (line.match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((w) => (w.startsWith('"') ? JSON.parse(w) as string : w))
+  expect(words[0]).toBe('booster')
+  const argv = words.slice(1).map((w) => (w === '<your title>' ? title : w))
+  const r = spawnSync(process.execPath, [path.join(REPO, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(REPO, 'channel-booster', 'cli', 'booster.ts'), ...argv], { cwd, env, encoding: 'utf8' })
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
+}
+
 async function fails(argv: string[]): Promise<string> {
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
@@ -100,6 +118,8 @@ describe('booster package build', () => {
     expect(text.out).toContain(`then ${rebuild}`)
     // stderr carries it too: it is what the workflow runner shows for a failed stage.
     expect(text.err).toContain(`No title yet for ${SLUG}: a person writes it, then ${rebuild}`)
+    // The directories this run used are repeated as absolute paths, so the line works from any directory.
+    expect(text.err).toContain(` --root ${JSON.stringify(tmp)} --data ${JSON.stringify(data)} --path ${JSON.stringify(profile)} --offline\n`)
     expect(text.code).toBe(1)
 
     // The person writes the title and rebuilds by slug: the stored idea and promise come back with it.
@@ -136,6 +156,41 @@ describe('booster package build', () => {
 
   it('refuses --title without the title text', async () => {
     expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--title', '--offline'])).toMatch(/--title needs the title text/)
+    expect(await fails(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--lever', '--offline'])).toMatch(/--lever needs the lever your title pulls/)
+  })
+
+  it('pre-registers the lever a person names for their title, keeps it on rebuild, and drops it with a new title', async () => {
+    // Offline the title is a person's, and a person's title names no formula: --lever is how it enters the hypothesis.
+    const bare = await run(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--offline'])
+    expect(bare.out).toContain('Your title names no lever: rebuild with --lever "<the lever it pulls>" so rules compile counts the title too.')
+    const named = await json(['package', 'build', IDEA, '--promise', PROMISE, '--title', TITLE, '--lever', 'number in title', '--offline'])
+    const angles = [named.parsed.thumbnails.find((t: any) => t.name === named.parsed.abPick.a).angle, named.parsed.thumbnails.find((t: any) => t.name === named.parsed.abPick.b).angle]
+    expect(named.parsed.hypothesis.levers).toEqual(['number in title', ...angles])
+    expect(named.parsed.titles[0]).toMatchObject({ title: TITLE, lever: 'number in title' })
+    // The workflow's packaging stage rebuilds by slug with neither flag: the title and its lever both stay.
+    const kept = await json(['package', 'build', SLUG, '--offline'])
+    expect(kept.parsed.chosenTitle).toBe(TITLE)
+    expect(kept.parsed.hypothesis.levers).toEqual(['number in title', ...angles])
+    const again = await run(['package', 'build', SLUG, '--offline'])
+    expect(again.out).not.toContain('Your title names no lever')
+    // A different title does not inherit the old title's lever.
+    const other = await json(['package', 'build', SLUG, '--title', 'I Ran My Fridge on $300 of Solar for 30 Days', '--offline'])
+    expect(other.parsed.hypothesis.levers).toEqual(angles)
+    // With no title of the person's, --lever registers nothing and says so.
+    const none = await run(['package', 'build', 'Van life budget build under 5000', '--promise', 'a full camper build for under $5,000', '--lever', 'price in title', '--offline'])
+    expect(none.err).toContain('--lever "price in title" is not registered: it names the lever of a title you wrote, and this package has none. Pass it with --title.')
+    expect(none.out).toMatch(/Hypothesis: levers (?!.*price in title)/)
+  })
+
+  it('keeps a person\'s title in Start Case, or with one word in capitals, at its own score through the title gate', async () => {
+    // Both used to be read as template fills and held at 40/100: GATES FAIL on a title the person wrote.
+    for (const [title, score] of [['I Did A 30 Day Test On A $300 Solar Generator', 85], ['Why cheap solar generators are NOT worth it', 85]] as const) {
+      const { parsed } = await json(['package', 'build', IDEA, '--promise', PROMISE, '--title', title, '--offline'])
+      expect(parsed.chosenTitle).toBe(title)
+      expect(parsed.titles[0].score).toBe(score)
+      expect(parsed.titles[0].notes.join(' ')).not.toMatch(/template fill/)
+      expect(parsed.gateReport.titleGate.pass).toBe(true)
+    }
   })
 
   it('stays offline without an API key even when --offline is not given, and honours --out', async () => {
@@ -216,6 +271,36 @@ describe('booster package build', () => {
     expect(pkg.gateReport.pass).toBe(true)
     expect(parsed.result.status).toBe('passed')
     expect(code).toBe(0)
+  }, 90_000)
+
+  it('prints a title command that, pasted as printed from another directory, lets the --root packaging stage pass', async () => {
+    // The workflow runs from --root (scoped() passes tmp), which is not the directory the person types in
+    // (npm run starts at the repository root), and shares its store and profile with the stage through
+    // BOOSTER_DATA and BOOSTER_PROFILE.
+    const root = tmp
+    const elsewhere = path.join(tmp, 'elsewhere')
+    mkdirSync(elsewhere, { recursive: true })
+    await run(['workflow', IDEA, '--promise', PROMISE, '--out', path.join(root, 'packages')])
+    await run(['workflow', 'run', SLUG, '--override', '--reason', 'demand confirmed', '--yes'])
+    const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(first.parsed.result).toMatchObject({ stageId: 'packaging', status: 'failed' })
+    const printed = /No title yet for [a-z0-9-]+: a person writes it, then (booster package build [^\n]+)/.exec(first.parsed.result.stderr)?.[1]
+    expect(printed).toBeDefined()
+    expect(printed).toContain(`--root ${JSON.stringify(root)}`)
+
+    // The person's shell has neither BOOSTER_DATA nor BOOSTER_PROFILE (the runner set both for its stage): the line stands alone.
+    expect(printed).toContain(`--data ${JSON.stringify(data)} --path ${JSON.stringify(profile)}`)
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    for (const k of ['ANTHROPIC_API_KEY', 'BOOSTER_DATA', 'BOOSTER_PROFILE']) delete env[k]
+    const pasted = runPrinted(printed!, TITLE, elsewhere, env)
+    expect(pasted.stdout, pasted.stderr).toContain('GATES PASS')
+    expect(pasted.status).toBe(0)
+    // The title landed where the stage gate reads it, not in a packages/ folder under the typing directory.
+    expect(existsSync(path.join(elsewhere, 'packages'))).toBe(false)
+    expect(JSON.parse(readFileSync(path.join(root, 'packages', SLUG, 'package.json'), 'utf8'))).toMatchObject({ chosenTitle: TITLE, titleSource: 'person' })
+    const second = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
+    expect(second.parsed.result).toMatchObject({ stageId: 'packaging', status: 'passed' })
+    expect(second.code).toBe(0)
   }, 90_000)
 
   it('refuses a missing promise, an unknown bank id, a bad round count and a missing idea', async () => {

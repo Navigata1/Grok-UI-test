@@ -7,6 +7,8 @@ import { FONTS, renderDesk } from '../dashboard/render.mjs'
 import { readVideoRows } from './csv.js'
 import { suggestDemand } from './ideas.js'
 import { computeOutliers } from './outliers.js'
+import { ruleSentence } from './rules-core.js'
+import type { RuleDoc } from './schema.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const dashboard = path.resolve(here, '..', 'dashboard')
@@ -92,6 +94,29 @@ describe('desk template', () => {
   const engine = readFileSync(path.join(dashboard, 'engine.ts'), 'utf8')
   const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+  /** A function the Desk's script declares, as source text, cut at its matching brace (its body has no braces in strings). */
+  function deskFunction(name: string): string {
+    const start = template.indexOf(`function ${name}(`)
+    expect(start, `template declares function ${name}`).toBeGreaterThanOrEqual(0)
+    let depth = 0
+    // The body opens after the parameter list, which may itself hold a destructuring brace.
+    for (let i = template.indexOf(') {', start) + 2; i < template.length; i += 1) {
+      if (template[i] === '{') depth += 1
+      else if (template[i] === '}' && --depth === 0) return template.slice(start, i + 1)
+    }
+    throw new Error(`unbalanced function ${name}`)
+  }
+
+  /** Form fields as the Desk's $() returns them: value, text, class and markup, created empty on first use. */
+  function fields(): { $: (id: string) => Record<string, string>; all: Map<string, Record<string, string>> } {
+    const all = new Map<string, Record<string, string>>()
+    const $ = (id: string) => {
+      if (!all.has(id)) all.set(id, { value: '', textContent: '', className: '', innerHTML: '' })
+      return all.get(id)!
+    }
+    return { $, all }
+  }
+
   it('grades the publish gate from what the thumbnail panel actually QA-d', () => {
     expect(template).toContain("thumbGrades: [gradeFor($('pb-thumb-a').value), gradeFor($('pb-thumb-b').value)]")
     expect(template).not.toContain("thumbGrades: ['ship', 'ship']")
@@ -125,8 +150,12 @@ describe('desk template', () => {
   it('asks every human gate in the page, never through a native confirm dialog', () => {
     // A published artifact answers confirm() with false: every gate there failed silently.
     expect(template).not.toMatch(/\bconfirm\(/)
-    // The gate passes only on its action button; Cancel has the focus, so Enter or Escape cancel.
-    expect(template).toContain('<button class="btn" value="cancel" id="gate-cancel" autofocus>Cancel</button><button class="btn primary" value="ok" id="gate-ok"></button>')
+    // The gate passes only on its action button; Cancel has the focus, so Enter or Escape cancel. The focus is
+    // set when the gate opens: autofocus in a cross-origin frame (the published Desk runs in one) is blocked
+    // and logs a console error on every load.
+    expect(template).toContain('<button class="btn" value="cancel" id="gate-cancel">Cancel</button><button class="btn primary" value="ok" id="gate-ok"></button>')
+    expect(template).not.toMatch(/<[a-z]+\b[^>]*\sautofocus\b/)
+    expect(deskFunction('gate')).toMatch(/gateBox\.showModal\(\)[\s\S]*\$\('gate-cancel'\)\.focus\(\)/)
     expect(template).toContain("resolve(gateBox.returnValue === 'ok')")
     // The wording each gate had, now stating its consequence in the page.
     for (const words of [
@@ -152,8 +181,51 @@ describe('desk template', () => {
     expect(template).not.toMatch(/\$\('pb-thumb-[ab]'\)\.value\.trim\(\) \|\| '[AB]'/)
     expect(template).toContain("fill('pb-thumb-a', c.a); fill('pb-thumb-b', c.b)")
     expect(template).toContain("thumbs: { a: $('pb-thumb-a').value.trim(), b: $('pb-thumb-b').value.trim() }")
-    expect(template).toContain("return { a: i?.thumbA || fallback.a, b: i?.thumbB || fallback.b }")
     expect(template).toContain('data-use-concept="a"')
+  })
+
+  it('never offers the concept picked for one slot as the other in Publish', () => {
+    // The Desk's own chosenConcepts(), run on the review's case: QA "stakes", QA "result", use "result" as A.
+    const pick = (idea: { thumbA?: string; thumbB?: string } | undefined, qaOrder: string[], typed: { a?: string; b?: string } = {}) => {
+      const { $ } = fields()
+      $('pb-thumb-a').value = typed.a ?? ''
+      $('pb-thumb-b').value = typed.b ?? ''
+      const gradeKey = (name: string | undefined) => (name || '').trim().toLowerCase()
+      // eslint-disable-next-line no-new-func
+      return new Function('$', 'currentIdea', 'qaOrder', 'gradeKey', `${deskFunction('chosenConcepts')}; return chosenConcepts()`)($, () => idea, qaOrder, gradeKey) as { a: string; b: string }
+    }
+    expect(pick({ thumbA: 'result' }, ['stakes', 'result'])).toEqual({ a: 'result', b: 'stakes' })
+    expect(pick({ thumbB: 'Stakes' }, ['stakes', 'result'])).toEqual({ a: 'result', b: 'Stakes' })
+    // Picked straight into the field with no idea open: the field counts as the pick.
+    expect(pick(undefined, ['stakes', 'result'], { a: 'result' })).toEqual({ a: 'result', b: 'stakes' })
+    // Nothing picked: the last two QA'd, older first; one concept QA'd fills A only.
+    expect(pick(undefined, ['curiosity', 'stakes', 'result'])).toEqual({ a: 'stakes', b: 'result' })
+    expect(pick({ thumbA: 'result' }, ['result'])).toEqual({ a: 'result', b: '' })
+    expect(pick({ thumbA: 'stakes', thumbB: 'contrast' }, ['result'])).toEqual({ a: 'stakes', b: 'contrast' })
+  })
+
+  it('opening another idea replaces every per-idea field, so Publish never carries the last idea\'s pair or upload', () => {
+    const { $ } = fields()
+    const ideas = [
+      { id: 'x', idea: 'Idea X solar fridge', title: 'I Lived Off a $300 Solar Generator for 30 Days', promise: 'p', thumbText: 'DEAD BY NOON', thumbA: 'stakes', thumbB: 'contrast', script: 'x script', thumbnailMoment: 'the fridge', scores: {} },
+      { id: 'y', idea: 'Idea Y camping stove', scores: {} },
+    ]
+    // eslint-disable-next-line no-new-func
+    const loadIdea = new Function('$', 'ideas', 'state', 'local', 'AXES', 'scoreCurrentIdea', 'renderCurrent', `${deskFunction('loadIdea')}; return loadIdea`)(
+      $, () => ideas, {}, { write: () => {} }, [], () => {}, () => {},
+    ) as (id: string) => void
+    loadIdea('x')
+    expect([$('pb-title').value, $('pb-thumb-a').value, $('pb-thumb-b').value]).toEqual(['I Lived Off a $300 Solar Generator for 30 Days', 'stakes', 'contrast'])
+    // What a person typed into Publish for X's upload.
+    $('pb-video-id').value = 'aB3dEfGh1jK'; $('pb-levers').value = 'stakes, contrast'; $('pb-predict').value = '1.4'; $('pb-sequel').value = 'q'
+    $('pb-check').innerHTML = '<h3>Checklist</h3>'
+    loadIdea('y')
+    for (const id of ['pr-title', 'tq-title', 'st-title', 'pb-title', 'pk-promise', 'st-promise', 'pb-promise', 'pr-thumb', 'tq-text', 'pb-thumb-a', 'pb-thumb-b', 'st-script', 'st-moment', 'pb-video-id', 'pb-levers', 'pb-sequel', 'pb-related', 'pb-at']) {
+      expect($(id).value, `${id} after opening Y`).toBe('')
+    }
+    expect($('pb-predict').value).toBe('1.0')
+    expect($('pb-check').innerHTML).toBe('')
+    expect($('idea-text').value).toBe('Idea Y camping stove')
   })
 
   it('checks the two exported thumbnail files in the browser and passes the real result', () => {
@@ -206,8 +278,27 @@ describe('desk template', () => {
   })
 
   it('labels a compiled rule by where it stands, never as a bare store status', () => {
-    expect(engine).toContain("export { ruleStanding, statusLabel } from '../src/rules-core.js'")
+    expect(engine).toContain("export { ruleSentence, ruleStanding, statusLabel } from '../src/rules-core.js'")
     expect(template).toContain('<span class="chip">${esc(B.ruleStanding(r))}')
     expect(template).not.toContain('<span class="chip">${esc(r.status)}')
+  })
+
+  it('shows a compiled rule as the hypothesis sentence, even a row an older compile stored as an instruction', () => {
+    // Agents write compiled rules into the Desk's db; before rules were hypotheses a compile stored "Prefer ...".
+    expect(template).toContain('<li>${esc(B.ruleSentence(r))} <span class="chip">')
+    expect(template).not.toContain('<li>${esc(r.rule)} <span class="chip">')
+    const legacy = { rule: 'Prefer "number-in-title" on this channel', lever: 'number-in-title', status: 'promoted', tests: 3, wins: 3, confidence: 0.8, pinned: false, slugs: [] } as unknown as RuleDoc
+    expect(ruleSentence(legacy)).toBe('Hypothesis under observation: "number-in-title" may help on this channel')
+    expect(ruleSentence({ ...legacy, rule: 'Avoid "question-title"', lever: 'question-title', status: 'retired' })).toBe('Hypothesis under observation: "question-title" may not help on this channel')
+    // A person's rule is shown as they wrote it.
+    expect(ruleSentence({ ...legacy, rule: 'Stakes in the title beat curiosity here', status: 'pinned', pinned: true, acceptedBy: 'desk' })).toBe('Stakes in the title beat curiosity here')
+  })
+
+  it('diagnoses a 7 or 28-day read on the views baseline decide() uses, never the typed one', () => {
+    // The typed views (4,000) against the 7-day median decide() judged (2,000) put two baselines on one Review card.
+    expect(template).not.toContain("baseline: baselines.n < 5 ? flatBaseline() : undefined")
+    expect(template).toContain("const weekRead = bucket === '168' || bucket === '672'")
+    expect(template).toContain('const flat = baselines.n < 5 ? { ...flatBaseline(), ...(weekRead ? { views: undefined } : {}) } : undefined')
+    expect(template).toContain('baselines: baselines.n > 0 ? baselines : undefined, baseline: flat, hoursSincePublish: hours')
   })
 })

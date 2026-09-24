@@ -490,7 +490,7 @@
   <form method="dialog">
     <h2 id="gate-title"></h2>
     <p id="gate-text"></p>
-    <div class="row"><button class="btn" value="cancel" id="gate-cancel" autofocus>Cancel</button><button class="btn primary" value="ok" id="gate-ok"></button></div>
+    <div class="row"><button class="btn" value="cancel" id="gate-cancel">Cancel</button><button class="btn primary" value="ok" id="gate-ok"></button></div>
   </form>
 </dialog>
 
@@ -555,6 +555,9 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
       gateBox.addEventListener('close', () => resolve(gateBox.returnValue === 'ok'), { once: true })
       try { gateBox.showModal() } catch { gateBox.show() }
       if (!gateBox.open) gateBox.show()
+      // Cancel takes the focus, so Enter or Escape never confirm. Set here after a click, not with autofocus:
+      // a cross-origin frame (where the Desk is published) blocks autofocus and logs an error on every load.
+      $('gate-cancel').focus()
     })
   }
   function mmss(sec) { return B.formatSec ? B.formatSec(sec) : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` }
@@ -762,13 +765,18 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     AXES.forEach((a) => { $('ax-' + a).value = i.scores?.[a] ?? 3; $('axv-' + a).textContent = $('ax-' + a).value })
     scoreCurrentIdea()
     $('tl-topic').value = i.idea.replace(/^Remix:\s*/i, ''); $('wf-idea').value = i.idea
-    if (i.title) { $('pr-title').value = i.title; $('tq-title').value = i.title; $('st-title').value = i.title; $('pb-title').value = i.title }
-    if (i.promise) { $('pk-promise').value = i.promise; $('st-promise').value = i.promise; $('pb-promise').value = i.promise }
-    if (i.thumbText) { $('pr-thumb').value = i.thumbText; $('tq-text').value = i.thumbText }
-    if (i.thumbA) $('pb-thumb-a').value = i.thumbA
-    if (i.thumbB) $('pb-thumb-b').value = i.thumbB
-    if (i.script) $('st-script').value = i.script
-    if (i.thumbnailMoment) $('st-moment').value = i.thumbnailMoment
+    // Every per-idea field is assigned, empty when this idea has no value: a field left alone keeps the previous
+    // idea's title, promise or A/B names, and Confirm published would write them into this idea's ledger row.
+    ;['pr-title', 'tq-title', 'st-title', 'pb-title'].forEach((id) => { $(id).value = i.title || '' })
+    ;['pk-promise', 'st-promise', 'pb-promise'].forEach((id) => { $(id).value = i.promise || '' })
+    ;['pr-thumb', 'tq-text'].forEach((id) => { $(id).value = i.thumbText || '' })
+    $('pb-thumb-a').value = i.thumbA || ''; $('pb-thumb-b').value = i.thumbB || ''
+    $('st-script').value = i.script || ''; $('st-moment').value = i.thumbnailMoment || ''
+    // The rest of Publish describes one upload (its video id, time, files, levers): none of it carries to another idea.
+    ;['pb-related', 'pb-sequel', 'pb-video-id', 'pb-at', 'pb-levers', 'pb-file-a', 'pb-file-b'].forEach((id) => { $(id).value = '' })
+    $('pb-predict').value = '1.0'
+    ;['a', 'b'].forEach((l) => { const st = $('pb-file-' + l + '-status'); st.className = 'muted'; st.textContent = 'no file chosen' })
+    $('pb-out').innerHTML = ''; $('pb-check').innerHTML = ''
     renderCurrent()
   }
   function currentIdea() { return ideas().find((x) => x.id === state.currentId) }
@@ -853,11 +861,19 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     qaOrder = qaOrder.filter((n) => gradeKey(n) !== k).concat([name.trim()]).slice(-6); local.write('thumbQaOrder', qaOrder)
   }
   function gradeFor(name) { return conceptGrades.get(gradeKey(name)) || 'rethink' }
-  /** A and B for Publish: the pair picked for the open idea, else the last two concepts QA'd, older first. */
+  /**
+   * A and B for Publish: the names already in the fields or picked for the open idea, and an empty slot filled
+   * from the concepts QA'd most recently, minus any name already picked, so one concept is never offered as
+   * both A and B (the checklist fails that pair as "the same concept").
+   */
   function chosenConcepts() {
-    const i = currentIdea(); const recent = qaOrder.slice(-2)
-    const fallback = { a: recent.length === 2 ? recent[0] : recent[0] || '', b: recent.length === 2 ? recent[1] : '' }
-    return { a: i?.thumbA || fallback.a, b: i?.thumbB || fallback.b }
+    const i = currentIdea()
+    const a = $('pb-thumb-a').value.trim() || i?.thumbA || ''; const b = $('pb-thumb-b').value.trim() || i?.thumbB || ''
+    const others = qaOrder.filter((n) => gradeKey(n) !== gradeKey(a) && gradeKey(n) !== gradeKey(b))
+    if (a && b) return { a, b }
+    if (a || b) { const next = others[others.length - 1] || ''; return { a: a || next, b: b || next } }
+    const recent = others.slice(-2)
+    return { a: recent[0] || '', b: recent[1] || '' }
   }
   /** "Use as A / B": a person picks the pair (a human gate in AGENTS.md); the open idea keeps it. */
   const useButtons = (name) => name ? `<div class="row"><button class="btn sm" data-use-concept="a" data-name="${esc(name)}">Use as thumbnail A</button><button class="btn sm" data-use-concept="b" data-name="${esc(name)}">Use as thumbnail B</button></div>` : '<p class="muted">Name the concept to use it as A or B in Publish.</p>'
@@ -980,7 +996,11 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     const { b48, b168 } = computedBaselines(row.slug)
     const baselines = bucket === '48' || bucket === '24' ? b48 : b168
     const hours = (now.getTime() - Date.parse(row.publishedAt)) / 3600000
-    const d = B.diagnose({ ...read, bucket, baselines: baselines.n > 0 ? baselines : undefined, baseline: baselines.n < 5 ? flatBaseline() : undefined, hoursSincePublish: hours, previousRead: bucket === '48' ? row.reads?.['24'] : undefined, returningViewerPct: read.returningPct, browseSuggestedPct: read.browseSuggestedPct })
+    // At 7 and 28 days decide() judges views on the 7-day median alone and never on a typed one, so the manual
+    // views stay out of the diagnosis there too: the verdict and the decision card below read the same baseline.
+    const weekRead = bucket === '168' || bucket === '672'
+    const flat = baselines.n < 5 ? { ...flatBaseline(), ...(weekRead ? { views: undefined } : {}) } : undefined
+    const d = B.diagnose({ ...read, bucket, baselines: baselines.n > 0 ? baselines : undefined, baseline: flat, hoursSincePublish: hours, previousRead: bucket === '48' ? row.reads?.['24'] : undefined, returningViewerPct: read.returningPct, browseSuggestedPct: read.browseSuggestedPct })
     lastDiag = d
     const updated = { ...row, reads: { ...(row.reads || {}), [bucket]: read }, lever: lever || row.lever, bottleneck: d.bottleneck }
     const decision = B.decide({ diagnosis: d, row: updated, bucket, baselines: baselines.n > 0 ? baselines : undefined, now, source: 'desk' })
@@ -1052,7 +1072,8 @@ Generator vs Solar: Which Is Cheaper?,290000,2026-06-16,OffGridLab,13:58`
     if (!$('retro-rule').value && levers.length) $('retro-rule').value = `On this channel, ${levers[0].lever} (n=${levers[0].count}: ${levers[0].slugs.join(', ')}).`
     const rules = docs('rules')
     // Where a rule stands in a person's words: a compiled rule is under observation, never "promoted" doctrine.
-    $('retro-rules').innerHTML = rules.length ? rules.map((r) => `<li>${esc(r.rule)} <span class="chip">${esc(B.ruleStanding(r))}${r.tests ? ` n=${esc(r.tests)}` : ''}</span></li>`).join('') : '<li class="muted">No rules yet.</li>'
+    // The sentence is rebuilt from the lever and status, as the CLI does: a row an older compile stored as an instruction ("Prefer ...") still reads as a hypothesis.
+    $('retro-rules').innerHTML = rules.length ? rules.map((r) => `<li>${esc(B.ruleSentence(r))} <span class="chip">${esc(B.ruleStanding(r))}${r.tests ? ` n=${esc(r.tests)}` : ''}</span></li>`).join('') : '<li class="muted">No rules yet.</li>'
   }
   $('retro-accept').addEventListener('click', async () => {
     const rule = $('retro-rule').value.trim(); if (!rule) { toast('Write the rule.'); return }
