@@ -7,39 +7,33 @@
  * digest; with --slug and --bucket it is the workflow's review-48 and
  * postmortem stage and writes packages/<slug>/review-<bucket>.json. `brief`
  * is the Monday page. `retro` drafts the weekly retro and, with
- * --accept-rule, is the only writer to playbook/*.md (human-only gate: it
- * needs --yes). `rules compile` turns the ledger into
- * playbook/00-learned-rules.md, whose compiled rules are hypotheses under
- * observation: what it prints says so, and never calls one doctrine.
+ * --accept-rule, is the only writer to a playbook file (human-only gate: it
+ * needs --yes). `rules compile` turns the ledger into 00-learned-rules.md,
+ * whose compiled rules are hypotheses under observation: what it prints says
+ * so, and never calls one doctrine.
+ *
+ * The inbox, packages/ and the channel playbook folder resolve like every
+ * other location (src/workspace.ts): an explicit flag, then the workspace,
+ * then the legacy default. The ai engines read the same playbook folder from
+ * the same flags, so what `rules compile` writes is what they load.
  */
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { buildBrief, renderBriefMarkdown } from '../../src/brief.js'
 import { BUCKETS, type Bucket } from '../../src/buckets.js'
 import { readLedger } from '../../src/ledger.js'
-import { acceptRule, buildRetro, formatRuleLine, renderRetroMarkdown, resolvePlaybookFile } from '../../src/retro.js'
+import { acceptRule, buildRetro, formatRuleLine, planPlaybookWrite, renderRetroMarkdown } from '../../src/retro.js'
 import { dueReviews, renderDigest, runReviews } from '../../src/review.js'
-import { compileRules, describeRule, isProtected, renderLearnedRules, sortRules, statusLabel, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
+import { compileRules, describeRule, isProtected, refuseInstalledPlaybook, renderLearnedRules, sortRules, statusLabel, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
 import { stableId, type RuleDoc } from '../../src/schema.js'
-import { bool, getProfile, getStore, list, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
-
-/** channel-booster/, where inbox/ and playbook/ live by default. */
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+import { resolvePlaybookDir, type Located } from '../../src/workspace.js'
+import { bool, getProfile, getStore, inboxDir, list, need, nowFrom, num, out, packagesRoot, playbookDir, str, type CommandModule, type Flags } from '../shared.js'
 
 const USAGE_REVIEW = 'booster review due [--now ISO] | booster review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>] [--now ISO]'
 const USAGE_BRIEF = 'booster brief [--week | --today] [--inbox dir] [--out brief.md] [--now ISO]'
 const USAGE_RETRO = 'booster retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md] [--now ISO]'
 const USAGE_ACCEPT = 'booster retro --accept-rule "<rule>" --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes'
 const USAGE_RULES = 'booster rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--playbook dir] [--agent <name>] | booster rules show'
-
-function inboxFrom(flags: Flags): string {
-  return path.resolve(str(flags, 'inbox') ?? path.join(ROOT, 'inbox'))
-}
-
-function playbookFrom(flags: Flags): string {
-  return path.resolve(str(flags, 'playbook') ?? path.join(ROOT, 'playbook'))
-}
 
 /** `--agent <name>` as the store's source `agent:<name>`; the schema allows letters, digits, _ and - only. */
 function sourceFrom(flags: Flags): string {
@@ -87,12 +81,12 @@ async function reviewRun(flags: Flags): Promise<number> {
   const slug = str(flags, 'slug')
   const bucket = bucketFrom(flags, USAGE_REVIEW)
   if (bucket && !slug) throw new Error(`--bucket needs --slug. Usage: ${USAGE_REVIEW}`)
-  const inboxDir = inboxFrom(flags)
-  const root = path.resolve(str(flags, 'root') ?? process.cwd())
+  const inbox = inboxDir(flags)
+  const root = packagesRoot(flags)
   const result = runReviews(store, {
     now,
     profile,
-    inboxDir: existsSync(inboxDir) ? inboxDir : undefined,
+    inboxDir: existsSync(inbox) ? inbox : undefined,
     outDir: path.resolve(str(flags, 'out') ?? path.join(store.root, 'reviews')),
     packagesDir: path.join(root, 'packages'),
     slug,
@@ -142,8 +136,8 @@ async function runBrief(flags: Flags): Promise<number> {
   const now = nowFrom(flags)
   const store = getStore(flags)
   const profile = getProfile(flags)
-  const inboxDir = inboxFrom(flags)
-  const inboxFiles = existsSync(inboxDir) ? readdirSync(inboxDir).filter((f) => !f.startsWith('.')) : []
+  const inbox = inboxDir(flags)
+  const inboxFiles = existsSync(inbox) ? readdirSync(inbox).filter((f) => !f.startsWith('.')) : []
   const brief = buildBrief(store, { now, profile, window: bool(flags, 'today') ? 'today' : 'week', inboxFiles })
   const md = renderBriefMarkdown(brief)
   const outFile = str(flags, 'out')
@@ -164,11 +158,16 @@ function sinceFrom(flags: Flags, now: Date): Date {
   return d
 }
 
-/** `--into` as a path inside the playbook folder: absolute, `playbook/x.md`, `channel-booster/playbook/x.md` or bare `x.md`. */
-function intoFrom(into: string, playbookDir: string): string {
-  if (path.isAbsolute(into)) return path.relative(playbookDir, into)
+/**
+ * `--into` as a path inside the channel playbook folder: absolute,
+ * `playbook/x.md`, `channel-booster/playbook/x.md` or bare `x.md`. Outside
+ * the legacy source layout, `playbook/x.md` names this channel's x.md, never
+ * the shipped file of that name.
+ */
+function intoFrom(into: string, folder: string): string {
+  if (path.isAbsolute(into)) return path.relative(folder, into)
   const fromCwd = path.resolve(into)
-  const rel = path.relative(playbookDir, fromCwd)
+  const rel = path.relative(folder, fromCwd)
   if (existsSync(fromCwd) && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel
   return into.replace(/^(?:\.\/)?(?:channel-booster\/)?playbook\//, '')
 }
@@ -177,28 +176,27 @@ async function retroAccept(rule: string, flags: Flags): Promise<number> {
   const into = need(flags, 'into', USAGE_ACCEPT)
   const now = nowFrom(flags)
   const store = getStore(flags)
-  const playbookDir = playbookFrom(flags)
-  const file = intoFrom(into, playbookDir)
+  const folder = playbookDir(flags)
+  const file = intoFrom(into, folder)
   const slugs = list(flags, 'slugs') ?? []
   const by = str(flags, 'by') ?? 'human'
   const text = rule.replace(/\s+/g, ' ').trim()
   if (!text) throw new Error(`a rule needs text. Usage: ${USAGE_ACCEPT}`)
   // The same checks acceptRule() makes, so the preview never names a file the --yes run would refuse.
-  const target = resolvePlaybookFile(playbookDir, file)
-  if (!existsSync(target)) throw new Error(`no such playbook file: ${target}`)
+  const target = planPlaybookWrite(folder, file)
   const line = formatRuleLine(text, slugs, now)
   const id = stableId('rule', text)
-  const plan = { action: 'accept-rule', file: target, line, ruleId: id, acceptedBy: by, applied: false, needs: '--yes' }
+  const plan = { action: 'accept-rule', file: target.file, extends: target.extends ?? null, line, ruleId: id, acceptedBy: by, applied: false, needs: '--yes' }
   if (!bool(flags, 'yes')) {
     out(plan, flags, () => [
-      `About to append to ${target}:`,
+      target.extends ? `About to start ${target.file}, this channel's additions to the shipped ${target.extends}, and append:` : `About to append to ${target.file}:`,
       `  ${line}`,
       `and record rules/${id} as accepted by ${by} (protected from booster rules compile).`,
       'Accepting a playbook rule is a human-only decision (AGENTS.md).',
     ].join('\n'))
     throw new Error('nothing written. A person re-runs with --yes to accept the rule.')
   }
-  const written = acceptRule(playbookDir, file, text, { slugs, now })
+  const written = acceptRule(folder, file, text, { slugs, now })
   const doc: RuleDoc = {
     id,
     rule: text,
@@ -214,7 +212,12 @@ async function retroAccept(rule: string, flags: Flags): Promise<number> {
   }
   const existing = store.get('rules', id)
   store.upsert('rules', existing ? { ...existing, rule: text, status: 'promoted', slugs: [...new Set([...existing.slugs, ...slugs])], acceptedBy: by, updatedAt: now.toISOString() } : doc)
-  out({ ...plan, applied: true, written }, flags, () => [`Accepted into ${written}:`, `  ${line}`, `Recorded rules/${id} (accepted by ${by}); booster rules compile keeps it.`].join('\n'))
+  out({ ...plan, applied: true, written }, flags, () => [
+    `Accepted into ${written}:`,
+    `  ${line}`,
+    `Recorded rules/${id} (accepted by ${by}); booster rules compile keeps it.`,
+    ...(target.extends ? [`The booster ai engines load ${written} after the shipped ${target.extends}.`] : []),
+  ].join('\n'))
   return 0
 }
 
@@ -241,7 +244,21 @@ function ruleLine(r: RuleDoc): string {
 /** Printed above any compiled rule a person sees: what the rules are, and the one way into the playbook. */
 const OBSERVATION_NOTE = `Compiled rules are hypotheses under observation from this channel's own small sample, not doctrine. Only a person moves a rule into the playbook: ${USAGE_ACCEPT}`
 
+/**
+ * Where the ai engines pick up what `rules compile` wrote: they read the
+ * channel playbook folder from the same flags and workspace, so name the
+ * folder (`where`, as resolvePlaybookDir() found it) and how a run reaches
+ * it again.
+ */
+export function enginesLoad(where: Located): string {
+  const how = where.source === 'flag' ? `when they run with --playbook ${where.path}` : where.source === 'workspace' ? `from this workspace's playbook folder, ${where.path}` : `from ${where.path}`
+  return `The booster ai engines load it ${how}, right after docs/02, as observations under test, not doctrine.`
+}
+
 async function rulesCompile(flags: Flags): Promise<number> {
+  const where = resolvePlaybookDir(flags)
+  // Before the compile touches the store, so a refused write leaves nothing half done.
+  refuseInstalledPlaybook(where.path)
   const now = nowFrom(flags)
   const store = getStore(flags)
   const options = {
@@ -257,7 +274,7 @@ async function rulesCompile(flags: Flags): Promise<number> {
   }
   const result = compileRules(store, options)
   const content = renderLearnedRules(result.rules, options)
-  const written = writeLearnedRules(playbookFrom(flags), content)
+  const written = writeLearnedRules(where.path, content)
   const accepted = result.rules.filter(isProtected)
   const observed = result.rules.filter((r) => !isProtected(r))
   const count = (status: RuleDoc['status']): number => observed.filter((r) => r.status === status).length
@@ -266,10 +283,7 @@ async function rulesCompile(flags: Flags): Promise<number> {
     ...(observed.length ? [OBSERVATION_NOTE] : []),
     ...(result.changes.length ? ['Changes:', ...result.changes.map((c) => `  ${c.lever}: ${statusLabel(c.from)} -> ${statusLabel(c.to)}`)] : ['No status changes since the last compile.']),
     ...[...accepted, ...observed.filter((r) => r.status === 'promoted')].map(ruleLine),
-    // The ai engines read ROOT/playbook only, so say so when --playbook wrote the file somewhere they never look.
-    path.dirname(written) === path.join(ROOT, 'playbook')
-      ? `Wrote ${written} (${content.length} chars); every booster ai engine loads it after docs/02 as observations under test, not doctrine.`
-      : `Wrote ${written} (${content.length} chars). The booster ai engines read ${path.join(ROOT, 'playbook')}, not this folder, so this file does not reach their prompts.`,
+    `Wrote ${written} (${content.length} chars). ${enginesLoad(where)}`,
   ].join('\n'))
   return 0
 }
@@ -277,7 +291,7 @@ async function rulesCompile(flags: Flags): Promise<number> {
 async function rulesShow(flags: Flags): Promise<number> {
   const store = getStore(flags)
   const rules = sortRules(store.read('rules'))
-  out({ rules, file: path.join(playbookFrom(flags), LEARNED_RULES_FILE) }, flags, () => {
+  out({ rules, file: path.join(playbookDir(flags), LEARNED_RULES_FILE) }, flags, () => {
     if (rules.length === 0) return `No rules yet: run booster rules compile once the ledger has 7-day reads with levers, or accept one with ${USAGE_ACCEPT}`
     return [...(rules.some((r) => !isProtected(r)) ? [OBSERVATION_NOTE] : []), ...rules.map(ruleLine)].join('\n')
   })
@@ -291,8 +305,8 @@ export const learnModule: CommandModule = {
     'review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>]   ingest inbox/, diagnose due reads, decide, prepare swaps; writes data/reviews/<date>.json (+ packages/<slug>/review-<bucket>.json with --slug, only once a real read reached a decision; exit 1 otherwise)',
     'brief [--week | --today] [--inbox dir] [--out brief.md]            the Monday page: reads due, decisions awaiting, tests to close, rule changes, alerts, next three',
     'retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md]                 the weekly retro: published, levers, winners, losers, candidate rule, overrides',
-    'retro --accept-rule ".." --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes   accept a rule into a playbook file (human-only gate; the only writer to playbook/*.md)',
-    'rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--agent <name>]   compile the ledger into playbook/00-learned-rules.md: hypotheses under observation, not doctrine',
+    'retro --accept-rule ".." --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes   accept a rule into the channel\'s playbook file (human-only gate; the only writer to playbook/*.md; in a workspace a shipped file\'s name starts the channel\'s copy of it)',
+    'rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--playbook dir] [--agent <name>]   compile the ledger into the channel playbook folder\'s 00-learned-rules.md: hypotheses under observation, not doctrine',
     'rules show                                                         every rule in the store: under observation, under test, or accepted by a person, with tests, wins, win rate and confidence',
   ],
   async run(cmd, sub, _rest, flags) {

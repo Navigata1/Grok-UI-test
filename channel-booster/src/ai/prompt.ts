@@ -3,24 +3,31 @@
  * `assemblePrompt()` that turns an engine name plus CLI flags into the
  * system blocks and the user message `index.ts` sends to the model.
  *
- * Nothing here touches the network. File reads (the playbook, `--csv`,
- * `--script`, `--previous`, the fix-round template) go through an
- * injectable loader so tests pass strings and `--dry-run` shows exactly
- * what a real run would send.
+ * The doctrine is the one this build ships (`shippedDoctrine()`: embedded in
+ * the packaged bin, read from the checkout from source), never whatever sits
+ * next to the code on disk. On top of it the loader lays the channel
+ * playbook folder: the channel's compiled learned rules and the rules a
+ * person accepted into its playbook.
+ *
+ * Nothing here touches the network. File reads (the channel playbook folder,
+ * `--csv`, `--script`, `--previous`) go through injectable loaders so tests
+ * pass strings and `--dry-run` shows exactly what a real run would send.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { readVideoRows } from '../csv.js'
 import { computeOutliers, formatLift } from '../outliers.js'
 import { diagnose } from '../postmortem.js'
+import { isShippedPlaybookDir } from '../rules.js'
 import type { PostMortemInput } from '../types.js'
+import { CODE_ROOT } from '../workspace.js'
+import { DOCTRINE_FILE, doctrineHash, LEARNED_RULES_NAME, shippedDoctrine, type DoctrineFile, type ShippedDoctrine } from './doctrine.js'
 import { ENGINES, ENGINE_NAMES, isEngineName, type EngineName } from './schemas.js'
 
-const here = path.dirname(fileURLToPath(import.meta.url))
+export { DOCTRINE_FILE }
 
-/** The module root (`channel-booster/`), where `docs/` and `playbook/` live. */
-export const ROOT = path.resolve(here, '..', '..')
+/** The module root (`channel-booster/` in a source checkout). The doctrine comes from `shippedDoctrine()`, never from a read under this folder. */
+export const ROOT = CODE_ROOT
 
 /** CLI flags as `cli/shared.ts` parses them: `--key value` is a string, a bare `--key` is `true`. */
 export type Flags = Record<string, string | boolean>
@@ -35,14 +42,21 @@ export const DEFAULT_EFFORT: Effort = 'high'
 /** Upper bound on the concatenated doctrine, so the cached system block stays well inside the context window (house default). */
 export const PLAYBOOK_MAX_CHARS = 120_000
 
-/** The doctrine file: the R-table with evidence tags; loaded first, always. */
-export const DOCTRINE_FILE = path.posix.join('docs', '02-strategist-playbook.md')
+/** The compiled rules file as the legacy layout names it; loaded second when present, ahead of the rest of the playbook. Its rules are observations under test, not doctrine (see SYSTEM_PREAMBLE). */
+export const LEARNED_RULES_FILE = path.posix.join('playbook', LEARNED_RULES_NAME)
 
-/** The compiled rules file; loaded second when present, ahead of the hand-written playbook. Its rules are observations under test, not doctrine (see SYSTEM_PREAMBLE). */
-export const LEARNED_RULES_FILE = path.posix.join('playbook', '00-learned-rules.md')
+/**
+ * How the prompt names a file from a channel playbook folder that is not the
+ * shipped one (`channel playbook/00-learned-rules.md`), so the model never
+ * mistakes a channel's file for the shipped playbook file of the same name.
+ */
+export const OVERLAY_LABEL = 'channel playbook'
 
-/** The fix-round template `ai package-fix` fills with `{{fixes}}` and `{{previous}}`. */
-export const PACKAGE_FIX_TEMPLATE_PATH = path.join(ROOT, 'prompts', 'package-fix.md')
+/** The doctrine hash a run reports when `--no-doctrine` left the shipped doctrine out. */
+export const NO_DOCTRINE_HASH = 'none'
+
+/** What the cached block says in place of the doctrine under `--no-doctrine`. */
+export const NO_DOCTRINE_NOTE = 'This run has no doctrine (--no-doctrine): the evidence-tagged rules of docs/02-strategist-playbook.md and playbook/*.md were not loaded. Say so wherever one of those rules would normally decide, and never invent an evidence tag.'
 
 /** Hard cap on how much of a `--script` file goes to the model (house default). */
 export const SCRIPT_MAX_CHARS = 60_000
@@ -61,13 +75,13 @@ const OUTLIER_CONTEXT_LIFTS = 6
 export const SYSTEM_PREAMBLE = [
   'You are the strategist inside the YouTube Channel Booster. You reason the way a packaging-first YouTube strategist does: an idea is only real once it has a title, a thumbnail, and a demand signal; the video is judged per upload, so a first upload can win; the biggest mistake is producing before packaging.',
   'Work from the playbook below. Be specific to the channel described in the request, never generic.',
-  'The compiled learned rules (playbook/00-learned-rules.md, each with its tests, wins, win rate and confidence) are observations under test from this channel\'s own small sample, not doctrine. They never override the doctrine: where one disagrees with it, follow the doctrine. Mention a learned rule only as a hypothesis worth testing, with its evidence count. Rules a person accepted (marked [accepted by ...] or [pinned], or listed under "## Learned rules" in a playbook file) are part of the playbook.',
+  'The compiled learned rules (00-learned-rules.md, each with its tests, wins, win rate and confidence) are observations under test from this channel\'s own small sample, not doctrine. They never override the doctrine: where one disagrees with it, follow the doctrine. Mention a learned rule only as a hypothesis worth testing, with its evidence count. Rules a person accepted (marked [accepted by ...] or [pinned], or listed under "## Learned rules" in a playbook file) are part of the playbook. A file named "channel playbook/<file>" comes from this channel\'s own playbook folder: its compiled 00-learned-rules.md follows docs/02, and its other files follow the shipped playbook.',
   'Every rule and figure in the doctrine carries an evidence tag: [sourced], [unverified] or [house]. Never state an [unverified] platform mechanic as fact; say it is unverified or reason without it.',
   'When you cite a threshold (a CTR band, a retention mark, a multiplier, a character count), name its tag next to the number, for example "60% [unverified]" or "10x [house]".',
   'Return only the structured object requested.',
 ].join(' ')
 
-/** The file reads `loadPlaybook()` makes, so tests inject strings. */
+/** The file reads `loadPlaybook()` makes in the channel playbook folder, so tests inject strings. */
 export interface PlaybookFs {
   exists(file: string): boolean
   readdir(dir: string): string[]
@@ -80,58 +94,121 @@ const nodeFs: PlaybookFs = {
   readFile: (file) => readFileSync(file, 'utf8'),
 }
 
-/** What `loadPlaybook()` returns: the concatenated text and the files it came from, in load order, relative to the root. */
+/** The shipped doctrine a prompt carries: its hash and file names, in load order. */
+export interface DoctrineSummary {
+  hash: string
+  files: string[]
+}
+
+/** What `loadPlaybook()` returns: the concatenated text, every file in load order, and where each came from. */
 export interface LoadedPlaybook {
   text: string
+  /** Every file loaded, in load order, as its `<!-- name -->` header names it. */
   files: string[]
+  /** The shipped doctrine loaded: its hash and files (`none` and no files under `--no-doctrine`). */
+  doctrine: DoctrineSummary
+  /** The channel playbook files loaded on top of it, as `playbook/<file>`. */
+  overlay: string[]
+  /** The channel playbook folder read, when there was one. */
+  overlayDir?: string
 }
 
 export interface LoadPlaybookOptions {
   /** Stop adding files once the text would exceed this many characters. */
   maxChars?: number
-  /** File access; defaults to node:fs. */
+  /** File access for the channel playbook folder; defaults to node:fs. */
   fs?: PlaybookFs
+  /** The shipped doctrine; defaults to `shippedDoctrine()`. */
+  doctrine?: ShippedDoctrine
+  /** Leave the shipped doctrine out (`--no-doctrine`); the text says the run has none. */
+  noDoctrine?: boolean
+  /** The shipped playbook folder; a channel folder equal to it is the legacy layout. Defaults to channel-booster/playbook. */
+  shippedDir?: string
+}
+
+const EMPTY_DOCTRINE = 'This build ships no doctrine: docs/02-strategist-playbook.md and playbook/*.md are missing, so the engines would reason without their rules. Reinstall channel-booster (from source, restore channel-booster/docs and channel-booster/playbook), or pass --no-doctrine to run without doctrine on purpose.'
+
+/** One file on its way into the cached block. */
+interface Chunk {
+  label: string
+  read: () => string
+  shipped?: DoctrineFile
+  overlay?: string
 }
 
 /**
  * Load the doctrine in a fixed order: `docs/02-strategist-playbook.md`, then
- * `playbook/00-learned-rules.md` when it exists, then the other `playbook/*.md`
- * files alphabetically. Never `docs/01-*`, `docs/03-*` or `research/*`: those
- * are evidence notes and design, not rules. Each file is wrapped in an HTML
- * comment naming it so the model can cite where a rule came from. Files that
- * would push the text past `maxChars` are left out, and `files` lists only
- * what was loaded.
+ * the channel's compiled `00-learned-rules.md` when `overlayDir` holds one,
+ * then the shipped `playbook/*.md` files in their shipped order, then every
+ * other `*.md` in `overlayDir` alphabetically (the rules a person accepted
+ * into this channel's playbook). The doctrine comes from `shippedDoctrine()`,
+ * so never `docs/01-*`, `docs/03-*` or `research/*`: those are evidence notes
+ * and design, not rules. Each file is wrapped in an HTML comment naming it so
+ * the model can cite where a rule came from; a channel file is named
+ * `channel playbook/<file>`. When `overlayDir` is the shipped playbook folder
+ * itself (a source checkout's legacy layout) only its compiled rules are
+ * taken from it, so the prompt is the one this loader has always built.
+ * Files that would push the text past `maxChars` are left out, and `files`
+ * lists only what was loaded. Throws when the build ships no doctrine, unless
+ * `noDoctrine` is set.
  */
-export function loadPlaybook(rootDir: string = ROOT, options: LoadPlaybookOptions = {}): LoadedPlaybook {
+export function loadPlaybook(overlayDir?: string, options: LoadPlaybookOptions = {}): LoadedPlaybook {
   const fs = options.fs ?? nodeFs
   const maxChars = options.maxChars ?? PLAYBOOK_MAX_CHARS
-  const wanted: string[] = []
-  const doctrine = path.join(rootDir, DOCTRINE_FILE)
-  if (fs.exists(doctrine)) wanted.push(DOCTRINE_FILE)
-  const learned = path.join(rootDir, LEARNED_RULES_FILE)
-  if (fs.exists(learned)) wanted.push(LEARNED_RULES_FILE)
-  const playbookDir = path.join(rootDir, 'playbook')
-  if (fs.exists(playbookDir)) {
-    for (const name of [...fs.readdir(playbookDir)].sort()) {
+  const shipped = options.noDoctrine ? undefined : options.doctrine ?? shippedDoctrine()
+  if (shipped && shipped.files.length === 0) throw new Error(EMPTY_DOCTRINE)
+  const legacy = overlayDir !== undefined && isShippedPlaybookDir(overlayDir, options.shippedDir)
+
+  const channel: Chunk[] = []
+  if (overlayDir !== undefined && fs.exists(overlayDir)) {
+    for (const name of [...fs.readdir(overlayDir)].sort()) {
       if (!name.endsWith('.md')) continue
-      const rel = path.posix.join('playbook', name)
-      if (rel === LEARNED_RULES_FILE) continue
-      wanted.push(rel)
+      // The legacy folder is the shipped playbook: its other files are already in the doctrine.
+      if (legacy && name !== LEARNED_RULES_NAME) continue
+      channel.push({ label: `${legacy ? 'playbook' : OVERLAY_LABEL}/${name}`, read: () => fs.readFile(path.join(overlayDir, name)), overlay: `playbook/${name}` })
     }
   }
-  const chunks: string[] = []
+  const fromShipped = (f: DoctrineFile): Chunk => ({ label: f.name, read: () => f.text, shipped: f })
+  const shippedFiles = shipped?.files ?? []
+  const learned = channel.filter((c) => c.overlay === LEARNED_RULES_FILE)
+  const wanted: Chunk[] = [
+    ...shippedFiles.filter((f) => f.name === DOCTRINE_FILE).map(fromShipped),
+    ...learned,
+    ...shippedFiles.filter((f) => f.name !== DOCTRINE_FILE).map(fromShipped),
+    ...channel.filter((c) => !learned.includes(c)),
+  ]
+
+  const chunks: string[] = shipped ? [] : [`<!-- no doctrine -->\n${NO_DOCTRINE_NOTE}`]
   const files: string[] = []
-  let length = 0
-  for (const rel of wanted) {
-    const body = fs.readFile(path.join(rootDir, rel)).trim()
-    const chunk = `<!-- ${rel} -->\n${body}`
+  const loadedShipped: DoctrineFile[] = []
+  const overlay: string[] = []
+  let length = chunks.reduce((n, c) => n + c.length, 0)
+  for (const c of wanted) {
+    const chunk = `<!-- ${c.label} -->\n${c.read().trim()}`
     const cost = chunk.length + (chunks.length ? 2 : 0)
     if (length + cost > maxChars) break
     chunks.push(chunk)
-    files.push(rel)
+    files.push(c.label)
     length += cost
+    if (c.shipped) loadedShipped.push(c.shipped)
+    if (c.overlay) overlay.push(c.overlay)
   }
-  return { text: chunks.join('\n\n'), files }
+  const doctrine: DoctrineSummary = shipped
+    ? { hash: loadedShipped.length === shipped.files.length ? shipped.hash : doctrineHash(loadedShipped), files: loadedShipped.map((f) => f.name) }
+    : { hash: NO_DOCTRINE_HASH, files: [] }
+  return { text: chunks.join('\n\n'), files, doctrine, overlay, ...(overlayDir !== undefined ? { overlayDir } : {}) }
+}
+
+/** `doctrine <hash> (<n> files)`, or `doctrine none (--no-doctrine)`. */
+export function describeDoctrine(doctrine: DoctrineSummary): string {
+  if (doctrine.hash === NO_DOCTRINE_HASH) return 'doctrine none (--no-doctrine)'
+  return `doctrine ${doctrine.hash} (${doctrine.files.length} file${doctrine.files.length === 1 ? '' : 's'})`
+}
+
+/** `overlay <folder>: <files>`, or that there was no channel playbook folder to read. */
+export function describeOverlay(files: string[], dir: string | undefined): string {
+  if (dir === undefined) return 'overlay: none (no channel workspace)'
+  return `overlay ${dir}: ${files.join(', ') || '(none)'}`
 }
 
 /** Validate `--effort` against the five levels; absent means `high`. */
@@ -148,15 +225,23 @@ export interface PromptContext {
   playbookText?: string
   /** The files the doctrine came from, echoed in the result for the provenance line. */
   playbookFiles?: string[]
+  /** The shipped doctrine inside playbookText, echoed for the provenance line. */
+  doctrine?: DoctrineSummary
+  /** The channel playbook files inside playbookText, as `playbook/<file>`. */
+  overlay?: string[]
+  /** The channel playbook folder they came from. */
+  overlayDir?: string
   /** `describeProfile(channel.json)`; used as the channel line when `--channel` is absent. */
   profileText?: string
   /** `package-fix`: the gate fixes, when called from code rather than the CLI. */
   fixes?: string[]
   /** `package-fix`: the previous round's output, when called from code. */
   previous?: unknown
+  /** `package-fix`: the fix-round template with `{{fixes}}` and `{{previous}}` (the shipped doctrine's `packageFixTemplate`). */
+  packageFixTemplate?: string
   /** `postmortem`: the computed baseline from the profile; `--baseline-*` flags override it. */
   baseline?: PostMortemInput['baseline']
-  /** Reads `--csv`, `--script`, `--fixes-file`, `--previous` and the fix template; defaults to node:fs. */
+  /** Reads `--csv`, `--script`, `--fixes-file` and `--previous`; defaults to node:fs. */
   readFile?: (file: string) => string
 }
 
@@ -172,6 +257,12 @@ export interface AssembledPrompt {
   system: SystemBlock[]
   user: string
   playbookFiles: string[]
+  /** The shipped doctrine in the cached block, when the caller loaded it. */
+  doctrine?: DoctrineSummary
+  /** The channel playbook files in the cached block, as `playbook/<file>`. */
+  overlay: string[]
+  /** The channel playbook folder they came from. */
+  overlayDir?: string
 }
 
 function flag(flags: Flags, key: string): string | undefined {
@@ -240,8 +331,10 @@ function packageFixUser(flags: Flags, channel: string, ctx: PromptContext, read:
       previous = '(no previous round supplied)'
     }
   }
+  const template = ctx.packageFixTemplate
+  if (!template?.trim()) throw new Error('package-fix needs the fix-round template (prompts/package-fix.md), and this build ships none. Reinstall channel-booster, or restore channel-booster/prompts/package-fix.md in a source checkout.')
   const head = [`Channel: ${channel}`, `Idea: ${flag(flags, 'idea') ?? '(not given)'}`, `Title: ${flag(flags, 'title') ?? '(not given)'}`].join('\n')
-  return `${head}\n\n${renderPackageFixUser(fixes, previous, read(PACKAGE_FIX_TEMPLATE_PATH))}`
+  return `${head}\n\n${renderPackageFixUser(fixes, previous, template)}`
 }
 
 /**
@@ -323,12 +416,21 @@ export function assemblePrompt(engine: string, flags: Flags, context: PromptCont
     ],
     user,
     playbookFiles: [...(context.playbookFiles ?? [])],
+    ...(context.doctrine ? { doctrine: { hash: context.doctrine.hash, files: [...context.doctrine.files] } } : {}),
+    overlay: [...(context.overlay ?? [])],
+    ...(context.overlayDir !== undefined ? { overlayDir: context.overlayDir } : {}),
   }
 }
 
-/** The `--dry-run` view: every system block, the user message and the playbook files, in the order sent. */
+/**
+ * The `--dry-run` view: the doctrine and the channel playbook files it
+ * carries, every system block, the user message and the playbook files, in
+ * the order sent.
+ */
 export function formatDryRun(assembled: AssembledPrompt): string {
-  const lines: string[] = [`engine: ${assembled.engine}`, `schema: ${assembled.engine} -> ${Object.keys(ENGINES[assembled.engine].shape).join(', ')}`, `playbook files (${assembled.playbookFiles.length}): ${assembled.playbookFiles.join(', ') || '(none)'}`]
+  const lines: string[] = [`engine: ${assembled.engine}`, `schema: ${assembled.engine} -> ${Object.keys(ENGINES[assembled.engine].shape).join(', ')}`]
+  if (assembled.doctrine) lines.push(describeDoctrine(assembled.doctrine), describeOverlay(assembled.overlay, assembled.overlayDir))
+  lines.push(`playbook files (${assembled.playbookFiles.length}): ${assembled.playbookFiles.join(', ') || '(none)'}`)
   assembled.system.forEach((block, i) => {
     lines.push('', `--- system[${i}]${block.cache ? ' (cached)' : ''} ---`, block.text)
   })

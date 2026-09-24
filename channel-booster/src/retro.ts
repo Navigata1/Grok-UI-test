@@ -3,15 +3,18 @@
  * which rows lost and why, every gate a person overrode, whether the
  * baseline moved, and the next three ideas to lock. One candidate rule is
  * drafted from the most frequent lever; a person accepts it with
- * `acceptRule()`, the only path that writes to `playbook/*.md`.
+ * `acceptRule()`, the only path that writes to a playbook file: the channel
+ * playbook folder's, never the playbook the build ships (outside the legacy
+ * source layout, where that folder is the channel's).
  *
  * Numbers come from the ledger (src/ledger.ts); nothing here is typed by hand.
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { shippedDoctrine } from './ai/doctrine.js'
 import { listIdeas, type BankRow } from './bank.js'
 import { leverTally, ownOutliers, readLedger } from './ledger.js'
-import { LEARNED_RULES_FILE } from './rules.js'
+import { isShippedPlaybookDir, LEARNED_RULES_FILE, refuseInstalledPlaybook, type PlaybookWriteOptions } from './rules.js'
 import type { LedgerRow, ProfileDoc } from './schema.js'
 import type { Store } from './store.js'
 
@@ -208,22 +211,70 @@ export function renderRetroMarkdown(retro: Retro): string {
   return lines.join('\n')
 }
 
-export interface AcceptRuleOptions {
+export interface AcceptRuleOptions extends PlaybookFileOptions {
   /** Ledger slugs that back the rule; printed as refs after the rule. */
   slugs?: string[]
   /** Date stamp for the line. Defaults to the wall clock; inject it in tests. */
   now?: Date
 }
 
-/** Resolve `file` inside `playbookDir`, refusing anything outside it and the compiled rules file. */
-export function resolvePlaybookFile(playbookDir: string, file: string): string {
+/** `shippedDir` (a `playbookDir` equal to it is the legacy source layout, written in place) and `bundled`, as for every playbook write. */
+export interface PlaybookFileOptions extends PlaybookWriteOptions {
+  /** The shipped playbook file names (`title-formulas.md`, ...) a channel file may extend; defaults to the shipped doctrine's. */
+  shippedFiles?: string[]
+}
+
+/** Where an accepted rule goes. */
+export interface PlaybookTarget {
+  /** The absolute path of the file the rule is appended to. */
+  file: string
+  /** Set when the file does not exist yet: the shipped playbook file it extends (`playbook/<name>`), named in its one-line header. */
+  extends?: string
+}
+
+/**
+ * Resolve `file` inside `playbookDir`, refusing anything outside it, the
+ * compiled rules file, non-Markdown files, and (in the packaged bin) the
+ * playbook folder inside the installed package.
+ */
+export function resolvePlaybookFile(playbookDir: string, file: string, options: PlaybookFileOptions = {}): string {
   const root = path.resolve(playbookDir)
+  refuseInstalledPlaybook(root, options)
   const target = path.resolve(root, file)
   const rel = path.relative(root, target)
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error(`refusing to write outside the playbook folder: ${file}`)
   if (path.basename(target) === LEARNED_RULES_FILE) throw new Error(`${LEARNED_RULES_FILE} is compiled by \`booster rules compile\`; accept rules into another playbook file`)
   if (path.extname(target).toLowerCase() !== '.md') throw new Error(`playbook files are Markdown: ${file}`)
   return target
+}
+
+/** The shipped playbook file names, from the doctrine this build ships. */
+function shippedPlaybookNames(): string[] {
+  return shippedDoctrine().files.filter((f) => f.name.startsWith('playbook/')).map((f) => f.name.slice('playbook/'.length))
+}
+
+/** The one-line header of a channel playbook file that `acceptRule()` starts. */
+export function channelFileHeader(extendsFile: string): string {
+  return `# Accepted rules for this channel, extending the shipped ${extendsFile}`
+}
+
+/**
+ * Where a rule accepted into `file` lands. In the legacy source layout
+ * (`playbookDir` is the shipped playbook folder) the file must exist and is
+ * written in place. In a channel playbook folder (a workspace's playbook/,
+ * or --playbook) an existing file is appended to; a missing file that names
+ * a shipped playbook file is started as this channel's copy of it, which the
+ * engines load after the shipped file. Anything else is refused: a new
+ * playbook file is a deliberate act, not a side effect.
+ */
+export function planPlaybookWrite(playbookDir: string, file: string, options: PlaybookFileOptions = {}): PlaybookTarget {
+  const target = resolvePlaybookFile(playbookDir, file, options)
+  if (existsSync(target)) return { file: target }
+  if (isShippedPlaybookDir(playbookDir, options.shippedDir)) throw new Error(`no such playbook file: ${target}`)
+  const shipped = options.shippedFiles ?? shippedPlaybookNames()
+  const name = path.relative(path.resolve(playbookDir), target)
+  if (shipped.includes(name)) return { file: target, extends: `playbook/${name}` }
+  throw new Error(`no such playbook file: ${target}. Accept the rule into a file this channel's playbook already has, or into a shipped playbook file to start this channel's copy of it: ${shipped.join(', ') || '(this build ships none)'}`)
 }
 
 /** The line `acceptRule()` appends. Slugs the rule text already names (a drafted candidate carries them) are not repeated. */
@@ -236,21 +287,23 @@ export function formatRuleLine(rule: string, slugs: string[], now: Date): string
 /**
  * Append an accepted rule to a playbook file under `## Learned rules`,
  * creating the heading once at the end of the file. The line is
- * `- <date>: <rule> (<slug refs>)`. Refuses files outside `playbookDir`,
- * the compiled `00-learned-rules.md`, non-Markdown files, and files that do
- * not exist yet (a new playbook file is a deliberate act, not a side effect).
- * A rule already present under the heading is not appended twice.
- * Returns the absolute path written.
+ * `- <date>: <rule> (<slug refs>)`. The file is the one `planPlaybookWrite()`
+ * names: in a channel playbook folder a shipped file's name starts this
+ * channel's copy (one header line naming the shipped file), so the shipped
+ * playbook is never written. Refuses files outside `playbookDir`, the
+ * compiled `00-learned-rules.md`, non-Markdown files, and any other file
+ * that does not exist yet. A rule already present under the heading is not
+ * appended twice. Returns the absolute path written.
  */
 export function acceptRule(playbookDir: string, file: string, rule: string, options: AcceptRuleOptions = {}): string {
   const text = rule.replace(/\s+/g, ' ').trim()
   if (!text) throw new Error('a rule needs text')
-  const target = resolvePlaybookFile(playbookDir, file)
-  if (!existsSync(target)) throw new Error(`no such playbook file: ${target}`)
+  const plan = planPlaybookWrite(playbookDir, file, options)
+  const target = plan.file
   const now = options.now ?? new Date()
   const line = formatRuleLine(text, options.slugs ?? [], now)
 
-  const original = readFileSync(target, 'utf8')
+  const original = plan.extends ? `${channelFileHeader(plan.extends)}\n` : readFileSync(target, 'utf8')
   const lines = original.split('\n')
   if (lines.length && lines[lines.length - 1] === '') lines.pop()
   let headingAt = lines.findIndex((l) => l.trim() === LEARNED_RULES_HEADING)
@@ -280,6 +333,7 @@ export function acceptRule(playbookDir: string, file: string, rule: string, opti
   const next = [...before, ...block, ...(after.length ? ['', ...after] : [])]
   const content = `${next.join('\n')}\n`
   const tmp = `${target}.tmp`
+  if (plan.extends) mkdirSync(path.dirname(target), { recursive: true })
   writeFileSync(tmp, content)
   renameSync(tmp, target)
   return target
