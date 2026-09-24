@@ -25,6 +25,7 @@ import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BUNDLED, cliName } from './build-info.js'
+import { shellQuote } from './shell.js'
 
 /** The file that marks a folder as a channel workspace. */
 export const WORKSPACE_MARKER = 'booster-workspace.json'
@@ -107,7 +108,7 @@ export function discoverWorkspace(start: string): string | undefined {
 }
 
 function notAWorkspace(root: string, given: string, how: string, bundled: boolean): NoWorkspaceError {
-  return new NoWorkspaceError(`${root} (from ${how}) is not a booster workspace: it has no ${WORKSPACE_MARKER}. Create it with: ${cliName(bundled)} init ${given}`)
+  return new NoWorkspaceError(`${root} (from ${how}) is not a booster workspace: it has no ${WORKSPACE_MARKER}. Create it with: ${cliName(bundled)} init ${shellQuote(given)}`)
 }
 
 /**

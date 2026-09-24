@@ -18,6 +18,11 @@ export const BUNDLED: boolean = typeof __BOOSTER_BUNDLED__ !== 'undefined' && __
 /** The package version inside the bundle, 'source' otherwise. */
 export const VERSION: string = typeof __BOOSTER_VERSION__ === 'string' ? __BOOSTER_VERSION__ : 'source'
 
+/** The name the program signs its messages with: the bin's name when packaged, as the bin prints a thrown error, and `booster` from source, as cli/booster.ts prints one. */
+export function programName(bundled: boolean = BUNDLED): string {
+  return bundled ? 'channel-booster' : 'booster'
+}
+
 /** How a person types the CLI in this build: the bin name when packaged, the repo script from source. */
 export function cliName(bundled: boolean = BUNDLED): string {
   return bundled ? 'channel-booster' : 'npm run booster --'

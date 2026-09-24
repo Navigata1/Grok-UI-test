@@ -132,7 +132,7 @@ describe('idea score', () => {
   it('says how to bank and approve an idea when nothing matches and --score is omitted', async () => {
     const { error } = await failing(['idea', 'score', 'nothing-banked-yet'])
     expect(error).toMatch(/Nothing in the bank matches "nothing-banked-yet"/)
-    expect(error).toMatch(/booster bank approve "<idea>" --yes/)
+    expect(error).toMatch(/npm run booster -- bank approve "<idea>" --yes/)
   })
 
   it('refuses demand=auto without a scan and says how to phrase the idea', async () => {
@@ -240,7 +240,7 @@ describe('bank approve (human-only gate)', () => {
     const { out, error } = await failing(['bank', 'approve', 'Cold showers', '--yes'])
     expect(out).toBe('')
     expect(error).toMatch(/from retired to green: retired is final/)
-    expect((await failing(['bank', 'approve'])).error).toMatch(/usage: booster bank approve/)
+    expect((await failing(['bank', 'approve'])).error).toMatch(/usage: npm run booster -- bank approve/)
   })
 })
 
@@ -270,7 +270,7 @@ describe('bank park, reject, status', () => {
     const { error } = await failing(['bank', 'status', 'Cold showers', 'banked'])
     expect(error).toMatch(/cannot move "Cold showers" from production to banked: allowed: published, retired/)
     expect((await failing(['bank', 'status', 'Cold showers', 'shipped'])).error).toMatch(/status must be one of banked, green, packaging, production, published, parked, retired/)
-    expect((await failing(['bank', 'status', 'Cold showers'])).error).toMatch(/Usage: booster bank status <id-or-text>/)
+    expect((await failing(['bank', 'status', 'Cold showers'])).error).toMatch(/Usage: npm run booster -- bank status <id-or-text>/)
     expect(await text(['bank', 'status', 'Cold showers', 'retired', '--reason', 'scope blew up'])).toBe('Cold showers: production -> retired (scope blew up)\n')
   })
 })
@@ -315,7 +315,7 @@ describe('bank rescore', () => {
     expect(out).toMatch(/OWN WINNER [\d.]+x not in the ledger: "I Tried Sleeping in the Camper for 7 Nights"/)
     expect(out).toContain('No new own winner without a sequel idea.')
     expect(out).not.toContain('SEQUEL ')
-    expect((await failing(['bank', 'rescore'])).error).toMatch(/usage: booster bank rescore/)
+    expect((await failing(['bank', 'rescore'])).error).toMatch(/usage: npm run booster -- bank rescore/)
   })
 })
 
@@ -352,7 +352,7 @@ describe('bank import', () => {
     const listed = await json(['bank', 'list'])
     expect(listed.ideas).toHaveLength(1)
     expect(listed.ideas[0]).toMatchObject({ source: 'agent:test', sources: [{ title: 'How I Built a Solar Generator for $300 (32x)', channel: 'idea-engine' }] })
-    expect((await failing(['bank', 'import'])).error).toMatch(/usage: booster bank import/)
+    expect((await failing(['bank', 'import'])).error).toMatch(/usage: npm run booster -- bank import/)
   })
 })
 
@@ -372,6 +372,6 @@ describe('bank wip', () => {
   })
 
   it('rejects an unknown bank sub-command', async () => {
-    expect((await failing(['bank', 'nope'])).error).toMatch(/usage: booster bank add\|list\|approve/)
+    expect((await failing(['bank', 'nope'])).error).toMatch(/usage: npm run booster -- bank add\|list\|approve/)
   })
 })

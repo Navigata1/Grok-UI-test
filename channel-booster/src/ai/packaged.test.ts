@@ -79,12 +79,14 @@ function flagsFor(playbook: string): string[] {
   return ['--data', data, '--path', profile, '--now', NOW, '--playbook', playbook, '--inbox', path.join(tmp, 'inbox'), '--root', tmp]
 }
 
-const REFUSED = /^refusing to write into the installed package's playbook \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
+const REFUSED = /^refusing to write into the installed package \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
 
 describe('the packaged bin', () => {
   it('never compiles or accepts rules into its own package, however --playbook reaches it, and leaves the store alone', async () => {
     const bundled = await bundledCli()
-    for (const folder of [pkgPlaybook, link]) {
+    // The package's playbook, however --playbook reaches it, and any other folder inside the package: its root and dist/.
+    const pkgRoot = path.dirname(pkgPlaybook)
+    for (const folder of [pkgPlaybook, link, pkgRoot, path.join(pkgRoot, 'dist')]) {
       const compiled = await bundled.captureIo(() => bundled.main(['rules', 'compile', ...flagsFor(folder)]))
       expect(compiled.threw).toBe(true)
       expect((compiled.error as Error).message).toMatch(REFUSED)
@@ -93,6 +95,7 @@ describe('the packaged bin', () => {
       expect((accepted.error as Error).message).toMatch(REFUSED)
     }
     expect(readdirSync(pkgPlaybook)).toEqual(['title-formulas.md'])
+    expect(readdirSync(pkgRoot)).toEqual(['playbook'])
     expect(readFileSync(path.join(pkgPlaybook, 'title-formulas.md'), 'utf8')).toBe('# Title formulas\n')
     // The refusal comes before the compile, so the store holds no half-done compile.
     expect(openStore(data).read('rules')).toEqual([])

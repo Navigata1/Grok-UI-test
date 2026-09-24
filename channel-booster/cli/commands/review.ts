@@ -24,11 +24,11 @@ import { describeRepackage, prepareRepackage, type PackagedThumbnail, type Packa
 import type { LedgerRead, ProfileDoc } from '../../src/schema.js'
 import { bool, getProfile, getStore, need, nowFrom, num, out, packagesRoot, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_POSTMORTEM = 'booster postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]'
-const USAGE_DECIDE = 'booster decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]'
-const USAGE_APPROVE = 'booster decide approve <slug> --bucket 48|168|672 --by <name> --yes [--now ISO]'
-const USAGE_APPLY = 'booster decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir] [--now ISO]'
-const USAGE_PREPARE = 'booster repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]'
+const USAGE_POSTMORTEM = `${cliName()} postmortem --ctr 4.2 [--impressions N] [--avp 38] [--avd-sec ..] [--duration-sec ..] [--retention30 ..] [--hours 48] [--bucket 24|48|168|672] [--mode established|cold-start] [--returning pct] [--sub-share pct] [--browse-suggested pct] [--prev-impressions N] [--baseline-ctr ..] [--baseline-avp ..] [--baseline-views ..]`
+const USAGE_DECIDE = `${cliName()} decide --slug <slug> --bucket 48|168|672 [--now ISO] [--record]`
+const USAGE_APPROVE = `${cliName()} decide approve <slug> --bucket 48|168|672 --by <name> --yes [--now ISO]`
+const USAGE_APPLY = `${cliName()} decide apply <slug> --bucket 48|168|672 --by <name> --yes [--root dir] [--now ISO]`
+const USAGE_PREPARE = `${cliName()} repackage prepare <slug> [--bucket 48] [--out packages/<slug>/repackage.json] [--root dir]`
 
 const ALL_BUCKETS: readonly Bucket[] = ['24', '48', '168', '672']
 const DECIDE_BUCKETS: readonly Bucket[] = ['48', '168', '672']

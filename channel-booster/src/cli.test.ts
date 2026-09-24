@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -98,7 +98,7 @@ describe('main', () => {
     expect(out).not.toMatch(/^Score\b/m)
     expect(out).not.toContain('solar generator Until It Worked')
     expect(out).toMatch(/^ {2}I Did ___ Until It Worked +until\/stakes, e\.g\. "I Took Cold Showers Until It Worked"$/m)
-    expect(lines.at(-1)).toBe('Write your own title in one of these shapes, in your own words, then score it: booster titles score "<your title>".')
+    expect(lines.at(-1)).toBe('Write your own title in one of these shapes, in your own words, then score it: npm run booster -- titles score "<your title>".')
   })
   it('holds a pasted-in template fill under the title gate in titles score', async () => {
     const { out } = await run(['titles', 'score', '--json', 'I Did A $300 solar generator Until It Worked'])
@@ -247,6 +247,19 @@ describe('the packaged bundle and bin', () => {
     expect(unknown.status).toBe(1)
     expect(unknown.stderr).toBe('channel-booster: unknown command "nope". Run channel-booster help.\n')
   })
+  it('names the bin, never a bare `booster`, in its help, its ai help and its usage lines', () => {
+    const help = cli(['help'])
+    expect(help.stdout).toContain('Claude-powered engines (see: channel-booster ai help)')
+    const ai = cli(['ai', 'help'])
+    expect(ai.status, ai.stderr).toBe(0)
+    expect(ai.stdout.split('\n')[0]).toBe('channel-booster ai <engine> [--dry-run] [--out result.json] [--json]')
+    const usages = [cli(['init']), cli(['where', 'extra']), cli(['idea', 'nope']), cli(['titles', 'score']), cli(['outliers'])]
+    for (const r of usages) {
+      expect(r.status).toBe(1)
+      expect(r.stderr).toMatch(/^channel-booster: usage: channel-booster [a-z]/)
+    }
+    for (const text of [help.stdout, ai.stdout, ...usages.map((r) => r.stderr)]) expect(text).not.toMatch(/\(see: booster |usage: booster |^booster /m)
+  })
   it('says nothing about a missing workspace until a command needs one, then names init and exits 1', () => {
     const offline = cli(['titles', 'cold showers'])
     expect(offline.status).toBe(0)
@@ -266,6 +279,20 @@ describe('the packaged bundle and bin', () => {
     expect(workspace.status).toBe(0)
     expect(workspace.stderr).toContain(`channel-booster: ${path.join(cwd, 'not-a-workspace')} (from --workspace) is not a booster workspace`)
   })
+  it('says a --workspace or BOOSTER_HOME that is not a workspace once, whether the command stops on it or not', () => {
+    const said = (dir: string, how: string, given: string) => `channel-booster: ${path.join(cwd, dir)} (from ${how}) is not a booster workspace: it has no booster-workspace.json. Create it with: channel-booster init ${given}\n`
+    const store = cli(['bank', 'list', '--workspace', 'nope'])
+    expect(store.status).toBe(1)
+    expect(store.stderr).toBe(said('nope', '--workspace', 'nope'))
+    const home = spawnNode([bin, 'bank', 'list'], cwd, { ...env, BOOSTER_HOME: 'elsewhere' })
+    expect(home.status).toBe(1)
+    expect(home.stderr).toBe(said('elsewhere', 'BOOSTER_HOME', 'elsewhere'))
+    // A command that never reads the channel's files still hears it, once.
+    const offline = cli(['titles', 'cold showers', '--json', '--workspace', 'nope'])
+    expect(offline.status).toBe(0)
+    expect(JSON.parse(offline.stdout)[0].formula).toBe('first-person test')
+    expect(offline.stderr).toBe(said('nope', '--workspace', 'nope'))
+  })
   it('does not warn init about the BOOSTER_HOME it is about to create', () => {
     const home = path.join(cwd, 'new-channel')
     const r = spawnNode([bin, 'init', home, '--channel', 'Startup'], cwd, { ...env, BOOSTER_HOME: home })
@@ -280,9 +307,39 @@ describe('the packaged bundle and bin', () => {
     const unbuilt = path.join(cwd, 'unbuilt', 'bin')
     mkdirSync(unbuilt, { recursive: true })
     copyFileSync(bin, path.join(unbuilt, 'channel-booster.mjs'))
-    const r = spawnNode([path.join(unbuilt, 'channel-booster.mjs'), 'help'], cwd, env)
+    // An installed copy has no sources beside it, so it cannot be told to build itself.
+    const installed = spawnNode([path.join(unbuilt, 'channel-booster.mjs'), 'help'], cwd, env)
+    expect(installed.status).toBe(1)
+    expect(installed.stderr).toBe(`channel-booster: ${path.join(cwd, 'unbuilt', 'dist', 'channel-booster.mjs')} is missing: this copy was never built. An installed copy cannot build itself: rebuild the package from a channel-booster checkout (\`npm run build\`, then \`npm pack\`) and install that tarball.\n`)
+    // A checkout holds scripts/build.ts, and building there is the fix.
+    const checkout = path.join(cwd, 'unbuilt-checkout')
+    mkdirSync(path.join(checkout, 'bin'), { recursive: true })
+    mkdirSync(path.join(checkout, 'scripts'))
+    writeFileSync(path.join(checkout, 'scripts', 'build.ts'), '')
+    copyFileSync(bin, path.join(checkout, 'bin', 'channel-booster.mjs'))
+    const r = spawnNode([path.join(checkout, 'bin', 'channel-booster.mjs'), 'help'], cwd, env)
     expect(r.status).toBe(1)
-    expect(r.stderr).toContain(`${path.join(cwd, 'unbuilt', 'dist', 'channel-booster.mjs')} is missing: this copy was never built. Run \`npm run build\` in the channel-booster folder`)
+    expect(r.stderr).toBe(`channel-booster: ${path.join(checkout, 'dist', 'channel-booster.mjs')} is missing: this copy was never built. Run \`npm run build\` in the channel-booster folder.\n`)
+  })
+  it('rebuilds the bundle whenever npm packs it, so a tarball never carries a missing or stale dist/', () => {
+    const manifest = JSON.parse(readFileSync(path.join(moduleRoot, 'package.json'), 'utf8')) as { scripts: Record<string, string>; files: string[] }
+    expect(manifest.files).toContain('dist/')
+    expect(manifest.scripts.prepack).toBe('tsx scripts/build.ts')
+  })
+})
+
+/** Where a person reads a command to type: the usage lines, help and the ai help. */
+describe('the command a message names', () => {
+  it('is typed the way this build runs, never as a bare `booster`, in every usage line and help pointer', () => {
+    const sources = [
+      ...readdirSync(path.join(moduleRoot, 'cli', 'commands')).map((f) => path.join('cli', 'commands', f)),
+      path.join('src', 'ai', 'index.ts'),
+      path.join('src', 'ai', 'prompt.ts'),
+      path.join('src', 'package.ts'),
+    ]
+    const bare = /usage: booster |\(see: booster |Run: booster |^const USAGE_\w+ = ['`]booster /gim
+    const found = sources.flatMap((file) => [...readFileSync(path.join(moduleRoot, file), 'utf8').matchAll(bare)].map((m) => `${file}: ${m[0]}`))
+    expect(found).toEqual([])
   })
 })
 
@@ -295,6 +352,58 @@ describe('the split rehearsal', () => {
     expect(readme).toMatch(/^npm (install|ci)\b/m)
     const ci = /^npm ci\b/m.test(readme)
     expect(ci && !existsSync(path.join(template, 'package-lock.json')), 'npm ci needs a package-lock.json, and the template ships none').toBe(false)
+  })
+
+  it('declares every package the gate scripts import, so they run in the private repository too', () => {
+    const manifest = JSON.parse(readFileSync(path.join(moduleRoot, 'package.json'), 'utf8')) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
+    const declared = new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})])
+    const scripts = path.join(moduleRoot, 'scripts')
+    const imported = readdirSync(scripts).filter((f) => f.endsWith('.mjs')).flatMap((f) =>
+      [...readFileSync(path.join(scripts, f), 'utf8').matchAll(/^\s*import\s[^'"]*?from\s+['"]([^'"]+)['"]/gm)].map((m) => ({ file: f, specifier: m[1] })))
+    const packageName = (specifier: string) => specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/')
+    const undeclared = imported.filter((i) => !i.specifier.startsWith('.') && !i.specifier.startsWith('node:') && !declared.has(packageName(i.specifier)))
+    expect(imported.map((i) => i.specifier)).toContain('@playwright/test')
+    expect(undeclared).toEqual([])
+    // The split repository's root runs the Desk gate as the host repository does.
+    const split = JSON.parse(readFileSync(path.join(template, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
+    expect(split.scripts['test:desk']).toBe('node channel-booster/scripts/desk-runtime.mjs')
+  })
+
+  describe('checks what the split repository could not use', () => {
+    type Rehearsal = { droppedFiles: (repo: string, expected: string[]) => string[]; unresolvedImports: (root: string) => string[] }
+    let rehearsal: Rehearsal
+    let tmp: string
+    beforeAll(async () => {
+      rehearsal = (await import(pathToFileURL(path.join(moduleRoot, 'scripts', 'standalone-check.mjs')).href)) as Rehearsal
+      tmp = mkdtempSync(path.join(os.tmpdir(), 'booster-split-checks-'))
+    })
+    afterAll(() => rmSync(tmp, { recursive: true, force: true }))
+
+    it('names a carried file the root .gitignore kept out of the commit, which `git add -A` does without a word', () => {
+      const repo = path.join(tmp, 'repo')
+      mkdirSync(path.join(repo, 'channel-booster', 'data'), { recursive: true })
+      writeFileSync(path.join(repo, '.gitignore'), 'data/\n')
+      writeFileSync(path.join(repo, 'channel-booster', 'data', 'keep.txt'), 'x\n')
+      writeFileSync(path.join(repo, 'channel-booster', 'a.txt'), 'y\n')
+      for (const args of [['init', '-q'], ['add', '-A'], ['-c', 'user.name=t', '-c', 'user.email=t@localhost', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 't']]) {
+        const r = spawnSync('git', args, { cwd: repo, env: gitEnv(), encoding: 'utf8' })
+        expect(r.status, r.stderr).toBe(0)
+      }
+      expect(rehearsal.droppedFiles(repo, ['.gitignore', 'channel-booster/a.txt', 'channel-booster/data/keep.txt'])).toEqual(['channel-booster/data/keep.txt'])
+      expect(rehearsal.droppedFiles(repo, ['.gitignore', 'channel-booster/a.txt'])).toEqual([])
+    })
+
+    it('names a package a gate script imports that the install did not put in place', () => {
+      const scripts = path.join(tmp, 'split', 'channel-booster', 'scripts')
+      mkdirSync(scripts, { recursive: true })
+      writeFileSync(path.join(scripts, 'gate.mjs'), "import { chromium } from '@example/not-installed'\nimport path from 'node:path'\nimport os from 'os'\nimport { x } from './local.mjs'\nimport present from 'present-pkg'\n")
+      expect(rehearsal.unresolvedImports(path.join(tmp, 'split'))).toEqual(['@example/not-installed (imported by channel-booster/scripts/gate.mjs)', 'present-pkg (imported by channel-booster/scripts/gate.mjs)'])
+      const pkg = path.join(tmp, 'split', 'node_modules', 'present-pkg')
+      mkdirSync(pkg, { recursive: true })
+      writeFileSync(path.join(pkg, 'package.json'), '{"name":"present-pkg","main":"index.js"}')
+      writeFileSync(path.join(pkg, 'index.js'), 'module.exports = 1\n')
+      expect(rehearsal.unresolvedImports(path.join(tmp, 'split'))).toEqual(['@example/not-installed (imported by channel-booster/scripts/gate.mjs)'])
+    })
   })
 
   describe('carries the commit at HEAD, not the working tree', () => {

@@ -9,8 +9,10 @@
 // ignored node_modules/, data/ and dist/), and the root files from
 // scripts/split-template/ (package.json with the channel-booster workspace,
 // .gitignore, README.md, LICENSE, NOTICE). Commits it as a fresh repository,
-// so tests that ask git behave as in a clone, then runs `npm install` and
-// `npm run verify` there with their output streamed. Prints PASS or FAIL for
+// so tests that ask git behave as in a clone, and checks that the commit holds
+// every carried file (a .gitignore could keep one out). Then runs `npm install`,
+// checks that every package the gate scripts import resolves there, and runs
+// `npm run verify`, with their output streamed. Prints PASS or FAIL for
 // every step, exits 1 on any FAIL, and writes the transcript to
 // ops/mission/evidence/standalone-check.txt at the repository root. --keep
 // keeps the scratch folder. --include-uncommitted rehearses the working tree
@@ -19,6 +21,7 @@
 // its transcript to standalone-check-uncommitted.txt.
 import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { builtinModules, createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -167,6 +170,43 @@ export function carryFiles(repo, dest, { includeUncommitted = false } = {}) {
   return { files, uncommitted: carried([...changed]) }
 }
 
+/**
+ * The expected paths the split repository's commit left out. `git add -A`
+ * never stages a file its .gitignore matches, so a carried file the template
+ * .gitignore hides would be missing from every clone while the rehearsal,
+ * which still has it on disk, passes.
+ */
+export function droppedFiles(repo, expected) {
+  const tracked = new Set(paths(gitIn(repo, ['ls-files', '-z'])))
+  return [...new Set(expected)].filter((f) => !tracked.has(f)).sort()
+}
+
+/**
+ * The packages the booster's gate scripts (channel-booster/scripts/*.mjs under
+ * root) import that do not resolve from where each script sits: a package the
+ * booster uses but does not declare is not installed in the private
+ * repository, so a gate that imports it cannot run there.
+ */
+export function unresolvedImports(root) {
+  const scripts = path.join(root, 'channel-booster', 'scripts')
+  const missing = []
+  for (const name of existsSync(scripts) ? readdirSync(scripts).filter((f) => f.endsWith('.mjs')).sort() : []) {
+    const file = path.join(scripts, name)
+    const text = readFileSync(file, 'utf8')
+    const specifiers = new Set([...text.matchAll(/^\s*import\s[^'"]*?from\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/gm)].map((m) => m[1] ?? m[2] ?? m[3]))
+    const require = createRequire(file)
+    for (const specifier of specifiers) {
+      if (specifier.startsWith('.') || specifier.startsWith('node:') || builtinModules.includes(specifier)) continue
+      try {
+        require.resolve(specifier)
+      } catch {
+        missing.push(`${specifier} (imported by channel-booster/scripts/${name})`)
+      }
+    }
+  }
+  return missing
+}
+
 async function rehearse() {
   const tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'channel-booster-split-')))
   const split = path.join(tmp, 'channel-booster-repo')
@@ -214,16 +254,22 @@ async function rehearse() {
     const committed = git(['init', '-q']).status === 0 && git(['add', '-A']).status === 0 && git(['commit', '-q', '-m', 'split rehearsal']).status === 0
     const root = readdirSync(split).sort()
     const strays = root.filter((name) => !EXPECTED_ROOT.includes(name))
-    const hidden = git(['ls-files', '--cached', '--ignored', '--exclude-standard']).stdout.trim()
+    const dropped = committed ? droppedFiles(split, [...files, ...template]) : []
     if (!committed) fail('a fresh repository', 'git init, add or commit failed (see the transcript)')
     else if (strays.length) fail('a fresh repository', `the root holds ${strays.join(', ')}, which the private repository does not`)
-    else if (hidden) fail('a fresh repository', `the root .gitignore hides tracked files: ${hidden.split('\n').slice(0, 5).join(', ')}`)
-    else pass('a fresh repository', `root: ${root.join(' ')}`)
+    else if (dropped.length) fail('a fresh repository', `the root .gitignore keeps ${dropped.length} carried file${dropped.length === 1 ? '' : 's'} out of the commit, so a clone would lack ${dropped.length === 1 ? 'it' : 'them'}: ${dropped.slice(0, 5).join(', ')}`)
+    else pass('a fresh repository', `root: ${root.join(' ')}; all ${files.length + template.length} files committed`)
 
     // 4. Install and verify there.
     const install = await streamed(NPM, ['install', '--no-audit', '--no-fund'], split)
     if (install === 0) pass('npm install in the split repository')
     else fail('npm install in the split repository', `exit ${install}`)
+    if (install === 0) {
+      // The gates run there too: every package a gate script imports must be one npm install put in place.
+      const unresolved = unresolvedImports(split)
+      if (unresolved.length) fail('the gate scripts\' imports resolve in the split repository', `not installed, so not declared in channel-booster/package.json: ${unresolved.join(', ')}`)
+      else pass('the gate scripts\' imports resolve in the split repository')
+    }
     if (install === 0) {
       const verify = await streamed(NPM, ['run', 'verify'], split)
       say('')

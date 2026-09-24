@@ -211,7 +211,7 @@ describe('booster profile', () => {
   })
 
   it('rejects an unknown subcommand with the usage line', async () => {
-    expect((await fails(['profile', 'bogus'])).message).toContain('usage: booster profile init|show|refresh')
+    expect((await fails(['profile', 'bogus'])).message).toContain('usage: npm run booster -- profile init|show|refresh')
   })
 })
 
@@ -348,7 +348,7 @@ describe('booster ingest', () => {
     expect(forced.recorded[0]).toMatchObject({ slug: 'went-wrong', bucket: '48', ageHours: 60 })
     expect((await fails(['ingest', studio, '--bucket', '96'])).message).toContain('--bucket must be one of 24|48|168|672')
     expect((await fails(['ingest', path.join(tmp, 'missing.csv')])).message).toContain('not found')
-    expect((await fails(['ingest'])).message).toContain('usage: booster ingest')
+    expect((await fails(['ingest'])).message).toContain('usage: npm run booster -- ingest')
     expect((await fails(['ingest', studio, '--at', 'noon'])).message).toContain('--at must be an ISO date')
   })
 })
@@ -371,7 +371,7 @@ describe('booster set', () => {
   })
 
   it('validates the slug, bucket and numbers', async () => {
-    expect((await fails(['set'])).message).toContain('usage: booster set')
+    expect((await fails(['set'])).message).toContain('usage: npm run booster -- set')
     expect((await fails(['set', 'x', '--ctr', '5'])).message).toContain('--bucket is required')
     expect((await fails(['set', 'x', '--bucket', '48', '--ctr', '5'])).message).toContain('no ledger row for "x"')
     await addRow('x', 'X', '2026-05-31T12:00:00Z')
@@ -479,7 +479,7 @@ describe('booster ledger baseline / levers / winners / due / export', () => {
   })
 
   it('rejects an unknown ledger subcommand', async () => {
-    expect((await fails(['ledger', 'bogus'])).message).toContain('usage: booster ledger add|show|baseline|levers|winners|due|export')
+    expect((await fails(['ledger', 'bogus'])).message).toContain('usage: npm run booster -- ledger add|show|baseline|levers|winners|due|export')
   })
 })
 
@@ -499,8 +499,8 @@ describe('booster fetch channel', () => {
     process.env.YOUTUBE_API_KEY = '   '
     expect((await fails(['fetch', 'channel', '@VanLifeCo'])).message).toContain('YOUTUBE_API_KEY is not set')
     process.env.YOUTUBE_API_KEY = 'AIza-secret-key-value'
-    expect((await fails(['fetch', 'channel'])).message).toContain('usage: booster fetch channel')
-    expect((await fails(['fetch', 'videos', '@VanLifeCo'])).message).toContain('usage: booster fetch channel')
+    expect((await fails(['fetch', 'channel'])).message).toContain('usage: npm run booster -- fetch channel')
+    expect((await fails(['fetch', 'videos', '@VanLifeCo'])).message).toContain('usage: npm run booster -- fetch channel')
     const blank = await fails(['fetch', 'channel', '   '])
     expect(blank.message).toContain('a handle (@name) or a channel id (UC...) is required')
     expect(blank.message).not.toContain('AIza-secret-key-value')
@@ -520,7 +520,7 @@ describe('booster fetch channel', () => {
     expect(existsSync(path.join(root, 'packages-elsewhere'))).toBe(false)
     // --inbox names the inbox as it does for review run and brief, and the usage says so.
     expect((await json(['fetch', 'channel', '@stubchannel', '--inbox', path.join(root, 'drop')])).out).toBe(path.join(root, 'drop', 'stubchannel.csv'))
-    expect((await fails(['fetch', 'channel'])).message).toBe('usage: booster fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]')
+    expect((await fails(['fetch', 'channel'])).message).toBe('usage: npm run booster -- fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir]')
     expect((await run(['help'])).out).toContain('  fetch channel <@handle|UC-id> [--max 50] [--out inbox/<name>.csv] [--inbox dir] ')
     // No workspace and no --inbox: where fetch has always written.
     expect((await json(['fetch', 'channel', '@stubchannel', '--root', path.join(root, 'old')])).out).toBe(path.join(root, 'old', 'inbox', 'stubchannel.csv'))

@@ -15,6 +15,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { cliName } from '../build-info.js'
 import { readVideoRows } from '../csv.js'
 import { computeOutliers, formatLift } from '../outliers.js'
 import { diagnose } from '../postmortem.js'
@@ -279,7 +280,7 @@ function numFlag(flags: Flags, key: string): number | undefined {
 
 function requireFlag(flags: Flags, key: string): string {
   const v = flag(flags, key)
-  if (!v) throw new Error(`--${key} is required. Run: booster ai help`)
+  if (!v) throw new Error(`--${key} is required. Run: ${cliName()} ai help`)
   return v
 }
 
@@ -314,7 +315,7 @@ function packageFixUser(flags: Flags, channel: string, ctx: PromptContext, read:
     const file = flag(flags, 'fixes-file')
     if (inline !== undefined) fixes = splitFixes(inline)
     else if (file !== undefined) fixes = splitFixes(read(file))
-    else throw new Error('--fixes "a; b" or --fixes-file fixes.txt is required. Run: booster ai help')
+    else throw new Error(`--fixes "a; b" or --fixes-file fixes.txt is required. Run: ${cliName()} ai help`)
   }
   let previous: unknown = ctx.previous
   if (previous === undefined) {

@@ -18,7 +18,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { BUNDLED, cliName } from './build-info.js'
+import { BUNDLED, cliName, programName } from './build-info.js'
 import { captureIo } from './io.js'
 import type { WorkflowStatusDoc } from './schema.js'
 import type { Store } from './store.js'
@@ -152,7 +152,7 @@ function defaultSpawn(command: string, args: string[], options: { cwd: string; e
 
 /** Where a run keeps its store, profile and workspace, and its pinned clock: what every stage shares with it. */
 export interface StageLocations {
-  /** The store folder: --data, or BOOSTER_DATA for a spawned stage. */
+  /** The store folder: --data for an in-process stage, BOOSTER_DATA for a spawned one; either way a --data in the stage's own command wins. */
   data?: string
   /** channel.json: --path, or BOOSTER_PROFILE. */
   profile?: string
@@ -162,14 +162,23 @@ export interface StageLocations {
   now?: string
 }
 
-/** The flags an in-process stage gets after its own, so the run's locations win: --data, --path, --root, --workspace, --now. */
-export function stageFlags(root: string, locations: StageLocations = {}): string[] {
+/**
+ * The argv an in-process stage runs: the run's --data, --path, --workspace and
+ * --now in front of the stage's own arguments, and --root after them. The
+ * command line keeps the last value of a flag, so a location the stored
+ * command names itself still wins, as it does over the BOOSTER_DATA,
+ * BOOSTER_PROFILE, BOOSTER_HOME and BOOSTER_NOW a spawned stage gets
+ * (stageEnv), while --root always lands last, so every stage writes under the
+ * root its gate reads, as a spawned stage's appended --root does.
+ */
+export function stageArgv(args: string[], root: string, locations: StageLocations = {}): string[] {
   return [
     ...(locations.data ? ['--data', locations.data] : []),
     ...(locations.profile ? ['--path', locations.profile] : []),
-    '--root', root,
     ...(locations.workspace ? ['--workspace', locations.workspace] : []),
     ...(locations.now ? ['--now', locations.now] : []),
+    ...args,
+    '--root', root,
   ]
 }
 
@@ -188,8 +197,9 @@ export function stageEnv(base: NodeJS.ProcessEnv, locations: StageLocations = {}
  * a relative path in its command (`--out packages/<slug>/demand.json`) and
  * the paths it prints come out the same; the working directory is put back
  * whatever happens. Its output is captured as the stage's record, and a throw
- * is recorded the way the entry (cli/booster.ts) prints one: exit 1 and
- * `booster: <message>`.
+ * is recorded the way the entry prints one: exit 1 and `booster: <message>`
+ * from source (cli/booster.ts), `channel-booster: <message>` in the packaged
+ * bin, so an isolated stage leaves the same record.
  */
 async function runInProcess(runBooster: RunBoosterFn, argv: string[], cwd: string): Promise<SpawnOutcome> {
   const previous = process.cwd()
@@ -202,7 +212,7 @@ async function runInProcess(runBooster: RunBoosterFn, argv: string[], cwd: strin
     const r = await captureIo(() => runBooster(argv))
     if (!r.threw) return { status: r.value ?? 0, stdout: r.stdout, stderr: r.stderr }
     const message = r.error instanceof Error ? r.error.message : String(r.error)
-    return { status: 1, stdout: r.stdout, stderr: `${r.stderr}booster: ${message}\n` }
+    return { status: 1, stdout: r.stdout, stderr: `${r.stderr}${programName()}: ${message}\n` }
   } finally {
     process.chdir(previous)
   }
@@ -224,7 +234,7 @@ export interface RunStageOptions {
   runBooster?: RunBoosterFn
   /** Spawn `booster` stages as child processes even when runBooster is given (--isolate, BOOSTER_STAGE_ISOLATION=process). */
   isolate?: boolean
-  /** The run's store, profile, workspace and pinned clock: flags for an in-process stage, the environment for a spawned one. */
+  /** The run's store, profile, workspace and pinned clock: flags in front of an in-process stage's own, the environment of a spawned one. */
   locations?: StageLocations
   /** Process spawner, injectable for tests. Defaults to node:child_process spawnSync. */
   spawn?: SpawnFn
@@ -260,7 +270,7 @@ export function findStage(workflow: Workflow, stageId: string): WorkflowStage {
 
 /**
  * Execute one stage. A `booster` command stage runs in this process through
- * `runBooster`, with the run's locations as flags; with `isolate`, without
+ * `runBooster`, with the run's locations as flags (stageArgv); with `isolate`, without
  * `runBooster`, and for any other command, the resolved argv is spawned from
  * `cwd` with the locations in its environment. With `dryRun` the command is
  * returned unrun. Human stages check that the evidence file exists under
@@ -284,7 +294,7 @@ export async function runStage(workflow: Workflow, stageId: string, options: Run
     }
     const inProcess = command[0] === BOOSTER[0] && options.runBooster !== undefined && !options.isolate
     const r = inProcess
-      ? await runInProcess(options.runBooster!, [...command.slice(1), ...stageFlags(options.cwd, options.locations)], options.cwd)
+      ? await runInProcess(options.runBooster!, stageArgv(command.slice(1), options.cwd, options.locations), options.cwd)
       : (options.spawn ?? defaultSpawn)(command[0], command.slice(1), { cwd: options.cwd, env: stageEnv(options.env ?? process.env, options.locations) })
     const exitCode = r.error ? -1 : (r.status ?? -1)
     const gate = evaluateGate(stage.check, dir)

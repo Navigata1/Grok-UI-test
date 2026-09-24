@@ -283,7 +283,7 @@ describe('accepting into a channel playbook folder', () => {
 
   it('never writes into the playbook inside the installed package', () => {
     const before = readFileSync(path.join(playbook, 'title-formulas.md'), 'utf8')
-    const refused = /^refusing to write into the installed package's playbook \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
+    const refused = /^refusing to write into the installed package \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
     expect(() => acceptRule(playbook, 'title-formulas.md', rule, { now, shippedDir: playbook, bundled: true })).toThrow(refused)
     // A symlink to the package's folder (a linked install, or one typed by hand) is the same folder.
     const link = path.join(root, 'pkgpb-link')

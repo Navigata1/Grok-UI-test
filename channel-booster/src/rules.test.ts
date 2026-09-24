@@ -389,12 +389,21 @@ describe('rules: render and write', () => {
     writeFileSync(path.join(pkg, 'title-formulas.md'), '# Title formulas\n')
     const link = path.join(root, 'pkgpb-link')
     symlinkSync(pkg, link, 'dir')
-    const refused = /^refusing to write into the installed package's playbook \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
-    for (const dir of [pkg, `${pkg}${path.sep}`, link]) {
-      expect(() => writeLearnedRules(dir, renderLearnedRules([]), { shippedDir: pkg, bundled: true })).toThrow(refused)
-      expect(() => refuseInstalledPlaybook(dir, { shippedDir: pkg, bundled: true })).toThrow(refused)
+    const refused = /^refusing to write into the installed package \(.+\): keep this channel's rules in a channel workspace \(channel-booster init <folder>\) or pass --playbook with a folder outside the installed package$/
+    // Any folder inside the package, not only its playbook: its root, dist/, a folder not made yet, and a link to the package.
+    const packageRoot = path.dirname(pkg)
+    mkdirSync(path.join(packageRoot, 'dist'))
+    const rootLink = path.join(root, 'pkg-link')
+    symlinkSync(packageRoot, rootLink, 'dir')
+    const inside = [packageRoot, path.join(packageRoot, 'dist'), path.join(packageRoot, 'dist', 'not-yet', 'deeper'), rootLink, path.join(rootLink, 'dist')]
+    for (const dir of [pkg, `${pkg}${path.sep}`, link, ...inside]) {
+      expect(() => writeLearnedRules(dir, renderLearnedRules([]), { shippedDir: pkg, bundled: true }), dir).toThrow(refused)
+      expect(() => refuseInstalledPlaybook(dir, { shippedDir: pkg, bundled: true }), dir).toThrow(refused)
     }
     expect(existsSync(path.join(pkg, LEARNED_RULES_FILE))).toBe(false)
+    for (const dir of inside) expect(existsSync(path.join(dir, LEARNED_RULES_FILE)), dir).toBe(false)
+    // A sibling whose name only starts like the package's is a channel's folder.
+    expect(() => refuseInstalledPlaybook(`${packageRoot}-mine`, { shippedDir: pkg, bundled: true })).not.toThrow()
     // From source the shipped folder is the legacy layout and is written as before; the packaged bin writes any other folder.
     expect(writeLearnedRules(link, 'legacy', { shippedDir: pkg, bundled: false })).toBe(path.join(link, LEARNED_RULES_FILE))
     expect(readFileSync(path.join(pkg, LEARNED_RULES_FILE), 'utf8')).toBe('legacy\n')

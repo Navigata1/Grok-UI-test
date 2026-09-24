@@ -10,6 +10,7 @@
  * src/io.ts, in a fresh temp folder.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -17,6 +18,7 @@ import { shippedDoctrine } from '../src/ai/doctrine.js'
 import { cliName } from '../src/build-info.js'
 import { captureIo } from '../src/io.js'
 import { defaultProfile } from '../src/profile.js'
+import { shellQuote } from '../src/shell.js'
 import { resetThresholds } from '../src/thresholds.js'
 import { CODE_ROOT, WORKSPACE_MARKER } from '../src/workspace.js'
 import { nextSteps, renderWhere, whereReport } from './commands/workspace.js'
@@ -68,11 +70,15 @@ async function fails(argv: string[]): Promise<string> {
   return r.error instanceof Error ? r.error.message : String(r.error)
 }
 
-/** A printed command line as argv: the CLI name dropped, double-quoted words read as the JSON strings the CLI prints. */
+/**
+ * A printed command line as argv, the way a POSIX shell splits it: the CLI
+ * name dropped, a single-quoted run (shellQuote(), with '\'' for a quote)
+ * taken as it is, a double-quoted one read as the JSON string the CLI prints.
+ */
 function argvOf(line: string, cli: string = cliName()): string[] {
   expect(line.startsWith(`${cli} `)).toBe(true)
-  const words = line.slice(cli.length).match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []
-  return words.map((w) => (w.startsWith('"') ? (JSON.parse(w) as string) : w))
+  const words = line.slice(cli.length).match(/(?:'[^']*'|"(?:[^"\\]|\\.)*"|\\.|[^\s'"\\])+/g) ?? []
+  return words.map((word) => [...word.matchAll(/'([^']*)'|("(?:[^"\\]|\\.)*")|\\(.)|([^'"\\]+)/g)].map((m) => m[1] ?? (m[2] ? (JSON.parse(m[2]) as string) : undefined) ?? m[3] ?? m[4]).join(''))
 }
 
 /** Every file under each path with its size and modification time; a missing path contributes nothing. */
@@ -229,28 +235,27 @@ describe('booster init', () => {
     for (const line of nextSteps(ws).commands) expect(text.out).toContain(`\n  ${line}`)
     expect(text.out).toContain(`${cliName()} outliers example:competitors --save`)
     // The profile hint is a whole command, in this build's CLI name, that writes this workspace's channel.json.
-    expect(text.out).toContain(`channel.json holds the default profile until you describe the channel (${cliName()} profile init --positioning ".." --force --workspace ${JSON.stringify(ws)}, or edit the file).\n`)
+    expect(text.out).toContain(`channel.json holds the default profile until you describe the channel (${cliName()} profile init --positioning ".." --force --path ${path.join(ws, 'channel.json')}, or edit the file).\n`)
     expect(text.err).toBe('')
   })
 
   it('prints commands that run from inside the folder for the packaged bin, and name the workspace from source', async () => {
     await run(['init', ws])
     const bundled = nextSteps(ws, { bundled: true, env: {} })
-    expect(bundled.heading).toBe(`Next, from inside ${ws} (or from any folder with --workspace ${JSON.stringify(ws)}):`)
+    expect(bundled.heading).toBe(`Next, from inside ${ws} (or from any folder with --workspace ${ws}):`)
     expect(bundled.commands).toEqual([
       'channel-booster outliers example:competitors --save',
       'channel-booster bank add "I lived off a solar generator for 30 days" --score "demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4" --csv example:competitors --promise "thirty days on a solar generator, every failure shown"',
       'channel-booster package build "I lived off a solar generator for 30 days" --offline',
     ])
-    // The profile command overwrites, so it names the workspace even where the others need not.
-    expect(bundled.profile).toBe(`channel-booster profile init --positioning ".." --force --workspace ${JSON.stringify(ws)}`)
+    // The profile command overwrites, so it names this workspace's channel.json even where the others need not.
+    expect(bundled.profile).toBe(`channel-booster profile init --positioning ".." --force --path ${path.join(ws, 'channel.json')}`)
     expect(nextSteps(ws, { bundled: true, env: { BOOSTER_HOME: ws } }).commands).toEqual(bundled.commands)
     // npm run always starts at the repository root, so a command from source could never find the workspace from its folder.
     const source = nextSteps(ws, { bundled: false, env: {} })
-    for (const line of [...source.commands, source.profile]) {
-      expect(line.startsWith('npm run booster -- ')).toBe(true)
-      expect(line.endsWith(` --workspace ${JSON.stringify(ws)}`)).toBe(true)
-    }
+    for (const line of [...source.commands, source.profile]) expect(line.startsWith('npm run booster -- ')).toBe(true)
+    for (const line of source.commands) expect(line.endsWith(` --workspace ${ws}`)).toBe(true)
+    expect(source.profile.endsWith(` --path ${path.join(ws, 'channel.json')}`)).toBe(true)
   })
 
   it('names the new workspace in every command when BOOSTER_HOME would send the packaged bin to another folder', async () => {
@@ -259,7 +264,7 @@ describe('booster init', () => {
     await run(['init', ws])
     for (const home of [other, path.relative(ws, other), elsewhere]) {
       const steps = nextSteps(ws, { bundled: true, env: { BOOSTER_HOME: home } })
-      for (const line of [...steps.commands, steps.profile]) expect(line.endsWith(` --workspace ${JSON.stringify(ws)}`), line).toBe(true)
+      for (const line of steps.commands) expect(line.endsWith(` --workspace ${ws}`), line).toBe(true)
       expect(steps.heading).toBe(`Next (BOOSTER_HOME is set to ${home}, which outranks the folder a command runs in, so each command names this workspace):`)
     }
     // Run as printed, from inside the new folder with BOOSTER_HOME still naming the other channel: the scan lands in the new one.
@@ -276,6 +281,51 @@ describe('booster init', () => {
     const { err } = await run(['init', ws])
     expect(err).toBe(`BOOSTER_DATA is set to ${path.join(tmp, 'old-data')}, and it outranks every workspace: every command keeps the store there until you unset it.\n`)
     expect(nextSteps(ws, { env: { BOOSTER_PROFILE: 'p.json' } }).outranked).toEqual(['BOOSTER_PROFILE is set to p.json, and it outranks every workspace: every command keeps the channel profile there until you unset it.'])
+  })
+
+  it('prints a profile command and a first run that reach this workspace when BOOSTER_PROFILE and BOOSTER_DATA name another channel', async () => {
+    const other = path.join(tmp, 'other-channel')
+    await run(['init', other])
+    const otherProfile = path.join(other, 'channel.json')
+    writeFileSync(otherProfile, `${JSON.stringify({ positioning: 'CHANNEL ONE' }, null, 2)}\n`)
+    const kept = readFileSync(otherProfile, 'utf8')
+    // An old runbook's shell still exports both.
+    vi.stubEnv('BOOSTER_PROFILE', otherProfile)
+    vi.stubEnv('BOOSTER_DATA', path.join(other, 'data'))
+    for (const bundled of [true, false]) {
+      const steps = nextSteps(ws, { bundled, env: { BOOSTER_PROFILE: otherProfile, BOOSTER_DATA: path.join(other, 'data') } })
+      expect(steps.profile.endsWith(` --force --path ${path.join(ws, 'channel.json')}`)).toBe(true)
+      for (const line of steps.commands) expect(line.endsWith(` --data ${path.join(ws, 'data')} --path ${path.join(ws, 'channel.json')}`), line).toBe(true)
+    }
+    const { value } = await json(['init', ws])
+    // Run as printed, with both variables still set: the other channel's profile and store are untouched.
+    const describeChannel = argvOf(value.profileCommand).map((word) => (word === '..' ? 'CHANNEL TWO' : word))
+    expect((await run([...describeChannel, '--now', NOW])).code).toBe(0)
+    expect(readFileSync(otherProfile, 'utf8')).toBe(kept)
+    expect(JSON.parse(readFileSync(path.join(ws, 'channel.json'), 'utf8')).positioning).toBe('CHANNEL TWO')
+    expect((await run(argvOf(value.next[0]))).code).toBe(0)
+    expect(existsSync(path.join(ws, 'data', 'last-scan.json'))).toBe(true)
+    expect(existsSync(path.join(other, 'data', 'last-scan.json'))).toBe(false)
+  })
+
+  it('quotes a workspace path so a shell reads back the same folder, $ and backticks included', async () => {
+    const odd = path.join(tmp, 'chan$one `x`')
+    const { value } = await json(['init', odd])
+    for (const line of [...value.next, value.profileCommand] as string[]) {
+      // What sh passes a program for everything after the CLI name, one argument per NUL.
+      const r = spawnSync('sh', ['-c', `printf '%s\\0' ${line.slice(cliName().length + 1)}`], { encoding: 'utf8' })
+      expect(r.status, r.stderr).toBe(0)
+      const argv = r.stdout.split('\0').slice(0, -1)
+      expect(argv).toEqual(argvOf(line))
+      expect(argv.at(-1), line).toBe(line.includes(' --path ') ? path.join(odd, 'channel.json') : odd)
+    }
+    expect(await fails(['bank', 'list', '--workspace', path.join(tmp, 'no$such')])).toBe(`${path.join(tmp, 'no$such')} (from --workspace) is not a booster workspace: it has no ${WORKSPACE_MARKER}. Create it with: ${cliName()} init ${shellQuote(path.join(tmp, 'no$such'))}`)
+  })
+
+  it('stops before creating anything when booster-workspace.json is a folder', async () => {
+    mkdirSync(path.join(ws, WORKSPACE_MARKER), { recursive: true })
+    expect(await fails(['init', ws])).toBe(`${path.join(ws, WORKSPACE_MARKER)} is a folder, where init writes the workspace marker: move it out of the way, then run init again. Usage: ${cliName()} init <dir> [--channel "<name>"] [--force]`)
+    expect(readdirSync(ws)).toEqual([WORKSPACE_MARKER])
   })
 
   it('refuses an existing workspace; --force creates what is missing and never overwrites channel.json or the data', async () => {
@@ -326,8 +376,8 @@ describe('booster init', () => {
   })
 
   it('says what is wrong with a missing folder, a file, two folders and a bare --channel', async () => {
-    expect(await fails(['init'])).toMatch(/^usage: booster init <dir>/)
-    expect(await fails(['init', ws, 'extra'])).toMatch(/^usage: booster init <dir> .*one folder/)
+    expect(await fails(['init'])).toMatch(/^usage: npm run booster -- init <dir>/)
+    expect(await fails(['init', ws, 'extra'])).toMatch(/^usage: npm run booster -- init <dir> .*one folder/)
     const file = path.join(tmp, 'a-file')
     writeFileSync(file, 'x')
     expect(await fails(['init', file])).toContain(`${file} is a file, not a folder`)
@@ -432,7 +482,7 @@ describe('booster where', () => {
     const text = await captureIo(() => main(['where', '--workspace', elsewhere]))
     expect(text.stdout).toContain(`Workspace: ${value.workspaceError}\n`)
     expect(text.stdout).toContain('  data           -          not resolved (see Workspace above)\n')
-    expect(await fails(['where', 'extra'])).toBe('usage: booster where [--json]')
+    expect(await fails(['where', 'extra'])).toBe('usage: npm run booster -- where [--json]')
   })
 })
 
@@ -449,7 +499,7 @@ describe('a channel workspace keeps every file of the first run', () => {
     await run(['init', ws])
     process.chdir(elsewhere)
     const rebuild = await expectContained(ws, ['--workspace', ws])
-    expect(rebuild).toBe(`${cliName()} package build ${SLUG} --title "<your title>" --workspace ${JSON.stringify(ws)} --offline`)
+    expect(rebuild).toBe(`${cliName()} package build ${SLUG} --title "<your title>" --workspace ${ws} --offline`)
   })
 
   it('named by BOOSTER_HOME, which the rebuild line also repeats as --workspace', async () => {
@@ -457,7 +507,7 @@ describe('a channel workspace keeps every file of the first run', () => {
     process.chdir(elsewhere)
     vi.stubEnv('BOOSTER_HOME', ws)
     const bare = await run(['package', 'build', IDEA, '--promise', 'thirty days on a solar generator, every failure shown', '--offline'])
-    expect(bare.err).toContain(`then ${cliName()} package build ${SLUG} --title "<your title>" --workspace ${JSON.stringify(ws)} --offline\n`)
+    expect(bare.err).toContain(`then ${cliName()} package build ${SLUG} --title "<your title>" --workspace ${ws} --offline\n`)
     expect(existsSync(path.join(ws, 'packages', SLUG, 'package.json'))).toBe(true)
     expect(readdirSync(elsewhere)).toEqual([])
   })
@@ -466,7 +516,7 @@ describe('a channel workspace keeps every file of the first run', () => {
     const legacy = path.join(tmp, 'legacy')
     process.chdir(elsewhere)
     const rebuild = await expectContained(legacy, ['--data', path.join(legacy, 'data'), '--path', path.join(legacy, 'channel.json'), '--root', legacy])
-    expect(rebuild).toBe(`${cliName()} package build ${SLUG} --title "<your title>" --root ${JSON.stringify(legacy)} --data ${JSON.stringify(path.join(legacy, 'data'))} --path ${JSON.stringify(path.join(legacy, 'channel.json'))} --offline`)
+    expect(rebuild).toBe(`${cliName()} package build ${SLUG} --title "<your title>" --root ${legacy} --data ${path.join(legacy, 'data')} --path ${path.join(legacy, 'channel.json')} --offline`)
     expect(existsSync(ws)).toBe(false)
   })
 })

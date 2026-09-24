@@ -24,14 +24,17 @@
     "check": "tsc -p tsconfig.json",
     "test": "vitest run",
     "build": "tsx scripts/build.ts && node dashboard/build.mjs",
+    "prepack": "tsx scripts/build.ts",
     "verify": "npm run check && npm test && npm run build",
-    "smoke": "node scripts/package-smoke.mjs"
+    "smoke": "node scripts/package-smoke.mjs",
+    "desk": "node scripts/desk-runtime.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.0",
     "@types/node": "^26.1.1",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",

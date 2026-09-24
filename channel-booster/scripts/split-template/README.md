@@ -17,6 +17,7 @@ npm install                   # the first run writes package-lock.json; commit i
 npm run booster -- help       # the command line from source (tsx)
 npm run verify                # typecheck, every test, the bundle and the Desk
 npm run test:package          # pack the bin, install it in an empty folder, and drive it
+npm run test:desk             # drive the built Desk in Chromium (npx playwright install chromium once)
 ```
 
 From source, keep a channel's files in a workspace: `npm run booster -- init ../my-channel`, then pass `--workspace ../my-channel` (or set `BOOSTER_HOME`). The packaged bin, `channel-booster`, is built by `npm run build` into `channel-booster/dist/`; the package is private until its owner decides to publish it.

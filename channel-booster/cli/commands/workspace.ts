@@ -15,11 +15,12 @@ import path from 'node:path'
 import { shippedDoctrine } from '../../src/ai/doctrine.js'
 import { BUNDLED, VERSION, cliName } from '../../src/build-info.js'
 import { defaultProfile, saveProfile } from '../../src/profile.js'
+import { shellQuote } from '../../src/shell.js'
 import { describeLocations, findWorkspace, isWorkspace, WORKSPACE_LAYOUT, WORKSPACE_MARKER, type LocationReport, type ResolveOptions, type Workspace } from '../../src/workspace.js'
 import { bool, nowFrom, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_INIT = 'booster init <dir> [--channel "<name>"] [--force]'
-const USAGE_WHERE = 'booster where [--json]'
+const USAGE_INIT = `${cliName()} init <dir> [--channel "<name>"] [--force]`
+const USAGE_WHERE = `${cliName()} where [--json]`
 
 /** booster-workspace.json, the file that makes a folder a channel workspace. */
 export interface WorkspaceMarkerDoc {
@@ -55,7 +56,11 @@ export function namesWorkspace(root: string, options: ResolveOptions = {}): bool
 export interface NextSteps {
   /** Where the commands run from. */
   heading: string
-  /** Replaces the default profile. It overwrites (--force), so it always names the workspace and can never reach another channel's channel.json. */
+  /**
+   * Replaces the default profile. It overwrites (--force), so it names this
+   * workspace's channel.json with --path, the one location that outranks
+   * BOOSTER_PROFILE, and can never reach another channel's channel.json.
+   */
   profile: string
   /** The three commands of the first run. */
   commands: string[]
@@ -63,32 +68,40 @@ export interface NextSteps {
   outranked: string[]
 }
 
-/** The environment variables that outrank every workspace (src/workspace.ts), and the location each one moves. */
-const OUTRANKING_ENV = { BOOSTER_DATA: 'store', BOOSTER_PROFILE: 'channel profile' } as const
+/** The environment variables that outrank every workspace (src/workspace.ts), the location each one moves, and the flag that outranks it in turn. */
+const OUTRANKING_ENV = {
+  BOOSTER_DATA: { what: 'store', flag: 'data', inWorkspace: WORKSPACE_LAYOUT.data },
+  BOOSTER_PROFILE: { what: 'channel profile', flag: 'path', inWorkspace: WORKSPACE_LAYOUT.profile },
+} as const
 
-/** The steps after `init` for the workspace at root, as this build and this environment will run them (options stand in for both in tests). */
+/**
+ * The steps after `init` for the workspace at root, as this build and this
+ * environment will run them (options stand in for both in tests). Every path
+ * is quoted for a POSIX shell. Where BOOSTER_DATA or BOOSTER_PROFILE is set,
+ * the first run names this workspace's store and profile with the flags that
+ * outrank them, so it never writes into another channel's.
+ */
 export function nextSteps(root: string, options: ResolveOptions = {}): NextSteps {
   const bundled = options.bundled ?? BUNDLED
   const env = options.env ?? process.env
   const cli = cliName(bundled)
-  const flag = ` --workspace ${JSON.stringify(root)}`
+  const flag = ` --workspace ${shellQuote(root)}`
   const named = namesWorkspace(root, options)
-  const where = named ? flag : ''
+  const outranking = (Object.keys(OUTRANKING_ENV) as Array<keyof typeof OUTRANKING_ENV>).filter((name) => env[name]?.trim())
+  const where = `${named ? flag : ''}${outranking.map((name) => ` --${OUTRANKING_ENV[name].flag} ${shellQuote(path.join(root, OUTRANKING_ENV[name].inWorkspace))}`).join('')}`
   return {
     heading: !bundled
       ? 'Next (npm run starts at the repository root, so each command names the workspace):'
       : named
         ? `Next (BOOSTER_HOME is set to ${env.BOOSTER_HOME}, which outranks the folder a command runs in, so each command names this workspace):`
-        : `Next, from inside ${root} (or from any folder with --workspace ${JSON.stringify(root)}):`,
-    profile: `${cli} profile init --positioning ".." --force${flag}`,
+        : `Next, from inside ${root} (or from any folder with --workspace ${shellQuote(root)}):`,
+    profile: `${cli} profile init --positioning ".." --force --path ${shellQuote(path.join(root, WORKSPACE_LAYOUT.profile))}`,
     commands: [
       `${cli} outliers example:competitors --save${where}`,
       `${cli} bank add ${JSON.stringify(FIRST_IDEA)} --score ${JSON.stringify(FIRST_SCORE)} --csv example:competitors --promise ${JSON.stringify(FIRST_PROMISE)}${where}`,
       `${cli} package build ${JSON.stringify(FIRST_IDEA)} --offline${where}`,
     ],
-    outranked: (Object.keys(OUTRANKING_ENV) as Array<keyof typeof OUTRANKING_ENV>)
-      .filter((name) => env[name]?.trim())
-      .map((name) => `${name} is set to ${env[name]}, and it outranks every workspace: every command keeps the ${OUTRANKING_ENV[name]} there until you unset it.`),
+    outranked: outranking.map((name) => `${name} is set to ${env[name]}, and it outranks every workspace: every command keeps the ${OUTRANKING_ENV[name].what} there until you unset it.`),
   }
 }
 
@@ -117,6 +130,11 @@ async function runInit(dir: string | undefined, rest: string[], flags: Flags): P
   if (flags.channel === true) throw new Error(`--channel needs the channel's name: --channel "<name>". Usage: ${USAGE_INIT}`)
   const root = path.resolve(dir)
   if (existsSync(root) && !statSync(root).isDirectory()) throw new Error(`${root} is a file, not a folder: name a new or an existing folder. Usage: ${USAGE_INIT}`)
+  const markerFile = path.join(root, WORKSPACE_MARKER)
+  // Checked before anything is created, so a marker path init cannot write leaves no half-made layout behind.
+  if (existsSync(markerFile) && !statSync(markerFile).isFile()) {
+    throw new Error(`${markerFile} is ${statSync(markerFile).isDirectory() ? 'a folder' : 'not a file'}, where init writes the workspace marker: move it out of the way, then run init again. Usage: ${USAGE_INIT}`)
+  }
   const reinit = isWorkspace(root)
   if (reinit && !bool(flags, 'force')) {
     throw new Error(`${root} is already a booster workspace (it has ${WORKSPACE_MARKER}): run commands inside it, or pass --force to create whatever is missing (channel.json and the data are never overwritten)`)
@@ -141,7 +159,6 @@ async function runInit(dir: string | undefined, rest: string[], flags: Flags): P
   const newProfile = !existsSync(profile)
   if (newProfile) saveProfile(defaultProfile(), profile, { now })
   paths.push({ path: profile, status: newProfile ? 'created' : 'kept' })
-  const markerFile = path.join(root, WORKSPACE_MARKER)
   writeFileSync(markerFile, `${JSON.stringify(marker, null, 2)}\n`)
   paths.unshift({ path: markerFile, status: reinit ? 'rewritten' : 'created' })
 

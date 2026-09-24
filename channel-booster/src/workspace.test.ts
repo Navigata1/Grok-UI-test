@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import {
   CODE_ROOT,
   describeLocations,
@@ -16,8 +16,16 @@ import {
   WORKSPACE_MARKER,
 } from './workspace.js'
 
+/** Every temp folder this file made, removed once its tests are done. */
+const made: string[] = []
+afterAll(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true })
+})
+
 function tmp(): string {
-  return mkdtempSync(path.join(tmpdir(), 'booster-ws-'))
+  const dir = mkdtempSync(path.join(tmpdir(), 'booster-ws-'))
+  made.push(dir)
+  return dir
 }
 
 function makeWorkspace(root: string): string {

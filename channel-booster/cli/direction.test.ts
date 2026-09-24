@@ -123,7 +123,7 @@ describe('booster direction', () => {
     expect((await json(['direction', '--scan', 'last-audit.json'])).scan).toBe(path.join(data, 'last-audit.json'))
     writeFileSync(scan, '{"rows": []}')
     expect(await fails(['direction', '--scan', scan])).toMatch(/not a saved scan/)
-    expect(await fails(['direction', 'extra'])).toMatch(/usage: booster direction/)
+    expect(await fails(['direction', 'extra'])).toMatch(/usage: npm run booster -- direction/)
   })
 
   it('works on an empty channel', async () => {
@@ -194,8 +194,8 @@ describe('booster plan shots', () => {
     expect(existsSync(outFile)).toBe(true)
     expect(await fails(['plan', 'shots', 'solar', '--root', tmp, '--format', 'opera'])).toMatch(/--format must be one of/)
     expect(await fails(['plan', 'shots', 'missing', '--root', tmp])).toMatch(/build the package first/)
-    expect(await fails(['plan', 'shots'])).toMatch(/usage: booster plan shots/)
-    expect(await fails(['plan', 'nope'])).toMatch(/usage: booster plan shots/)
+    expect(await fails(['plan', 'shots'])).toMatch(/usage: npm run booster -- plan shots/)
+    expect(await fails(['plan', 'nope'])).toMatch(/usage: npm run booster -- plan shots/)
     await run(['workflow', 'I built a solar generator from scrap', '--format', 'documentary', '--out', path.join(tmp, 'packages')])
     writePkg('i-built-a-solar-generator-from-scrap')
     const r = await json(['plan', 'shots', 'i-built-a-solar-generator-from-scrap', '--root', tmp])

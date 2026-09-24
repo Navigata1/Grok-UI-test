@@ -1,12 +1,13 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeErr, writeOut } from './io.js'
 import {
-  applyStageResult, evaluateGate, findStage, nextRunnable, overrideStage, packageDir, resolveTsxCli, runNext, runStage, stageEnv, stageFlags, startWorkflow, toSpawnable,
+  applyStageResult, evaluateGate, findStage, nextRunnable, overrideStage, packageDir, resolveTsxCli, runNext, runStage, stageArgv, stageEnv, startWorkflow, toSpawnable,
   type RunBoosterFn, type SpawnFn, type StageResult,
 } from './runner.js'
+import { parseArgs } from '../cli/shared.js'
 import { openStore, type Store } from './store.js'
 import type { GatePredicate, Workflow } from './types.js'
 import { generateWorkflow } from './workflow.js'
@@ -249,7 +250,7 @@ describe('runStage in this process', () => {
   const slug = 'i-tried-30-days-of-cold-showers'
   const locations = { data: '/ch/data', profile: '/ch/channel.json', workspace: '/ch', now: '2026-09-14T09:00:00.000Z' }
 
-  it('runs a booster stage through runBooster from the packages root, with the run\'s locations after its own flags, and spawns nothing', async () => {
+  it('runs a booster stage through runBooster from the packages root, with the run\'s locations before its own flags and --root after them, and spawns nothing', async () => {
     const calls: Array<{ argv: string[]; cwd: string }> = []
     const before = process.cwd()
     // The command's --out is relative, as the runbook stores it: it must land under the root the gate reads.
@@ -262,8 +263,8 @@ describe('runStage in this process', () => {
     })
     const r = await runStage(wf, 'demand', { cwd: root, agent: 'claude', now: clock(), runBooster, spawn: noSpawn, locations })
     expect(calls.map((c) => c.argv)).toEqual([[
-      'idea', 'score', slug, '--out', `packages/${slug}/demand.json`,
-      '--data', '/ch/data', '--path', '/ch/channel.json', '--root', root, '--workspace', '/ch', '--now', '2026-09-14T09:00:00.000Z',
+      '--data', '/ch/data', '--path', '/ch/channel.json', '--workspace', '/ch', '--now', '2026-09-14T09:00:00.000Z',
+      'idea', 'score', slug, '--out', `packages/${slug}/demand.json`, '--root', root,
     ]])
     expect(realpathSync(calls[0].cwd)).toBe(realpathSync(root))
     expect(process.cwd()).toBe(before)
@@ -336,10 +337,20 @@ describe('runStage in this process', () => {
   })
 })
 
-describe('stageFlags and stageEnv', () => {
-  it('append only the locations the run has, --root always', () => {
-    expect(stageFlags('/r')).toEqual(['--root', '/r'])
-    expect(stageFlags('/r', { data: '/d', now: '2026-09-14T09:00:00.000Z' })).toEqual(['--data', '/d', '--root', '/r', '--now', '2026-09-14T09:00:00.000Z'])
+describe('stageArgv and stageEnv', () => {
+  it('put only the locations the run has in front of the stage\'s own arguments, and --root always last', () => {
+    expect(stageArgv(['plan', 'shots', 'x'], '/r')).toEqual(['plan', 'shots', 'x', '--root', '/r'])
+    expect(stageArgv(['plan', 'shots', 'x'], '/r', { data: '/d', now: '2026-09-14T09:00:00.000Z' })).toEqual(['--data', '/d', '--now', '2026-09-14T09:00:00.000Z', 'plan', 'shots', 'x', '--root', '/r'])
+  })
+
+  it('let a location the stored command names itself win, as it does over the environment a spawned stage gets, and never its --root', () => {
+    const locations = { data: '/run/data', profile: '/run/channel.json', workspace: '/run', now: '2026-09-14T09:00:00.000Z' }
+    const own = ['idea', 'score', 'x', '--data', '/own/data', '--path', '/own/channel.json', '--workspace', '/own', '--now', '2026-01-01T00:00:00.000Z', '--root', '/own/root']
+    const { positional, flags } = parseArgs(stageArgv(own, '/r', locations))
+    expect(positional).toEqual(['idea', 'score', 'x'])
+    expect(flags).toEqual({ data: '/own/data', path: '/own/channel.json', workspace: '/own', now: '2026-01-01T00:00:00.000Z', root: '/r' })
+    // A stage that names none of them gets the run's.
+    expect(parseArgs(stageArgv(['idea', 'score', 'x'], '/r', locations)).flags).toEqual({ data: '/run/data', path: '/run/channel.json', workspace: '/run', now: '2026-09-14T09:00:00.000Z', root: '/r' })
   })
 
   it('add no clock and no workspace to a spawned stage\'s environment unless the run has them, and never change the base', () => {
@@ -484,5 +495,24 @@ describe('toSpawnable', () => {
     expect(fallback.replace(/\\/g, '/')).toMatch(/\/node_modules\/tsx\/dist\/cli\.mjs$/)
     expect(path.isAbsolute(fallback)).toBe(true)
     expect(resolveTsxCli().replace(/\\/g, '/')).toMatch(/\/tsx\/dist\/cli\.mjs$/)
+  })
+})
+
+describe('runStage inside the packaged bundle', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  it('records a stage that throws signed with the bin\'s name, as the bin prints it and an isolated stage records it', async () => {
+    // The bundle defines __BOOSTER_BUNDLED__ (src/build-info.ts); a fresh import reads it.
+    vi.stubGlobal('__BOOSTER_BUNDLED__', true)
+    vi.resetModules()
+    const bundled = await import('./runner.js')
+    const runBooster: RunBoosterFn = async () => {
+      throw new Error('unknown command "nosuchcommand". Run channel-booster help.')
+    }
+    const r = await bundled.runStage(generateWorkflow('I tried 30 days of cold showers'), 'demand', { cwd: root, now: clock(), runBooster, spawn: noSpawn })
+    expect(r).toMatchObject({ exitCode: 1, stderr: 'channel-booster: unknown command "nosuchcommand". Run channel-booster help.\n', status: 'failed' })
   })
 })

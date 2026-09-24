@@ -5,7 +5,7 @@
  * stages all call this one function. Commands live in cli/commands/*.ts.
  */
 import { shippedDoctrine } from '../src/ai/doctrine.js'
-import { BUNDLED, VERSION, cliName } from '../src/build-info.js'
+import { BUNDLED, VERSION, cliName, programName } from '../src/build-info.js'
 import { writeOut } from '../src/io.js'
 import { NoWorkspaceError } from '../src/workspace.js'
 import { MODULES } from './commands/index.js'
@@ -15,7 +15,7 @@ export { parseArgs }
 export type { Args }
 
 /** The name the program signs its messages with: the bin's name when packaged, as the bin prints a thrown error. */
-const PROGRAM = BUNDLED ? 'channel-booster' : 'booster'
+const PROGRAM = programName()
 
 export function help(): string {
   const cli = cliName()
@@ -66,16 +66,19 @@ const NO_STARTUP_PROFILE = new Set(['init', 'where'])
  * A bad profile is reported, not fatal. Having no workspace is not reported
  * here: the packaged bin has no default channel.json, and a command that needs
  * the channel's files stops and says how to create one. A --workspace or
- * BOOSTER_HOME that names no workspace is still reported, even to a command
- * that never reads the profile, except init and where (NO_STARTUP_PROFILE).
+ * BOOSTER_HOME that names no workspace is returned, to be reported once
+ * whatever the command does (see main), except to init and where
+ * (NO_STARTUP_PROFILE).
  */
-function loadStartupProfile(flags: Flags): void {
+function loadStartupProfile(flags: Flags): string | undefined {
   try {
     getProfile(flags)
   } catch (error) {
-    if (error instanceof NoWorkspaceError && !badWorkspace(flags)) return
-    warn(`${PROGRAM}: ${error instanceof Error ? error.message : String(error)}`)
+    const message = error instanceof Error ? error.message : String(error)
+    if (!(error instanceof NoWorkspaceError)) warn(`${PROGRAM}: ${message}`)
+    else if (badWorkspace(flags)) return message
   }
+  return undefined
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -85,8 +88,22 @@ export async function main(argv: string[]): Promise<number> {
     writeOut(help())
     return 0
   }
-  if (!NO_STARTUP_PROFILE.has(cmd)) loadStartupProfile(flags)
+  const badWorkspaceMessage = NO_STARTUP_PROFILE.has(cmd) ? undefined : loadStartupProfile(flags)
   const mod = MODULES.find((m) => m.verbs.includes(cmd))
-  if (!mod) throw new Error(`unknown command "${cmd}". Run ${cliName()} help.`)
-  return mod.run(cmd, sub, rest, flags)
+  if (!mod) {
+    if (badWorkspaceMessage) warn(`${PROGRAM}: ${badWorkspaceMessage}`)
+    throw new Error(`unknown command "${cmd}". Run ${cliName()} help.`)
+  }
+  if (!badWorkspaceMessage) return mod.run(cmd, sub, rest, flags)
+  // A --workspace or BOOSTER_HOME that is not a workspace is said once: a command that stops on it throws the
+  // same message, which the entry prints; one that never reads the channel's files still hears it, after its output.
+  let code: number
+  try {
+    code = await mod.run(cmd, sub, rest, flags)
+  } catch (error) {
+    if (!(error instanceof NoWorkspaceError && error.message === badWorkspaceMessage)) warn(`${PROGRAM}: ${badWorkspaceMessage}`)
+    throw error
+  }
+  warn(`${PROGRAM}: ${badWorkspaceMessage}`)
+  return code
 }

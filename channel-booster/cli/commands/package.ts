@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { canTransition, ideaId } from '../../src/bank.js'
 import { cliName } from '../../src/build-info.js'
+import { shellQuote } from '../../src/shell.js'
 import { scoreHook, renderHookReport } from '../../src/hook.js'
 import { buildPackage, writePackage, type GenerateHooks } from '../../src/package.js'
 import { checkThumbnailFile } from '../../src/imagemeta.js'
@@ -29,14 +30,14 @@ import type { ThumbnailQa, ThumbnailSpec } from '../../src/types.js'
 import { slugify as packageSlug } from '../../src/workflow.js'
 import { activeWorkspace, bool, getProfile, getStore, list, need, nowFrom, num, out, packagesRoot, profilePath, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_PROOF = 'booster thumbnail proof <slug> [--out packages/<slug>/proof-sheet.html] [--competitors "a|b|c"] [--images dir] [--root dir]'
-const USAGE_RENDER = 'booster thumbnail render <slug> [--out packages/<slug>/image-prompts.md] [--all] [--root dir]'
-const USAGE_CHECK = 'booster thumbnail check <file.png|file.jpg>'
-const USAGE_SIG_SET = 'booster signature set --colors "yellow,black" [--face always|never|either] [--max-words 3] [--framing ".."] [--typeface ".."] [--notes ".."]'
-const USAGE_HOOK = 'booster hook score --script <file> --slug <slug> [--title ".."] [--promise ".."] [--thumbnail-moment ".."] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]'
-const USAGE_PROMISE = 'booster promise check --promise ".." [--title ".."] [--script <file>] [--description <file>|".."] [--thumb-text ".."]'
-const USAGE_BUILD = 'booster package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".." [--lever ".."]] [--subject ..] [--stake ..] [--result ..] [--number ..] [--audience ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--no-signature] [--root dir] [--out dir]'
-const USAGE_TITLES = 'booster titles "<topic>" [--number ..] [--subject ..] [--audience ..]'
+const USAGE_PROOF = `${cliName()} thumbnail proof <slug> [--out packages/<slug>/proof-sheet.html] [--competitors "a|b|c"] [--images dir] [--root dir]`
+const USAGE_RENDER = `${cliName()} thumbnail render <slug> [--out packages/<slug>/image-prompts.md] [--all] [--root dir]`
+const USAGE_CHECK = `${cliName()} thumbnail check <file.png|file.jpg>`
+const USAGE_SIG_SET = `${cliName()} signature set --colors "yellow,black" [--face always|never|either] [--max-words 3] [--framing ".."] [--typeface ".."] [--notes ".."]`
+const USAGE_HOOK = `${cliName()} hook score --script <file> --slug <slug> [--title ".."] [--promise ".."] [--thumbnail-moment ".."] [--payoffs <retention-map.json>] [--wpm 150] [--root dir]`
+const USAGE_PROMISE = `${cliName()} promise check --promise ".." [--title ".."] [--script <file>] [--description <file>|".."] [--thumb-text ".."]`
+const USAGE_BUILD = `${cliName()} package build "<idea>"|<idea:id>|<slug> --promise ".." [--title ".." [--lever ".."]] [--subject ..] [--stake ..] [--result ..] [--number ..] [--audience ..] [--predicted-ctr 1.3] [--rounds 3] [--offline] [--no-signature] [--root dir] [--out dir]`
+const USAGE_TITLES = `${cliName()} titles "<topic>" [--number ..] [--subject ..] [--audience ..]`
 
 /** One thumbnail concept as packages/<slug>/package.json stores it (section 2.5). */
 interface PackagedConcept {
@@ -336,18 +337,19 @@ function storedPackage(dir: string): { idea?: string; promise?: string; personTi
  * root, while a person's `npm run booster` starts at the repository root in a
  * shell that has none of these variables, so a relative path or a missing
  * --root would write the title into another packages/ folder than the one the
- * stage gate reads. The CLI is named the way this build is typed (cliName()).
+ * stage gate reads. The CLI is named the way this build is typed (cliName()),
+ * and every value is quoted for a POSIX shell (shellQuote()).
  */
 function rebuildCommand(slug: string, flags: Flags): string {
   const repeat = ['subject', 'stake', 'result', 'number', 'audience', 'predicted-ctr', 'rounds']
-    .flatMap((k) => (str(flags, k) !== undefined ? [`--${k} ${JSON.stringify(str(flags, k))}`] : []))
+    .flatMap((k) => (str(flags, k) !== undefined ? [`--${k} ${shellQuote(str(flags, k)!)}`] : []))
   // A workspace found at or above the working directory is found again from there; one named by flag or variable is repeated.
   const ws = activeWorkspace(flags)
-  const workspace = ws && ws.source !== 'discovered' ? [`--workspace ${JSON.stringify(ws.root)}`] : []
+  const workspace = ws && ws.source !== 'discovered' ? [`--workspace ${shellQuote(ws.root)}`] : []
   const places: Array<[flag: string, env?: string]> = [['out'], ['root'], ['data', 'BOOSTER_DATA'], ['path', 'BOOSTER_PROFILE']]
   const dirs = places.flatMap(([k, env]) => {
     const v = str(flags, k) ?? (env ? process.env[env] : undefined)
-    return v ? [`--${k} ${JSON.stringify(path.resolve(v))}`] : []
+    return v ? [`--${k} ${shellQuote(path.resolve(v))}`] : []
   })
   const switches = ['offline', 'no-signature'].filter((k) => bool(flags, k)).map((k) => `--${k}`)
   return [`${cliName()} package build`, slug, '--title "<your title>"', ...repeat, ...workspace, ...dirs, ...switches].join(' ')
@@ -394,7 +396,7 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
   // A slug resolved through the status document takes that document's promise: it is what
   // `booster workflow --promise` wrote, and that already defaults to the banked idea's.
   const promise = str(flags, 'promise') ?? (wf ? wf.promise ?? doc?.promise : doc?.promise) ?? stored?.promise
-  if (!promise) throw new Error(`--promise is required: one sentence the video keeps${doc ? ` (bank ideas carry it: booster bank add "<idea>" --promise "..")` : wf ? ` (the workflow carries it: booster workflow "<idea>" --promise "..")` : ''}. Usage: ${USAGE_BUILD}`)
+  if (!promise) throw new Error(`--promise is required: one sentence the video keeps${doc ? ` (bank ideas carry it: ${cliName()} bank add "<idea>" --promise "..")` : wf ? ` (the workflow carries it: ${cliName()} workflow "<idea>" --promise "..")` : ''}. Usage: ${USAGE_BUILD}`)
   const profile = getProfile(flags)
   const signature = bool(flags, 'no-signature') ? undefined : profile.signature
   const offline = bool(flags, 'offline') || !process.env.ANTHROPIC_API_KEY
@@ -447,13 +449,13 @@ async function packageBuild(raw: string | undefined, flags: Flags): Promise<numb
     ? `Title: ${built.chosenTitle} (${built.titleSource === 'person' ? 'yours' : 'model'}, ${built.titles[0]?.score ?? 0}/100)`
     : 'Title: none yet (offline, the builder never picks one; a person writes it)'
   const next = !built.chosenTitle
-    ? `Next: write your title from the shapes in ${md}, check it with booster titles score "<title>", then ${rebuild}`
+    ? `Next: write your title from the shapes in ${md}, check it with ${cliName()} titles score "<title>", then ${rebuild}`
     : g.pass
       ? built.titleSource === 'person'
-        ? `Next: booster hook score --script <file> --slug ${built.slug}. Rebuilds keep your title; --title replaces it.`
-        : `Next: write three titles of your own in ${md} and pick the final one (${rebuild} keeps it), then booster hook score --script <file> --slug ${built.slug}.`
+        ? `Next: ${cliName()} hook score --script <file> --slug ${built.slug}. Rebuilds keep your title; --title replaces it.`
+        : `Next: write three titles of your own in ${md} and pick the final one (${rebuild} keeps it), then ${cliName()} hook score --script <file> --slug ${built.slug}.`
       : !g.titleGate.pass && built.titleSource === 'person'
-        ? `Next: rewrite the title (booster titles score "<title>" shows why it scores low), then ${rebuild}`
+        ? `Next: rewrite the title (${cliName()} titles score "<title>" shows why it scores low), then ${rebuild}`
         : 'Fix the failing gates (change the promise or the inputs and rebuild, or re-run with the model on) before the story stage.'
   out({ ...built, json, md, mode: offline ? 'offline' : 'model', bank: bank ?? null }, flags, () => [
     `Package · ${built.slug} · ${g.pass ? 'GATES PASS' : 'GATES FAIL'} (${offline ? 'offline generators, one round' : `model, ${built.rounds} round${built.rounds === 1 ? '' : 's'}`})`,
@@ -526,7 +528,7 @@ export const packageModule: CommandModule = {
     if (cmd === 'titles') {
       if (sub === 'score') {
         const title = rest[0]
-        if (!title) throw new Error('usage: booster titles score "<title>"')
+        if (!title) throw new Error(`usage: ${cliName()} titles score "<title>"`)
         const s = scoreTitle(title)
         out({ title, ...s }, flags, () => [`"${title}"`, `Score ${s.score}/100`, ...s.notes.map((n) => `  - ${n}`)].join('\n'))
         return 0
@@ -540,7 +542,7 @@ export const packageModule: CommandModule = {
       out(shapes, flags, () => [
         `Title shapes for "${topic}": templates with a blank, not titles, so no scores and no ranking.`,
         ...shapes.map((s) => `  ${s.title.padEnd(width)}  ${s.formula}${s.example ? `, e.g. "${s.example}"` : ''}`),
-        'Write your own title in one of these shapes, in your own words, then score it: booster titles score "<your title>".',
+        `Write your own title in one of these shapes, in your own words, then score it: ${cliName()} titles score "<your title>".`,
       ].join('\n'))
       return 0
     }
@@ -548,7 +550,7 @@ export const packageModule: CommandModule = {
       if (sub === 'brief') {
         const idea = rest[0]
         const title = str(flags, 'title')
-        if (!idea || !title) throw new Error('usage: booster thumbnail brief "<idea>" --title "<title>" [--subject ..] [--stake ..] [--result ..]')
+        if (!idea || !title) throw new Error(`usage: ${cliName()} thumbnail brief "<idea>" --title "<title>" [--subject ..] [--stake ..] [--result ..]`)
         const brief = buildThumbnailBrief(idea, title, { subject: str(flags, 'subject'), stake: str(flags, 'stake'), result: str(flags, 'result') })
         out(brief, flags, () => [
           `Thumbnail brief · ${idea}`, `Title: ${title}`, '',
@@ -594,12 +596,12 @@ export const packageModule: CommandModule = {
         ].join('\n'))
         return r.pass ? 0 : 1
       }
-      throw new Error('usage: booster thumbnail brief | qa | proof <slug> | render <slug> | check <file>')
+      throw new Error(`usage: ${cliName()} thumbnail brief | qa | proof <slug> | render <slug> | check <file>`)
     }
     if (cmd === 'signature') {
       if (sub === 'show') return signatureShow(flags)
       if (sub === 'set') return signatureSet(flags)
-      throw new Error(`usage: booster signature show | ${USAGE_SIG_SET}`)
+      throw new Error(`usage: ${cliName()} signature show | ${USAGE_SIG_SET}`)
     }
     if (cmd === 'hook') {
       if (sub === 'score') return hookScore(flags)
@@ -610,11 +612,11 @@ export const packageModule: CommandModule = {
       throw new Error(`usage: ${USAGE_PROMISE}`)
     }
     if (sub === 'build') return packageBuild(rest[0], flags)
-    if (sub !== 'review') throw new Error(`usage: ${USAGE_BUILD} | booster package review --title ".." --thumb-text ".." [--elements "a,b,c"]`)
+    if (sub !== 'review') throw new Error(`usage: ${USAGE_BUILD} | ${cliName()} package review --title ".." --thumb-text ".." [--elements "a,b,c"]`)
     // package review
     const title = str(flags, 'title')
     const thumbText = str(flags, 'thumb-text') ?? ''
-    if (!title) throw new Error('usage: booster package review --title ".." --thumb-text ".." [--elements "a,b,c"]')
+    if (!title) throw new Error(`usage: ${cliName()} package review --title ".." --thumb-text ".." [--elements "a,b,c"]`)
     const t = scoreTitle(title)
     const overlap = titleThumbnailOverlap(title, thumbText)
     const elements = list(flags, 'elements') ?? []

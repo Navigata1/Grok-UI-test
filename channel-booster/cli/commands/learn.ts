@@ -27,13 +27,15 @@ import { dueReviews, renderDigest, runReviews } from '../../src/review.js'
 import { compileRules, describeRule, isProtected, refuseInstalledPlaybook, renderLearnedRules, sortRules, statusLabel, writeLearnedRules, LEARNED_RULES_FILE } from '../../src/rules.js'
 import { stableId, type RuleDoc } from '../../src/schema.js'
 import { resolvePlaybookDir, type Located } from '../../src/workspace.js'
+import { cliName } from '../../src/build-info.js'
+import { shellQuote } from '../../src/shell.js'
 import { bool, getProfile, getStore, inboxDir, list, need, nowFrom, num, out, packagesRoot, playbookDir, str, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_REVIEW = 'booster review due [--now ISO] | booster review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>] [--now ISO]'
-const USAGE_BRIEF = 'booster brief [--week | --today] [--inbox dir] [--out brief.md] [--now ISO]'
-const USAGE_RETRO = 'booster retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md] [--now ISO]'
-const USAGE_ACCEPT = 'booster retro --accept-rule "<rule>" --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes'
-const USAGE_RULES = 'booster rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--playbook dir] [--agent <name>] | booster rules show'
+const USAGE_REVIEW = `${cliName()} review due [--now ISO] | ${cliName()} review run [--slug <slug> --bucket 24|48|168|672] [--inbox dir] [--out dir] [--root dir] [--agent <name>] [--now ISO]`
+const USAGE_BRIEF = `${cliName()} brief [--week | --today] [--inbox dir] [--out brief.md] [--now ISO]`
+const USAGE_RETRO = `${cliName()} retro [--since 7d|30d|YYYY-MM-DD] [--out retro.md] [--now ISO]`
+const USAGE_ACCEPT = `${cliName()} retro --accept-rule "<rule>" --into playbook/<file>.md [--slugs a,b] [--by <name>] --yes`
+const USAGE_RULES = `${cliName()} rules compile [--half-life 90] [--promote-tests 3] [--promote-win-rate 0.6] [--retire-win-rate 0.35] [--playbook dir] [--agent <name>] | ${cliName()} rules show`
 
 /** `--agent <name>` as the store's source `agent:<name>`; the schema allows letters, digits, _ and - only. */
 function sourceFrom(flags: Flags): string {
@@ -251,7 +253,7 @@ const OBSERVATION_NOTE = `Compiled rules are hypotheses under observation from t
  * it again.
  */
 export function enginesLoad(where: Located): string {
-  const how = where.source === 'flag' ? `when they run with --playbook ${where.path}` : where.source === 'workspace' ? `from this workspace's playbook folder, ${where.path}` : `from ${where.path}`
+  const how = where.source === 'flag' ? `when they run with --playbook ${shellQuote(where.path)}` : where.source === 'workspace' ? `from this workspace's playbook folder, ${where.path}` : `from ${where.path}`
   return `The booster ai engines load it ${how}, right after docs/02, as observations under test, not doctrine.`
 }
 
@@ -292,7 +294,7 @@ async function rulesShow(flags: Flags): Promise<number> {
   const store = getStore(flags)
   const rules = sortRules(store.read('rules'))
   out({ rules, file: path.join(playbookDir(flags), LEARNED_RULES_FILE) }, flags, () => {
-    if (rules.length === 0) return `No rules yet: run booster rules compile once the ledger has 7-day reads with levers, or accept one with ${USAGE_ACCEPT}`
+    if (rules.length === 0) return `No rules yet: run ${cliName()} rules compile once the ledger has 7-day reads with levers, or accept one with ${USAGE_ACCEPT}`
     return [...(rules.some((r) => !isProtected(r)) ? [OBSERVATION_NOTE] : []), ...rules.map(ruleLine)].join('\n')
   })
   return 0

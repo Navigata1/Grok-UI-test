@@ -25,7 +25,12 @@ function fail(error) {
 if (!(major >= REQUIRED_MAJOR)) {
   fail(`needs Node.js ${REQUIRED_MAJOR} or newer, and this is Node.js ${process.versions.node}. Install Node.js ${REQUIRED_MAJOR} or later from https://nodejs.org and run it again.`)
 } else if (!existsSync(fileURLToPath(bundle))) {
-  fail(`${fileURLToPath(bundle)} is missing: this copy was never built. Run \`npm run build\` in the channel-booster folder, or install the packaged release.`)
+  // A checkout holds the build script; an installed copy ships without sources and cannot build itself.
+  const checkout = existsSync(fileURLToPath(new URL('../scripts/build.ts', import.meta.url)))
+  const how = checkout
+    ? 'Run `npm run build` in the channel-booster folder.'
+    : 'An installed copy cannot build itself: rebuild the package from a channel-booster checkout (`npm run build`, then `npm pack`) and install that tarball.'
+  fail(`${fileURLToPath(bundle)} is missing: this copy was never built. ${how}`)
 } else {
   import(bundle.href).then((m) => m.main(process.argv.slice(2))).then(exit, fail)
 }

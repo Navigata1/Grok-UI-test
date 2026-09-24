@@ -1,7 +1,17 @@
 <title>Channel Booster Desk</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- @@FONTS@@ -->
+<script>
+  // The theme, set before anything paints, so a light choice never opens on a dark flash: Dark unless the person
+  // picked Light here, and the pick is remembered in this browser only. The published Desk runs in a sandboxed
+  // frame where localStorage throws: there it opens dark, and Light still switches the Desk but is not remembered.
+  (() => {
+    let saved = null
+    try { saved = localStorage.getItem('booster.desk.theme') } catch {}
+    document.documentElement.dataset.deskTheme = saved === 'light' ? 'light' : 'dark'
+  })()
+</script>
+<!-- The palette comes before the inlined fonts, so the first frame is already the Desk's own colours. -->
 <style>
   /* Dark wherever the Desk opens. The artifact viewer stamps data-theme on the root from the viewer's own
      setting and the OS reports its own preference; neither decides here. Bare :root is the dark palette, and
@@ -111,6 +121,8 @@
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
   .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 160px; }
   .field.sm { flex: 0 1 120px; }
+  /* A select whose longest option (documentary, talking-head) needs more than .sm leaves beside the arrow. */
+  .field.md { flex: 0 1 160px; }
   .field.lg { flex: 2 1 320px; }
   .field label { font-size: 12px; color: var(--muted); }
   /* Inputs outside a .field (the three own titles, the bank's status select) get the same box. */
@@ -207,14 +219,16 @@
   .score { font-family: var(--display); font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
   .ok { color: var(--good); } .no { color: var(--bad); }
   .stack { display: flex; flex-direction: column; gap: 8px; }
-  .copy { position: relative; }
-  .copy button { position: absolute; top: 8px; right: 8px; }
+  /* The Copy button sits above the pack, never over it: the pack's first line can run to its right edge. */
+  .copy { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .copy pre { align-self: stretch; }
   /* The human gate: in-page, because a published artifact answers every native confirm dialog with false. */
   dialog.gate { max-width: min(460px, calc(100vw - 32px)); padding: 22px 24px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
   dialog.gate::backdrop { background: var(--backdrop); }
   dialog.gate form { display: flex; flex-direction: column; gap: 14px; margin: 0; }
   dialog.gate .row { justify-content: flex-end; }
 </style>
+<!-- @@FONTS@@ -->
 <div class="wrap">
   <header class="top">
     <div class="brand">
@@ -228,9 +242,7 @@
     <div class="theme" role="group" aria-label="Theme"><button type="button" data-desk-theme-choice="dark" aria-pressed="true">Dark</button><button type="button" data-desk-theme-choice="light" aria-pressed="false">Light</button></div>
   </header>
   <script>
-  // The theme, set as soon as its control exists so a light choice never opens on a dark flash. Dark unless the
-  // person picked Light here; the pick is remembered in this browser only. The published Desk runs in a
-  // sandboxed frame where localStorage throws, so every read and write is guarded and the Desk stays dark there.
+  // The theme control: shows the theme the top of the page set, and switches and remembers it on a click.
   (() => {
     const THEME_KEY = 'booster.desk.theme'
     const choices = document.querySelectorAll('[data-desk-theme-choice]')
@@ -238,9 +250,7 @@
       document.documentElement.dataset.deskTheme = theme
       choices.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.deskThemeChoice === theme)))
     }
-    let saved = null
-    try { saved = localStorage.getItem(THEME_KEY) } catch {}
-    setTheme(saved === 'light' ? 'light' : 'dark')
+    setTheme(document.documentElement.dataset.deskTheme === 'light' ? 'light' : 'dark')
     choices.forEach((b) => b.addEventListener('click', () => {
       const theme = b.dataset.deskThemeChoice === 'light' ? 'light' : 'dark'
       setTheme(theme)
@@ -415,7 +425,7 @@
         <div class="card">
           <div class="row">
             <div class="field lg"><label for="wf-idea">Video</label><input id="wf-idea" placeholder="I lived off a $300 solar generator for 30 days"></div>
-            <div class="field sm"><label for="wf-format">Format</label><select id="wf-format"></select></div>
+            <div class="field md"><label for="wf-format">Format</label><select id="wf-format"></select></div>
             <div class="field sm"><label for="wf-days">Cycle days</label><input id="wf-days" type="number" min="3" max="90" value="14"></div>
             <div class="field sm"><label for="wf-kickoff">Kickoff</label><input id="wf-kickoff" type="date"></div>
             <button class="btn primary" id="wf-run">Generate</button>

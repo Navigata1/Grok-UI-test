@@ -15,6 +15,7 @@
     "test": "npm test --workspace channel-booster",
     "build": "npm run build --workspace channel-booster",
     "verify": "npm run verify --workspace channel-booster",
-    "test:package": "node channel-booster/scripts/package-smoke.mjs"
+    "test:package": "node channel-booster/scripts/package-smoke.mjs",
+    "test:desk": "node channel-booster/scripts/desk-runtime.mjs"
   }
 }

@@ -16,6 +16,7 @@
 import { existsSync, writeFileSync } from 'node:fs'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
+import { cliName } from '../build-info.js'
 import { scoreIdea } from '../ideas.js'
 import { writeOut } from '../io.js'
 import type { GenerateHooks } from '../package.js'
@@ -139,8 +140,13 @@ export async function loadSdk(load: () => Promise<SdkModules> = importSdk): Prom
   } catch (error) {
     if (!isMissingModule(error)) throw error
     const detail = error instanceof Error ? ` (${error.message})` : ''
-    throw new Error(`booster ai needs the Anthropic SDK, and @anthropic-ai/sdk is not installed${detail}. Install it next to channel-booster with: npm install @anthropic-ai/sdk`)
+    throw new Error(`${cliName()} ai needs the Anthropic SDK, and @anthropic-ai/sdk is not installed${detail}. Install it next to channel-booster with: npm install @anthropic-ai/sdk`)
   }
+}
+
+/** The SDK's error when it finds no API key, token or profile: it names its own options, never the variable a person sets. */
+function isMissingCredentials(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('Could not resolve authentication method')
 }
 
 /**
@@ -154,14 +160,20 @@ async function callModel<E extends EngineName>(engine: E, assembled: AssembledPr
   const system = assembled.system
     .filter((b) => b.text.trim().length > 0)
     .map((b) => (b.cache ? { type: 'text' as const, text: b.text, cache_control: { type: 'ephemeral' as const } } : { type: 'text' as const, text: b.text }))
-  const response = await new sdk.Anthropic().messages.parse({
-    model: modelFrom(flags),
-    max_tokens: MAX_TOKENS,
-    thinking: { type: 'adaptive' },
-    system,
-    messages: [{ role: 'user', content: assembled.user }],
-    output_config: { format: sdk.zodOutputFormat(ENGINES[engine]), effort: parseEffort(flags) },
-  })
+  let response
+  try {
+    response = await new sdk.Anthropic().messages.parse({
+      model: modelFrom(flags),
+      max_tokens: MAX_TOKENS,
+      thinking: { type: 'adaptive' },
+      system,
+      messages: [{ role: 'user', content: assembled.user }],
+      output_config: { format: sdk.zodOutputFormat(ENGINES[engine]), effort: parseEffort(flags) },
+    })
+  } catch (error) {
+    if (isMissingCredentials(error)) throw new Error(`${cliName()} ai ${engine} needs ANTHROPIC_API_KEY (or an \`ant auth login\` profile) to call the model; --dry-run shows the prompt without one`)
+    throw error
+  }
   if (response.stop_reason === 'refusal') {
     throw new Error(`the model declined this request${response.stop_details?.explanation ? `: ${response.stop_details.explanation}` : ''}`)
   }
@@ -244,7 +256,7 @@ export function packageHooks(flags: Flags, input: { idea: string; promise: strin
   }
 }
 
-export const AI_HELP = `booster ai <engine> [--dry-run] [--out result.json] [--json]
+export const AI_HELP = `${cliName()} ai <engine> [--dry-run] [--out result.json] [--json]
 
   idea-engine       --niche ".." [--channel ".."] [--csv competitors.csv | --csv example:competitors] [--count 10]
   title-lab         --idea ".."  [--channel ".."]

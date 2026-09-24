@@ -220,13 +220,13 @@ describe('booster workflow run', () => {
     const { code, parsed } = await json(runFlags(['--next', '--agent', 'tester']))
     expect(code).toBe(1)
     expect(parsed.result).toMatchObject({ stageId: 'demand', status: 'failed', exitCode: 1, stdout: '' })
-    expect(parsed.result.stderr).toMatch(/^booster: usage: booster idea score .*Nothing in the bank matches "empty-sprinter-to-camper-in-90-days"/)
+    expect(parsed.result.stderr).toMatch(/^booster: usage: npm run booster -- idea score .*Nothing in the bank matches "empty-sprinter-to-camper-in-90-days"/)
     expect(parsed.result.stderr.endsWith('\n')).toBe(true)
     expect(parsed.result.gate.detail).toMatch(/^FAIL: command exited 1; FAIL: missing demand.json/)
     expect(parsed.status.stages[0]).toMatchObject({ status: 'failed', agent: 'tester' })
     const text = await run(runFlags(['--next', '--agent', 'tester']))
     expect(text.out).toMatch(/Exit code 1\n/)
-    expect(text.out).toMatch(/ {2}\| booster: usage: booster idea score/)
+    expect(text.out).toMatch(/ {2}\| booster: usage: npm run booster -- idea score/)
     expect(spawned).not.toHaveBeenCalled()
   })
 
@@ -270,6 +270,32 @@ describe('booster workflow run', () => {
     expect(parsed.result).toMatchObject({ stageId: 'demand', status: 'passed', exitCode: 0 })
     expect(parsed.result.stdout).toMatch(/^Idea: Empty Sprinter to camper in 90 days/)
     expect(code).toBe(0)
+  }, 60_000)
+
+  it('lets a stored stage command\'s own --data win in this process, as it does isolated: both runs record the same result', async () => {
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
+    spawned.mockImplementationOnce(actual.spawnSync as typeof spawnSync)
+    // The idea is banked and approved in another store than the run's, and the runbook's demand stage names that store itself.
+    const alt = path.join(tmp, 'alt')
+    const score = 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4'
+    const inAlt = ['--data', alt, '--path', noProfile, '--now', NOW]
+    await run(['bank', 'add', IDEA, '--score', score, ...inAlt])
+    await run(['bank', 'approve', IDEA, '--yes', ...inAlt])
+    // `idea score <slug>` finds the idea through the workflow's status document, so that store holds one too.
+    await run(['workflow', IDEA, '--out', path.join(tmp, 'packages'), ...inAlt])
+    await createWorkflow()
+    const file = path.join(tmp, 'packages', `${SLUG}.json`)
+    const wf = JSON.parse(readFileSync(file, 'utf8'))
+    wf.stages[0].run.command = [...wf.stages[0].run.command, '--data', alt]
+    writeFileSync(file, JSON.stringify(wf, null, 2))
+
+    const inProcess = await json(runFlags(['--stage', 'demand', '--agent', 'tester']))
+    expect(spawned).not.toHaveBeenCalled()
+    const isolated = await json(runFlags(['--stage', 'demand', '--agent', 'tester', '--isolate']))
+    expect(spawned).toHaveBeenCalledTimes(1)
+    const record = (r: { code: number; parsed: any }) => ({ code: r.code, status: r.parsed.result.status, exitCode: r.parsed.result.exitCode, gate: r.parsed.result.gate.detail })
+    expect(record(inProcess)).toEqual({ code: 0, status: 'passed', exitCode: 0, gate: 'ok: demand.json: verdict is "green"; ok: demand.json: status is "green"' })
+    expect(record(isolated)).toEqual(record(inProcess))
   }, 60_000)
 
   it('BOOSTER_STAGE_ISOLATION=process isolates every stage without the flag', async () => {

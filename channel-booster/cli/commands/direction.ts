@@ -17,10 +17,11 @@ import type { OutlierTier } from '../../src/outliers.js'
 import { packageDir } from '../../src/runner.js'
 import type { WorkflowFormat } from '../../src/types.js'
 import { WORKFLOW_FORMATS } from '../../src/workflow.js'
+import { cliName } from '../../src/build-info.js'
 import { getProfile, getStore, out, packagesRoot, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_DIRECTION = 'booster direction [--scan last-audit.json] [--data dir] [--path channel.json] [--json]'
-const USAGE_SHOTS = `booster plan shots <slug> [--format ${WORKFLOW_FORMATS.join('|')}] [--root dir] [--out packages/<slug>/shots.md] [--json]`
+const USAGE_DIRECTION = `${cliName()} direction [--scan last-audit.json] [--data dir] [--path channel.json] [--json]`
+const USAGE_SHOTS = `${cliName()} plan shots <slug> [--format ${WORKFLOW_FORMATS.join('|')}] [--root dir] [--out packages/<slug>/shots.md] [--json]`
 
 const TIERS: readonly string[] = ['fresh', 'mega', 'outlier', 'normal']
 
@@ -65,7 +66,7 @@ async function runDirection(flags: Flags): Promise<number> {
     // would print other people's videos under "proven formats".
     const candidates = [...new Set([path.resolve(scanArg), path.resolve(store.root, scanArg), path.resolve(store.root, path.basename(scanArg))])]
     scanFile = candidates.find((f) => existsSync(f))
-    if (!scanFile) throw new Error(`--scan ${scanArg} does not exist (looked at ${candidates.join(', ')}); write one with booster audit <csv> --save. Usage: ${USAGE_DIRECTION}`)
+    if (!scanFile) throw new Error(`--scan ${scanArg} does not exist (looked at ${candidates.join(', ')}); write one with ${cliName()} audit <csv> --save. Usage: ${USAGE_DIRECTION}`)
   }
   const ownScan = scanFile ? scanRows(scanFile) : undefined
   const direction = buildDirection({ profile, ledgerRows: readLedger(store), ownScan, ideas: store.read('ideas') })

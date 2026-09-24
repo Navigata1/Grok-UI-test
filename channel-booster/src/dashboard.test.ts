@@ -329,23 +329,43 @@ describe('desk template', () => {
       expect(style.match(/transition:/g)).toHaveLength(1)
     })
 
-    /** The theme script as the Desk ships it, run against a fake root, the two buttons and a storage. */
+    /** The theme as the Desk ships it, both scripts run in page order against a fake root, the two buttons and a storage. */
     function runTheme(storage: { getItem: (key: string) => string | null; setItem: (key: string, value: string) => void }) {
-      const body = template.match(/\n {2}<script>\n( {2}\/\/ The theme[\s\S]*?)<\/script>/)?.[1]
-      expect(body, 'template ships the theme script after the header').toBeTruthy()
+      const early = template.match(/\n<script>\n( {2}\/\/ The theme, set before anything paints[\s\S]*?)<\/script>\n/)?.[1]
+      const control = template.match(/\n {2}<script>\n( {2}\/\/ The theme control[\s\S]*?)<\/script>/)?.[1]
+      expect(early, 'template sets the theme at the top, before the palette').toBeTruthy()
+      expect(control, 'template ships the theme control script after the header').toBeTruthy()
       const root = { dataset: {} as Record<string, string> }
       const buttons = ['dark', 'light'].map((choice) => {
         let onClick = () => {}
         const attrs: Record<string, string> = {}
         return { choice, attrs, dataset: { deskThemeChoice: choice }, setAttribute: (k: string, v: string) => { attrs[k] = v }, addEventListener: (type: string, f: () => void) => { if (type === 'click') onClick = f }, click: () => onClick() }
       })
-      new Function('document', 'localStorage', body!)({ documentElement: root, querySelectorAll: () => buttons }, storage)
+      const document = { documentElement: root, querySelectorAll: () => buttons }
+      new Function('document', 'localStorage', early!)(document, storage)
+      // What the first frame paints with: the header and its control do not exist yet.
+      const beforeHeader = root.dataset.deskTheme
+      new Function('document', 'localStorage', control!)(document, storage)
       const pressed = () => Object.fromEntries(buttons.map((b) => [b.choice, b.attrs['aria-pressed']]))
-      return { root, pressed, click: (choice: string) => buttons.find((b) => b.choice === choice)!.click() }
+      return { root, beforeHeader, pressed, click: (choice: string) => buttons.find((b) => b.choice === choice)!.click() }
     }
 
     it('offers Dark and Light as a pressed-state pair in the header, Dark pressed in the markup', () => {
-      expect(template).toContain('<div class="theme" role="group" aria-label="Theme"><button type="button" data-desk-theme-choice="dark" aria-pressed="true">Dark</button><button type="button" data-desk-theme-choice="light" aria-pressed="false">Light</button></div>\n  </header>\n  <script>\n  // The theme')
+      expect(template).toContain('<div class="theme" role="group" aria-label="Theme"><button type="button" data-desk-theme-choice="dark" aria-pressed="true">Dark</button><button type="button" data-desk-theme-choice="light" aria-pressed="false">Light</button></div>\n  </header>\n  <script>\n  // The theme control')
+    })
+
+    it('sets the theme, then the palette, before the inlined fonts and the header, so no first frame paints another theme', () => {
+      const early = template.indexOf("document.documentElement.dataset.deskTheme = saved === 'light' ? 'light' : 'dark'")
+      const palette = template.indexOf('\n  :root {\n    color-scheme: dark;')
+      const fonts = template.indexOf('<!-- @@FONTS@@ -->')
+      const header = template.indexOf('<header')
+      expect(early, 'the theme is set by a script at the top of the page').toBeGreaterThan(0)
+      expect(early).toBeLessThan(palette)
+      expect(palette).toBeLessThan(fonts)
+      expect(fonts).toBeLessThan(header)
+      // In the built Desk the whole palette comes before the first of the 140 KB of fonts.
+      const built = readFileSync(path.join(dashboard, 'index.html'), 'utf8')
+      expect(built.indexOf('color-scheme: light;')).toBeLessThan(built.indexOf('@font-face'))
     })
 
     it('opens dark and still switches where storage throws, as in the sandboxed artifact frame', () => {
@@ -366,6 +386,7 @@ describe('desk template', () => {
       first.click('light')
       expect([...saved]).toEqual([['booster.desk.theme', 'light']])
       const second = runTheme(storage)
+      expect(second.beforeHeader).toBe('light')
       expect(second.root.dataset.deskTheme).toBe('light')
       expect(second.pressed()).toEqual({ dark: 'false', light: 'true' })
       second.click('dark')
@@ -396,6 +417,16 @@ describe('desk template', () => {
       // Pulled back out by as much on the top and sides, so the buttons sit where they did.
       expect(sides(rail.match(/(?:^|; )margin: ([^;]+);/)?.[1] ?? '0')).toEqual([-padding[0], -padding[1], 0, -padding[3]])
       expect(parseFloat(rail.match(/scroll-padding-inline: ([^;]+);/)?.[1] ?? '0')).toBeGreaterThanOrEqual(reach)
+    })
+
+    it('gives the Format select room for its longest option beside the arrow', () => {
+      expect(template).toContain('<div class="field md"><label for="wf-format">Format</label>')
+      expect(Number(style.match(/\n {2}\.field\.md \{ flex: 0 1 (\d+)px; \}/)?.[1])).toBeGreaterThanOrEqual(150)
+    })
+
+    it('puts the publish pack\'s Copy button above the pack, never over its text', () => {
+      expect(style).not.toMatch(/\.copy button \{[^}]*position: absolute/)
+      expect(style).toContain('.copy { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }')
     })
 
     it('lets a verdict’s explanation drop below a long label on a phone instead of squeezing it', () => {

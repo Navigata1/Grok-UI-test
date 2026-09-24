@@ -13,6 +13,7 @@ import {
 import { diffScans, saturation, topicDemand, SATURATION_SHARE, SCAN_DIFF_MIN_DELTA, type ScanDiff } from '../../src/topics.js'
 import { thresholds } from '../../src/thresholds.js'
 import { exampleNote, resolveCsvArg, scanClock } from '../example-clock.js'
+import { cliName } from '../../src/build-info.js'
 import { bool, fmt, getStore, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
 
 /** Contract for data/last-scan.json (outliers) and data/last-audit.json (audit), read by --diff and written by --save. */
@@ -122,7 +123,7 @@ export const scanModule: CommandModule = {
   ],
   async run(cmd, sub, _rest, flags) {
     const given = sub ?? str(flags, 'csv')
-    if (!given) throw new Error(`usage: booster ${cmd} <csv> [--since 90] [--fresh] [--by topic] [--diff <path>] [--save <path>] [--saturation]`)
+    if (!given) throw new Error(`usage: ${cliName()} ${cmd} <csv> [--since 90] [--fresh] [--by topic] [--diff <path>] [--save <path>] [--saturation]`)
     const file = resolveCsvArg(given)
     const rows = readVideoRows(readFileSync(file, 'utf8'))
     // A bundled example reads as of the date it was written for (unless --now says otherwise); --save stamps that date too.

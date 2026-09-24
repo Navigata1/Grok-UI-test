@@ -41,8 +41,7 @@ Export your own data from YouTube Studio (Content > Analytics > Advanced mode > 
 The package is private: it is not on npm, so you build the tarball and install it yourself. From a checkout where `npm ci` has run:
 
 ```bash
-npm run booster:build                              # at the repository root; npm run build inside channel-booster/ does the same
-cd channel-booster && npm pack                     # writes channel-booster-0.1.0.tgz
+cd channel-booster && npm pack                     # builds dist/ from this checkout first (prepack), then writes channel-booster-0.1.0.tgz
 npm install --global ./channel-booster-0.1.0.tgz   # or npm install <path to the .tgz> in a project and run npx channel-booster
 channel-booster init ~/channels/my-channel --channel "My Channel"
 cd ~/channels/my-channel
@@ -199,7 +198,7 @@ The doctrine is built in. Every engine's cached system prompt starts from the do
 3. The shipped `playbook/*.md` files.
 4. The channel's other playbook files, which hold the rules a person accepted.
 
-From a source checkout with no workspace, the channel playbook folder is `channel-booster/playbook/` itself, and the prompt is byte for byte the one earlier versions built.
+From a source checkout with no workspace, the channel playbook folder is `channel-booster/playbook/` itself, and the doctrine block the loader builds is byte for byte the one earlier versions built. The rest of the prompt did change. The system preamble names the compiled rules file `00-learned-rules.md` where it said `playbook/00-learned-rules.md`, and it gained a sentence saying what a file labelled `channel playbook/<file>` is. The `--dry-run` view also prints two new lines, `doctrine <hash>` and `overlay <folder>`. A runbook that diffs `ai ... --dry-run` output against an earlier version will see these differences.
 
 The doctrine hash is 12 hex characters of sha256 over the names and text of `docs/02` and `playbook/*.md`. `where` prints it, the dry run shows it, and every real run prints a provenance line under its result: `Provenance: model claude-opus-5 · effort high · doctrine <hash> (<n> files) · overlay <folder>: <files>`. The same provenance goes into the `--json` and `--out` output as a `provenance` object. `--no-doctrine` leaves the shipped doctrine out on purpose: the prompt says the run has none, the channel playbook folder still loads, and the hash reads `none`.
 
@@ -229,9 +228,9 @@ The unattended half runs on three jobs against the channel's workspace ([`docs/r
 
 From `channel-booster/`, `npm run verify` typechecks, runs every test and builds the bundle and the Desk. Three scripts check what the tests cannot:
 
-- `node channel-booster/scripts/package-smoke.mjs` (gate P0-G2; `npm run test:booster-package` at the repository root): packs the tarball, installs it into an empty folder, and drives the bin there. It checks the node shebang, that tsx is absent, that the installed doctrine matches the source doctrine, and that a first run writes nothing outside the workspace.
-- `node channel-booster/scripts/standalone-check.mjs` (gate P0-G3): copies only the booster's files into an empty folder in the layout of its own repository (`scripts/split-template/` holds the root files), then runs `npm install` and `npm run verify` there.
-- `node channel-booster/scripts/desk-runtime.mjs` (gate P1-G2): the Desk journey above.
+- `node channel-booster/scripts/package-smoke.mjs` (gate P0-G2; `npm run test:booster-package` at the repository root): packs the tarball from a checkout with no bundle, so the tarball holds only what `npm pack` built, installs it into an empty folder, and drives the bin there. It checks the node shebang, that tsx is absent, that the installed doctrine matches the source doctrine, that a first run writes nothing outside the workspace, and that an approved idea's workflow stage runs in the bin's own process and passes.
+- `node channel-booster/scripts/standalone-check.mjs` (gate P0-G3): copies only the booster's files into an empty folder in the layout of its own repository (`scripts/split-template/` holds the root files), commits them and checks the commit holds every one, then runs `npm install`, checks that every package a gate script imports is installed, and runs `npm run verify` there.
+- `node channel-booster/scripts/desk-runtime.mjs` (gate P1-G2; `npm run desk` in channel-booster/): the Desk journey above. It needs `@playwright/test`, a dev dependency, and a Chromium (`npx playwright install chromium`).
 
 ## Data shape
 

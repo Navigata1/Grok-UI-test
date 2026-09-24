@@ -130,7 +130,7 @@ describe('booster review', () => {
     seedRow('typed', 50, { impressions: 20000, ctr: 5, avpPct: 40 })
     const none = await run(['review', 'due', '--now', '2026-09-14T13:00:00Z'])
     expect(none.out).not.toContain('typed at 48 h')
-    expect(await fails(['review', 'nope'])).toMatch(/usage: booster review due/)
+    expect(await fails(['review', 'nope'])).toMatch(/usage: npm run booster -- review due/)
   })
 
   it('run diagnoses every ready read, records the decision, writes the day file and the digest', async () => {
@@ -246,7 +246,7 @@ describe('booster brief', () => {
     expect(out).toContain(`Wrote ${outFile}`)
     expect(readFileSync(outFile, 'utf8')).toMatch(/^# /)
     expect(await fails(['brief', '--week', '--today'])).toMatch(/pick --week or --today/)
-    expect(await fails(['brief', 'extra'])).toMatch(/usage: booster brief/)
+    expect(await fails(['brief', 'extra'])).toMatch(/usage: npm run booster -- brief/)
   })
 })
 
@@ -267,7 +267,7 @@ describe('booster retro', () => {
     expect(readFileSync(outFile, 'utf8')).toContain(LEVER)
     expect(out).toContain(`Wrote ${outFile}`)
     expect(await fails(['retro', '--since', 'soon'])).toMatch(/--since must be Nd/)
-    expect(await fails(['retro', 'nope'])).toMatch(/usage: booster retro/)
+    expect(await fails(['retro', 'nope'])).toMatch(/usage: npm run booster -- retro/)
   })
 
   it('--accept-rule needs --yes, then appends under "## Learned rules" and records a protected rule doc', async () => {
@@ -321,7 +321,7 @@ describe('booster rules', () => {
     expect(content).not.toMatch(/prefer/i)
     const { out } = await run(['rules', 'compile'])
     expect(out).toContain('Compiled 1 rule from 10 tested rows: 1 winning so far, 0 losing so far, 0 under test.')
-    expect(out).toContain("Compiled rules are hypotheses under observation from this channel's own small sample, not doctrine. Only a person moves a rule into the playbook: booster retro --accept-rule")
+    expect(out).toContain("Compiled rules are hypotheses under observation from this channel's own small sample, not doctrine. Only a person moves a rule into the playbook: npm run booster -- retro --accept-rule")
     expect(out).toContain(`  under observation, winning so far: "${HYPOTHESIS}" (10 tests, `)
     expect(out).toContain('No status changes since the last compile.')
     // The ai engines read the channel playbook folder from the same flags, and the line says where.
@@ -351,7 +351,7 @@ describe('booster rules', () => {
     expect(shown.out).toContain(`  under observation, winning so far: "${HYPOTHESIS}" (10 tests, `)
     expect(shown.out).toContain('Compiled rules are hypotheses under observation')
     expect(await fails(['rules', 'compile', '--half-life', 'long'])).toMatch(/--half-life must be a number/)
-    expect(await fails(['rules', 'nope'])).toMatch(/usage: booster rules compile/)
+    expect(await fails(['rules', 'nope'])).toMatch(/usage: npm run booster -- rules compile/)
   })
 
   it('stamps the compiled header with the run clock, not the newest rule date', async () => {

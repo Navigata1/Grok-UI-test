@@ -2,8 +2,9 @@
 // P1-G2, the Desk runtime journey: drives the built Desk (dashboard/index.html) in Chromium and checks what the
 // source tests cannot. It opens dark whatever the OS or the host page says, the theme control switches and
 // remembers, the human gates work inside a sandboxed artifact frame, nothing is requested from the network, a
-// phone never scrolls sideways nor squeezes a verdict, every control shows the whole focus ring on desktop and
-// phone, reduced motion stops the transitions, and the text tokens meet 4.5:1 on their surfaces in both themes.
+// phone never scrolls sideways nor squeezes a verdict, no select cuts off an option and the publish pack's Copy
+// button covers none of its text, every control shows the whole focus ring on desktop and phone, reduced motion
+// stops the transitions, and the text tokens meet 4.5:1 on their surfaces in both themes.
 // Each check prints PASS or FAIL; any FAIL exits 1.
 //
 //   node channel-booster/scripts/desk-runtime.mjs
@@ -250,6 +251,50 @@ async function desktopJourney(browser, deskUrl, deskHtml, tmp) {
   }
 }
 
+// ---------- clipped text: selects and the publish pack's Copy button ----------
+/**
+ * Every visible select narrower than it needs to be for its widest option: a copy of it at its own width (auto,
+ * which fits the widest option beside the arrow Chromium draws) is laid out next to it, under the same rules, and
+ * compared. A select that is narrower cuts the end off an option, the way the Format select once read "talking-heac".
+ * A select that already spans its whole row cannot be wider, so a free-text option longer than the row (a video
+ * title in Review, on a phone) is left to the picker, which shows it whole.
+ */
+const clippedSelects = (frame) => frame.evaluate(() => [...document.querySelectorAll('select')].filter((s) => s.checkVisibility()).flatMap((s) => {
+  const probe = s.cloneNode(true)
+  probe.removeAttribute('id')
+  probe.style.cssText = 'position:absolute;visibility:hidden;left:0;top:0;width:auto;min-width:0;max-width:none'
+  s.parentElement.appendChild(probe)
+  const needs = probe.getBoundingClientRect().width
+  probe.remove()
+  const has = s.getBoundingClientRect().width
+  const row = s.closest('.row') ?? s.parentElement
+  const cs = getComputedStyle(row)
+  const room = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+  return needs > has + 0.5 && has < room - 1 ? [{ select: s.id || s.getAttribute('aria-label') || 'select', width: Math.round(has), needs: Math.round(needs), room: Math.round(room), widest: [...s.options].map((o) => o.text).reduce((a, b) => (b.length > a.length ? b : a), '') }] : []
+}))
+
+/** Every select on every stage that cuts off an option. */
+async function clippedAcrossStages(page) {
+  const found = []
+  for (const id of STAGES) {
+    await stage(page, id)
+    found.push(...(await clippedSelects(page)).map((c) => ({ stage: id, ...c })))
+  }
+  return found
+}
+const clippedLine = (found) => found.map((c) => `${c.stage} #${c.select} ${c.width}px wide of a ${c.room}px row, "${c.widest}" needs ${c.needs}px`).join(' · ')
+
+/** The publish pack's Copy button against the pack it copies: the button must sit clear of the text box. */
+const copyButton = (frame) => frame.evaluate(() => {
+  const button = document.getElementById('pb-copy')
+  const pre = document.querySelector('#pb-out pre')
+  if (!button || !pre) return null
+  const b = button.getBoundingClientRect()
+  const p = pre.getBoundingClientRect()
+  const box = (r) => ({ left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom) })
+  return { button: box(b), pack: box(p), overlaps: b.left < p.right && b.right > p.left && b.top < p.bottom && b.bottom > p.top }
+})
+
 // ---------- (d): a phone in both themes, no stage scrolls the page sideways ----------
 /**
  * How wide the page is against the layout viewport. Under mobile emulation innerWidth grows with the content when
@@ -323,6 +368,19 @@ async function phoneJourney(browser, deskUrl) {
       const rail = new Set(rings.filter((r) => r.el.includes('[data-stage=')).map((r) => r.el)).size
       const bad = rings.filter((r) => !ringDrawn(r) || r.cut.length)
       check('f-phone', ringName, rail === STAGES.length && bad.length === 0, { reached: rings.length, railButtons: rail, bad }, bad.length ? bad.slice(0, 10).map((r) => `${r.stage} ${r.el} ${r.cut.join(', ') || `${r.style} ${r.width} offset ${r.offset}`}`).join(' · ') : `${rings.length} tab stops on ideas and review, all ${rail} rail buttons among them, no ring cut off`)
+    })
+    const selectName = 'phone: every select is wide enough for its longest option, so none reads cut off'
+    await step('d-select', selectName, async () => {
+      await pickTheme(page, 'dark')
+      const found = await clippedAcrossStages(page)
+      check('d-select', selectName, found.length === 0, { clipped: found }, found.length ? clippedLine(found) : `no select cut off on ${STAGES.length} stages`)
+    })
+
+    const copyName = 'phone: the publish pack\'s Copy button sits clear of the pack, covering none of its text'
+    await step('d-copy', copyName, async () => {
+      await stage(page, 'publish')
+      const copy = await copyButton(page)
+      check('d-copy', copyName, copy !== null && !copy.overlaps, { copy }, copy ? `button ${JSON.stringify(copy.button)} pack ${JSON.stringify(copy.pack)} overlaps=${copy.overlaps}` : 'no assembled pack on the publish stage')
     })
     check('d-clean', 'phone: no console errors and no request outside file: and data:', clean(seen), seen, cleanLine(seen))
   } finally {
@@ -525,6 +583,12 @@ async function contrastJourney(browser, deskUrl) {
       const moving = await durations('no-preference')
       const pass = Object.values(still).every((d) => d.split(',').every((x) => parseFloat(x) === 0)) && Object.values(moving).every((d) => parseFloat(d) > 0)
       check('g', 'reduced motion turns the transitions off', pass, { reduce: still, noPreference: moving }, `reduce: ${JSON.stringify(still)}; no-preference: ${JSON.stringify(moving)}`)
+    })
+    const selectName = 'desktop: every select is wide enough for its longest option, so none reads cut off'
+    await step('e-select', selectName, async () => {
+      await pickTheme(page, 'dark')
+      const found = await clippedAcrossStages(page)
+      check('e-select', selectName, found.length === 0, { clipped: found }, found.length ? clippedLine(found) : `no select cut off on ${STAGES.length} stages`)
     })
     check('e-clean', 'contrast pages: no console errors and no request outside file: and data:', clean(seen), seen, cleanLine(seen))
   } finally {

@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { ideaId, wipWarnings } from '../../src/bank.js'
 import { cliName } from '../../src/build-info.js'
+import { shellQuote } from '../../src/shell.js'
 import { nextRunnable, overrideStage, runNext, runStage, applyStageResult, startWorkflow, type RunStageOptions, type StageResult } from '../../src/runner.js'
 import type { WorkflowStatusDoc } from '../../src/schema.js'
 import type { Store } from '../../src/store.js'
@@ -222,7 +223,7 @@ export const workflowModule: CommandModule = {
         writeFileSync(path.join(dir, `${wf.slug}.json`), `${JSON.stringify(wf, null, 2)}\n`)
         warn(`wrote ${path.join(dir, wf.slug)}.md and .json`)
         const written = `${path.resolve(dir, wf.slug)}.json`
-        if (runbooks && path.resolve(dir) !== runbooks) warn(`${written} is not in ${runbooks}, where \`workflow run\` looks for it: run it with --workflow ${written}, or leave out --out`)
+        if (runbooks && path.resolve(dir) !== runbooks) warn(`${written} is not in ${runbooks}, where \`workflow run\` looks for it: run it with --workflow ${shellQuote(written)}, or leave out --out`)
       }
       const store = getStore(flags)
       const existed = Boolean(store.get('workflows', wf.slug))

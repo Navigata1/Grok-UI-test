@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The packed bin from an empty folder (gate P0-G2).
 //
-// Builds the bundle, packs channel-booster with npm, installs the tarball into
+// Packs channel-booster with npm from a checkout with no bundle, so the
+// tarball holds only what its prepack script builds, installs the tarball into
 // an empty project the way a person would, and drives the installed bin with
 // HOME pointed at a scratch folder:
 //   (a) the bin runs on plain node: help, its #!/usr/bin/env node line, no tsx
@@ -9,7 +10,9 @@
 //   (b) a workspace made by init is found from inside it, and the installed bin
 //       ships the same doctrine as this checkout (where --json, ai --dry-run);
 //   (c) a first run inside the workspace writes nothing outside it: not in the
-//       project, not in node_modules/channel-booster, not in HOME;
+//       project, not in node_modules/channel-booster, not in HOME; and an
+//       approved green idea's workflow stage runs in the bin's own process,
+//       with no child node, and passes;
 //   (d) a store command outside any workspace stops with the init hint.
 // Prints PASS or FAIL for every check, exits 1 on any FAIL, and writes the
 // whole transcript to ops/mission/evidence/package-smoke.txt at the repository
@@ -38,6 +41,16 @@ const SLUG = 'i-lived-off-a-solar-generator-for-30-days' // slugify(IDEA), src/w
 const SCORE = 'demand=auto,packaging=4,fit=4,angle=3,payoff=4,feasibility=4'
 const PROMISE = 'thirty days on a solar generator, every failure shown'
 const TITLE = 'Thirty Days on a Solar Generator, Every Failure'
+// An idea a person approved green, so its workflow's demand stage can pass.
+const GREEN_IDEA = 'I ran a van fridge on solar for 30 days'
+const GREEN_SCORE = 'demand=5,packaging=5,fit=5,angle=4,payoff=5,feasibility=5'
+const GREEN_PROMISE = 'a van fridge on solar alone for thirty days, every warm night shown'
+/**
+ * Loaded by every node process the bin starts: the first one marks the
+ * environment, and any node it starts inherits the mark and exits 97 at once.
+ * A stage that ran in the bin's own process never sees it.
+ */
+const NO_CHILD_NODE = '--import=data:text/javascript,if(process.env.BOOSTER_SMOKE_PARENT)process.exit(97);process.env.BOOSTER_SMOKE_PARENT=String(process.pid)'
 
 const transcript = []
 const results = []
@@ -178,21 +191,14 @@ say('')
 
 let status = 1
 try {
-  // Build and pack.
-  const build = run(process.execPath, [TSX_CLI, path.join(BOOSTER, 'scripts', 'build.ts')], { cwd: BOOSTER, env: npmEnv() })
-  let built = false
-  check('build: scripts/build.ts writes dist/channel-booster.mjs', () => {
-    exited(build, 0, 'the build')
-    built = existsSync(path.join(BOOSTER, 'dist', 'channel-booster.mjs'))
-    assert(built, 'dist/channel-booster.mjs is missing after the build')
-    return build.stdout.trim()
-  })
-
+  // Pack from a checkout with no bundle: npm pack must build the one it packs (prepack), never ship a missing or stale dist/.
   let tarball
-  check('pack: npm pack holds the bin, the bundle, the examples and the notices, and no source', () => {
-    needs(built, 'the build')
+  check('pack: npm pack builds the bundle it packs, and holds the bin, the bundle, the examples and the notices, and no source', () => {
+    const bundle = path.join(BOOSTER, 'dist', 'channel-booster.mjs')
+    rmSync(bundle, { force: true })
     const pack = run(NPM, ['pack', '--json', '--pack-destination', packDir], { cwd: BOOSTER, env: npmEnv() })
     exited(pack, 0, 'npm pack')
+    assert(existsSync(bundle), 'npm pack did not build dist/channel-booster.mjs: the prepack script is missing or failed')
     const report = parseJson(pack.stdout.slice(pack.stdout.indexOf('[')), 'npm pack --json')[0]
     const files = tarballFiles(report)
     const required = ['package.json', 'bin/channel-booster.mjs', 'dist/channel-booster.mjs', 'examples/competitors.csv', 'examples/my-channel.csv', 'examples/studio-content.csv', 'README.md', 'LICENSE', 'NOTICE']
@@ -202,7 +208,7 @@ try {
     assert(stray.length === 0, `the tarball carries files outside bin/, dist/ and examples/: ${stray.join(', ')}`)
     tarball = path.join(packDir, report.filename)
     assert(existsSync(tarball), `${tarball} was not written`)
-    return `${report.filename}, ${files.length} files, ${(report.size / 1024).toFixed(0)} KB packed`
+    return `${report.filename}, ${files.length} files, ${(report.size / 1024).toFixed(0)} KB packed; ${pack.stdout.slice(0, pack.stdout.indexOf('[')).trim().split('\n').at(-1)}`
   })
 
   let installed = false
@@ -317,15 +323,28 @@ try {
       if (says) assert(r.stderr.includes(says), `stderr does not say ${JSON.stringify(says)}`)
     })
   }
-  check('(c) workflow run <slug> --next --agent smoke runs the next stage in this process', () => {
+  check('(c) workflow run <slug> --next runs an approved green idea\'s demand stage in the bin\'s own process, and it passes', () => {
     needs(workspaceMade, 'init')
-    const r = bin(['workflow', 'run', SLUG, '--next', '--agent', 'smoke', '--json'], ws)
-    const value = parseJson(r.stdout, 'workflow run --json')
-    const result = value.result
-    assert(result?.stageId, `no stage ran: ${r.stderr.trim().split('\n').at(-1) ?? ''}`)
-    // A stage whose gate fails exits 1 by design; the stage having run and recorded is what this checks.
-    exited(r, result.status === 'failed' ? 1 : 0, `workflow run (stage ${result.stageId}, ${result.status})`)
-    return `stage ${result.stageId}: ${result.status}${result.gate?.detail ? ` (${result.gate.detail})` : ''}`
+    for (const args of [['bank', 'add', GREEN_IDEA, '--score', GREEN_SCORE, '--promise', GREEN_PROMISE], ['bank', 'approve', GREEN_IDEA, '--yes']]) exited(bin(args, ws), 0, args.slice(0, 2).join(' '))
+    const created = bin(['workflow', GREEN_IDEA, '--json'], ws)
+    exited(created, 0, 'workflow "<idea>"')
+    const slug = parseJson(created.stdout, 'workflow "<idea>" --json').slug
+    // Any node the bin starts exits 97 at once, so only a stage that ran in the bin's own process can pass.
+    const guarded = { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, NO_CHILD_NODE].filter(Boolean).join(' ') }
+    const stage = (extra) => {
+      const r = run(binPath, ['workflow', 'run', slug, ...extra, '--agent', 'smoke', '--json'], { cwd: ws, env: guarded })
+      return { r, result: parseJson(r.stdout, 'workflow run --json').result }
+    }
+    // The guard can say no: spawned with --isolate, the same stage's child stops at 97.
+    const isolated = stage(['--stage', 'demand', '--isolate'])
+    assert(isolated.result?.exitCode === 97, `with --isolate the spawned stage exited ${isolated.result?.exitCode}, expected 97 from the guard, so the check below could not tell a spawned stage from an in-process one`)
+    const { r, result } = stage(['--next'])
+    assert(result?.stageId === 'demand', `ran ${result?.stageId ?? 'no stage'}, expected demand: ${r.stderr.trim().split('\n').at(-1) ?? ''}`)
+    const said = (result.stderr ?? '').trim()
+    assert(result.exitCode === 0 && !/^(channel-)?booster: /m.test(said), `the stage command failed (exit ${result.exitCode})${said ? `: ${said.split('\n').slice(-2).join(' / ')}` : ''}`)
+    assert(result.status === 'passed', `the stage ${result.status}: ${result.gate?.detail}`)
+    exited(r, 0, 'workflow run')
+    return `stage demand passed in this process (${result.gate.detail}); with --isolate its child exited 97`
   })
 
   // (d) Outside any workspace, a store command stops and names init.

@@ -212,7 +212,7 @@ describe('example:<name> names a bundled export from any folder', () => {
       const { out } = await run(['outliers', 'example:competitors', '--data', data])
       expect(out).toContain(exampleNote('2026-07-10T00:00:00Z'))
       await expect(main(['outliers', 'example:rivals', '--data', data])).rejects.toThrow('unknown example "example:rivals"')
-      await expect(main(['outliers', '--data', data])).rejects.toThrow('usage: booster outliers <csv>')
+      await expect(main(['outliers', '--data', data])).rejects.toThrow('usage: npm run booster -- outliers <csv>')
     } finally {
       process.chdir(cwd)
     }

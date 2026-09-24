@@ -33,6 +33,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { shippedDoctrine } from './ai/doctrine.js'
+import { cliName } from './build-info.js'
 import { checkPromise, type PromiseReport } from './promise.js'
 import { stableId, type Signature } from './schema.js'
 import { describeSignature } from './signature.js'
@@ -439,7 +440,7 @@ function offlineConcepts(input: BuildPackageInput, title: string): ConceptInput[
  * fills a formula in: the fills read "I Did A $300 solar generator Until It
  * Worked" and the lexical score rated them 85-93, so the person writes it.
  */
-export const NO_TITLE_OFFLINE = 'no title yet: offline, the builder never picks a formula fill; a person writes the title (AGENTS.md, human gate 2). Write one from the shapes on the sheet, check it with booster titles score "<title>", then rebuild with --title "<title>"'
+export const NO_TITLE_OFFLINE = `no title yet: offline, the builder never picks a formula fill; a person writes the title (AGENTS.md, human gate 2). Write one from the shapes on the sheet, check it with ${cliName()} titles score "<title>", then rebuild with --title "<title>"`
 
 /**
  * Rescore and rank titles; the hook's own score is ignored so the gate is one

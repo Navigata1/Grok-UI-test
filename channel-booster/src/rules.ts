@@ -71,14 +71,41 @@ export interface PlaybookWriteOptions {
 }
 
 /**
- * Refuse a write into the playbook folder inside the installed package: the
- * packaged bin never writes into its own package, so compiled and accepted
- * rules go to a channel's folder. From source that folder is the legacy
- * layout and is written as before.
+ * A path's real path, symlinks followed, even when its last parts do not exist
+ * yet: the nearest existing ancestor is resolved and the rest joined back on.
+ */
+function realPathOf(p: string): string {
+  const resolved = path.resolve(p)
+  const rest: string[] = []
+  for (let dir = resolved; ; dir = path.dirname(dir)) {
+    try {
+      return path.join(realpathSync(dir), ...rest.reverse())
+    } catch {
+      if (path.dirname(dir) === dir) return resolved
+      rest.push(path.basename(dir))
+    }
+  }
+}
+
+/** True when dir is root or lies inside it, real paths compared. */
+function isInside(dir: string, root: string): boolean {
+  const rel = path.relative(realPathOf(root), realPathOf(dir))
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))
+}
+
+/**
+ * Refuse a write into the installed package: the packaged bin never writes
+ * into its own package, so compiled and accepted rules go to a channel's
+ * folder. That covers the package's playbook folder and every other folder in
+ * it (its root, dist/, ...), however a path reaches them. The package is the
+ * folder that holds the shipped playbook folder. From source the shipped
+ * folder is the legacy layout and is written as before.
  */
 export function refuseInstalledPlaybook(dir: string, options: PlaybookWriteOptions = {}): void {
-  if ((options.bundled ?? BUNDLED) && isShippedPlaybookDir(dir, options.shippedDir)) {
-    throw new Error(`refusing to write into the installed package's playbook (${path.resolve(dir)}): keep this channel's rules in a channel workspace (${cliName(true)} init <folder>) or pass --playbook with a folder outside the installed package`)
+  if (!(options.bundled ?? BUNDLED)) return
+  const shipped = options.shippedDir ?? SHIPPED_PLAYBOOK_DIR
+  if (isShippedPlaybookDir(dir, shipped) || isInside(dir, path.dirname(path.resolve(shipped)))) {
+    throw new Error(`refusing to write into the installed package (${path.resolve(dir)}): keep this channel's rules in a channel workspace (${cliName(true)} init <folder>) or pass --playbook with a folder outside the installed package`)
   }
 }
 

@@ -11,7 +11,7 @@ import * as ai from './index.js'
 import { NO_DOCTRINE_NOTE } from './prompt.js'
 
 /** What the stand-in SDK saw: how often each module was loaded, and every request sent. */
-const sdk = vi.hoisted(() => ({ core: 0, helpers: 0, requests: [] as Array<Record<string, any>>, output: undefined as unknown }))
+const sdk = vi.hoisted(() => ({ core: 0, helpers: 0, requests: [] as Array<Record<string, any>>, output: undefined as unknown, error: undefined as Error | undefined }))
 
 vi.mock('@anthropic-ai/sdk', () => {
   sdk.core += 1
@@ -19,6 +19,7 @@ vi.mock('@anthropic-ai/sdk', () => {
     messages = {
       parse: async (request: Record<string, any>) => {
         sdk.requests.push(request)
+        if (sdk.error) throw sdk.error
         return { stop_reason: 'end_turn', parsed_output: sdk.output }
       },
     }
@@ -105,9 +106,21 @@ describe('the Anthropic SDK', () => {
     expect(JSON.parse(readFileSync(outFile, 'utf8')).provenance).toEqual(provenance)
   })
 
+  it('says which variable to set when there is no API key, and passes any other failure through', async () => {
+    // The SDK's own words when it finds no key, token or profile.
+    sdk.error = new Error('Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted')
+    try {
+      await expect(run('title-lab', { idea: 'Van build' })).rejects.toThrow(/^npm run booster -- ai title-lab needs ANTHROPIC_API_KEY \(or an `ant auth login` profile\) to call the model; --dry-run shows the prompt without one$/)
+      sdk.error = new Error('529 overloaded')
+      await expect(run('title-lab', { idea: 'Van build' })).rejects.toThrow(/^529 overloaded$/)
+    } finally {
+      sdk.error = undefined
+    }
+  })
+
   it('names the install when it is missing, and passes any other failure through', async () => {
     const missing = Object.assign(new Error("Cannot find package '@anthropic-ai/sdk' imported from /x/dist/channel-booster.mjs"), { code: 'ERR_MODULE_NOT_FOUND' })
-    await expect(ai.loadSdk(() => Promise.reject(missing))).rejects.toThrow(/booster ai needs the Anthropic SDK, and @anthropic-ai\/sdk is not installed \(Cannot find package '@anthropic-ai\/sdk'.*\)\. Install it next to channel-booster with: npm install @anthropic-ai\/sdk/)
+    await expect(ai.loadSdk(() => Promise.reject(missing))).rejects.toThrow(/npm run booster -- ai needs the Anthropic SDK, and @anthropic-ai\/sdk is not installed \(Cannot find package '@anthropic-ai\/sdk'.*\)\. Install it next to channel-booster with: npm install @anthropic-ai\/sdk/)
     const cjs = Object.assign(new Error('Cannot find module'), { code: 'MODULE_NOT_FOUND' })
     await expect(ai.loadSdk(() => Promise.reject(cjs))).rejects.toThrow(/npm install @anthropic-ai\/sdk/)
     await expect(ai.loadSdk(() => Promise.reject(new Error('disk on fire')))).rejects.toThrow(/^disk on fire$/)

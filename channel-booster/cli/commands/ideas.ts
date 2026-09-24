@@ -13,6 +13,7 @@ import { IdeaStatus, type IdeaDoc } from '../../src/schema.js'
 import { thresholds } from '../../src/thresholds.js'
 import type { IdeaScore } from '../../src/types.js'
 import { exampleNote, resolveCsvArg, scanClock } from '../example-clock.js'
+import { cliName } from '../../src/build-info.js'
 import { bool, getStore, list, need, nowFrom, num, out, str, type CommandModule, type Flags } from '../shared.js'
 
 const SORT_KEYS: readonly BankSortKey[] = ['total', 'demand', 'updatedAt', 'createdAt', 'idea']
@@ -136,7 +137,7 @@ async function runIdea(sub: string | undefined, rest: string[], flags: Flags): P
     let score: IdeaScore
     if (scoreText) score = parseIdeaScore(scoreText)
     else if (banked) score = banked.scores
-    else throw new Error(`usage: booster idea score "<idea>" --score "demand=4,packaging=3,fit=4,angle=3,payoff=4,feasibility=5" (demand=auto with --outliers <csv>). Nothing in the bank matches "${idea}": booster bank add "<idea>" --score "..", then a person approves it with booster bank approve "<idea>" --yes.`)
+    else throw new Error(`usage: ${cliName()} idea score "<idea>" --score "demand=4,packaging=3,fit=4,angle=3,payoff=4,feasibility=5" (demand=auto with --outliers <csv>). Nothing in the bank matches "${idea}": ${cliName()} bank add "<idea>" --score "..", then a person approves it with ${cliName()} bank approve "<idea>" --yes.`)
     let demand: ScanDemand | undefined
     if (score.demand === DEMAND_AUTO) {
       const csv = str(flags, 'outliers')
@@ -154,12 +155,12 @@ async function runIdea(sub: string | undefined, rest: string[], flags: Flags): P
     }
     out(scorecard, flags, () => [
       renderScorecard(scorecard.idea, verdict, demand),
-      ...(banked ? [`Bank: ${banked.id} is ${banked.status}${banked.status === 'green' ? '' : `; a person approves it with booster bank approve "${banked.idea}" --yes`}.`] : []),
+      ...(banked ? [`Bank: ${banked.id} is ${banked.status}${banked.status === 'green' ? '' : `; a person approves it with ${cliName()} bank approve "${banked.idea}" --yes`}.`] : []),
       ...(outFile ? [`Wrote ${outFile}`] : []),
     ].join('\n'))
     return 0
   }
-  throw new Error('usage: booster idea questions | booster idea score "<idea>" --score ...')
+  throw new Error(`usage: ${cliName()} idea questions | ${cliName()} idea score "<idea>" --score ...`)
 }
 
 async function runBank(sub: string | undefined, rest: string[], flags: Flags): Promise<number> {
@@ -169,7 +170,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
   switch (sub) {
     case 'add': {
       const idea = rest[0]
-      const usage = 'booster bank add "<idea>" --score "demand=4,packaging=3,..." [--csv competitors.csv] [--series ..] [--promise ..] [--source ..]'
+      const usage = `${cliName()} bank add "<idea>" --score "demand=4,packaging=3,..." [--csv competitors.csv] [--series ..] [--promise ..] [--source ..]`
       if (!idea) throw new Error(`usage: ${usage}`)
       let score = parseIdeaScore(need(flags, 'score', usage))
       let sources: IdeaDoc['sources'] = []
@@ -191,7 +192,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
     }
     case 'list': {
       const statusFlag = list(flags, 'status')
-      const status = statusFlag?.map((s) => parseStatus(s, 'booster bank list [--status banked,green,...]'))
+      const status = statusFlag?.map((s) => parseStatus(s, `${cliName()} bank list [--status banked,green,...]`))
       const sortRaw = str(flags, 'sort')
       if (sortRaw !== undefined && !SORT_KEYS.includes(sortRaw as BankSortKey)) throw new Error(`--sort must be one of ${SORT_KEYS.join(', ')}`)
       const rows = listIdeas(store, { status, sortBy: sortRaw as BankSortKey | undefined, sequelFirst: !bool(flags, 'no-sequel-first') })
@@ -203,7 +204,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
       return 0
     }
     case 'approve': {
-      const id = bankId(rest[0], 'booster bank approve <id-or-text> --yes')
+      const id = bankId(rest[0], `${cliName()} bank approve <id-or-text> --yes`)
       const doc = getIdea(store, id)
       gateGreen(doc, flags)
       const next = setStatus(store, id, 'green', { now })
@@ -212,7 +213,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
     }
     case 'park':
     case 'reject': {
-      const usage = `booster bank ${sub} <id-or-text> --reason "one line on why"`
+      const usage = `${cliName()} bank ${sub} <id-or-text> --reason "one line on why"`
       const id = bankId(rest[0], usage)
       const reason = need(flags, 'reason', usage)
       const next = setStatus(store, id, sub === 'park' ? 'parked' : 'retired', { reason, now })
@@ -220,7 +221,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
       return 0
     }
     case 'status': {
-      const usage = 'booster bank status <id-or-text> <banked|green|packaging|production|published|parked|retired> [--reason ..]'
+      const usage = `${cliName()} bank status <id-or-text> <banked|green|packaging|production|published|parked|retired> [--reason ..]`
       const id = bankId(rest[0], usage)
       const status = parseStatus(rest[1], usage)
       const doc = getIdea(store, id)
@@ -231,7 +232,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
     }
     case 'rescore': {
       const csv = rest[0]
-      if (!csv) throw new Error('usage: booster bank rescore <competitors.csv> [--own my-channel.csv] [--since 90] [--decay-days 180]')
+      if (!csv) throw new Error(`usage: ${cliName()} bank rescore <competitors.csv> [--own my-channel.csv] [--since 90] [--decay-days 180]`)
       const since = num(flags, 'since')
       const ranked = computeOutliers(readVideoRows(readFileSync(resolveCsvArg(csv), 'utf8')), { now, sinceDays: since })
       const report = rescore(store, ranked, { now, windowDays: since, decayDays: num(flags, 'decay-days'), source: 'cli' })
@@ -266,7 +267,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
     }
     case 'import': {
       const file = rest[0]
-      if (!file) throw new Error('usage: booster bank import <ideas.json> [--source agent:idea-engine]   (booster ai idea-engine --json > ideas.json)')
+      if (!file) throw new Error(`usage: ${cliName()} bank import <ideas.json> [--source agent:idea-engine]   (${cliName()} ai idea-engine --json > ideas.json)`)
       const report = importIdeas(store, readFileSync(file, 'utf8'), { source: str(flags, 'source'), now })
       out(report, flags, () => [
         ...report.imported.map((i) => `${i.outcome.padEnd(7)} ${i.id} ${i.idea}${i.workingTitle ? `  title: ${i.workingTitle}` : ''}${i.thumbnailConcept ? `  thumb: ${i.thumbnailConcept}` : ''}${i.angle ? `  angle: ${i.angle}` : ''}`),
@@ -281,7 +282,7 @@ async function runBank(sub: string | undefined, rest: string[], flags: Flags): P
       return 0
     }
     default:
-      throw new Error('usage: booster bank add|list|approve|park|reject|status|rescore|sequels|import|wip')
+      throw new Error(`usage: ${cliName()} bank add|list|approve|park|reject|status|rescore|sequels|import|wip`)
   }
 }
 

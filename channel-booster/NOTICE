@@ -5,7 +5,7 @@ Where it was built
 ------------------
 The booster was developed inside a fork of Grok UI
 (https://github.com/joeynyc/Grok-UI), MIT License,
-Copyright (c) 2026 Grok UI contributors / Joey Rodriguez.
+Copyright (c) 2026 Grok UI contributors.
 
 No Grok UI source is included. Checked when this notice was written: every
 module the command line and the Desk bundle resolve lies inside the

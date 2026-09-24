@@ -418,7 +418,7 @@ describe('publish pack', () => {
     expect(existsSync(path.join(slugDir, 'publish.json'))).toBe(true)
     await expect(main(['publish', 'pack', SLUG, '--promise', PROMISE, ...common()])).rejects.toThrow(/no title for "scrap-solar"/)
     await expect(main(['publish', 'pack', SLUG, '--title', TITLE, ...common()])).rejects.toThrow(/no promise for "scrap-solar"/)
-    await expect(main(['publish', 'pack', ...common()])).rejects.toThrow(/usage: booster publish pack/)
+    await expect(main(['publish', 'pack', ...common()])).rejects.toThrow(/usage: npm run booster -- publish pack/)
   })
 })
 
