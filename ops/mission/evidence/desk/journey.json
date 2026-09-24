@@ -2,8 +2,8 @@
   "gate": "P1-G2",
   "script": "channel-booster/scripts/desk-runtime.mjs",
   "desk": "channel-booster/dashboard/index.html",
-  "deskSha256": "86c995d854ba1eae418e9616342e433026a28f154f23f9042d427565cce4c597",
-  "ranAt": "2026-09-24T14:40:07.463Z",
+  "deskSha256": "281c256d70f0c4d14cb125c8ff56bb9d914f33f270ecf9f2f83f9c3ceeb138a8",
+  "ranAt": "2026-09-24T15:57:55.454Z",
   "browser": "Chromium 141.0.7390.37",
   "result": "PASS",
   "evidence": [
@@ -580,6 +580,36 @@
       }
     },
     {
+      "id": "d-select",
+      "name": "phone: every select is wide enough for its longest option, so none reads cut off",
+      "result": "PASS",
+      "measured": {
+        "clipped": []
+      }
+    },
+    {
+      "id": "d-copy",
+      "name": "phone: the publish pack's Copy button sits clear of the pack, covering none of its text",
+      "result": "PASS",
+      "measured": {
+        "copy": {
+          "button": {
+            "left": 305,
+            "top": 1166,
+            "right": 357,
+            "bottom": 1192
+          },
+          "pack": {
+            "left": 33,
+            "top": 1200,
+            "right": 357,
+            "bottom": 1520
+          },
+          "overlaps": false
+        }
+      }
+    },
+    {
       "id": "d-clean",
       "name": "phone: no console errors and no request outside file: and data:",
       "result": "PASS",
@@ -933,6 +963,14 @@
           "nav.rail button": "0.15s, 0.15s, 0.15s",
           ".theme button": "0.15s, 0.15s, 0.15s"
         }
+      }
+    },
+    {
+      "id": "e-select",
+      "name": "desktop: every select is wide enough for its longest option, so none reads cut off",
+      "result": "PASS",
+      "measured": {
+        "clipped": []
       }
     },
     {
