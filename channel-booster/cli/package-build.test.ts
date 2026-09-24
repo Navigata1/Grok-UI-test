@@ -252,7 +252,7 @@ describe('booster package build', () => {
     // Offline and no title yet: the stage fails and its stderr (which the runner prints) says who writes the title.
     const first = await json(['workflow', 'run', SLUG, '--next', '--agent', 'runner-test'])
     expect(first.parsed.result.stageId).toBe('packaging')
-    expect(first.parsed.result.command).toEqual(['npm', 'run', 'booster', '--', 'package', 'build', SLUG])
+    expect(first.parsed.result.command).toEqual(['booster', 'package', 'build', SLUG])
     expect(first.parsed.result.kind).toBe('command')
     expect(first.parsed.result.status).toBe('failed')
     expect(first.parsed.result.stderr).toContain(`No title yet for ${SLUG}: a person writes it, then booster package build ${SLUG} --title "<your title>"`)

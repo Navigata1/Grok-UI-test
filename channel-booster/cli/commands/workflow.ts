@@ -3,24 +3,42 @@
  *
  * `workflow "<idea>"` writes the runbook and creates the status document;
  * `workflow run <slug>` drives one stage at a time through src/runner.ts
- * (architecture 2.13). Overriding a gate is a person's call: it prints what
- * it is about to record and needs --yes as well as --reason.
+ * (architecture 2.13). A booster stage runs in this process, sharing the
+ * run's store, profile, workspace and clock; --isolate (or
+ * BOOSTER_STAGE_ISOLATION=process) spawns it as a child process instead.
+ * Overriding a gate is a person's call: it prints what it is about to record
+ * and needs --yes as well as --reason.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { ideaId, wipWarnings } from '../../src/bank.js'
-import { resolveProfilePath } from '../../src/profile.js'
-import { nextRunnable, overrideStage, runNext, runStage, applyStageResult, startWorkflow, type StageResult } from '../../src/runner.js'
+import { cliName } from '../../src/build-info.js'
+import { nextRunnable, overrideStage, runNext, runStage, applyStageResult, startWorkflow, type RunStageOptions, type StageResult } from '../../src/runner.js'
 import type { WorkflowStatusDoc } from '../../src/schema.js'
 import type { Store } from '../../src/store.js'
 import {
-  buildCalendar, generateWorkflow, governCalendar, renderWorkflowMarkdown, renderWorkflowStatus, weeklyCadence, WEEKDAYS, WORKFLOW_FORMATS,
+  buildCalendar, commandLine, generateWorkflow, governCalendar, renderWorkflowMarkdown, renderWorkflowStatus, weeklyCadence, WEEKDAYS, WORKFLOW_FORMATS,
   type Weekday,
 } from '../../src/workflow.js'
 import type { Workflow, WorkflowFormat } from '../../src/types.js'
-import { bool, getProfile, getStore, list, num, out, str, warn, type CommandModule, type Flags } from '../shared.js'
+import { activeWorkspace, bool, getProfile, getStore, list, num, out, packagesRoot, profilePath, str, warn, type CommandModule, type Flags } from '../shared.js'
 
-const USAGE_RUN = 'booster workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--override --reason ".." --yes] [--root dir] [--workflow file]'
+const USAGE_RUN = 'booster workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--isolate] [--override --reason ".." --yes] [--root dir] [--workflow file]'
+
+/**
+ * main() from cli/main.ts, the one every booster stage runs through in this
+ * process. Imported when a stage runs: main.ts imports this module, so a
+ * static import would be a cycle.
+ */
+async function runBooster(argv: string[]): Promise<number> {
+  const { main } = await import('../main.js')
+  return main(argv)
+}
+
+/** Whether stages are spawned as child processes: --isolate, or BOOSTER_STAGE_ISOLATION=process. */
+function isolated(flags: Flags): boolean {
+  return bool(flags, 'isolate') || process.env.BOOSTER_STAGE_ISOLATION === 'process'
+}
 
 /** The clock for the runner: fixed when --now is given, else the wall clock. */
 function clockFrom(flags: Flags): () => Date {
@@ -53,7 +71,7 @@ function loadWorkflow(store: Store, slug: string, root: string, flags: Flags): W
   }
   if (explicit) throw new Error(`--workflow ${explicit} does not exist`)
   const doc = store.get('workflows', slug)
-  if (!doc) throw new Error(`no workflow "${slug}": neither ${file} nor a status document. Create it first: booster workflow "<idea>" --out packages`)
+  if (!doc) throw new Error(`no workflow "${slug}": neither ${file} nor a status document. Create it first: ${cliName()} workflow "<idea>" --out packages`)
   const format = (WORKFLOW_FORMATS as string[]).includes(doc.format) ? (doc.format as WorkflowFormat) : undefined
   warn(`${file} not found; regenerating the workflow from the status document (idea "${doc.idea}", format ${format ?? 'talking-head'}, default cycle length)`)
   return generateWorkflow(doc.idea, { format })
@@ -62,7 +80,7 @@ function loadWorkflow(store: Store, slug: string, root: string, flags: Flags): W
 /** One line per stage result for the terminal: what ran (or would run) and what the gate said. */
 function renderResult(result: StageResult, slug: string): string {
   const lines: string[] = []
-  const what = result.kind === 'command' ? `\`${(result.command ?? []).join(' ')}\`` : `human step; evidence packages/${slug}/${result.evidence ?? '(none)'}`
+  const what = result.kind === 'command' ? `\`${commandLine(result.command ?? [])}\`` : `human step; evidence packages/${slug}/${result.evidence ?? '(none)'}`
   if (result.status === 'dry-run') {
     lines.push(`DRY RUN ${result.stageId}: would run ${what}`)
     lines.push(`Gate now: ${result.gate.pass ? 'PASS' : 'FAIL'} · ${result.gate.detail}`)
@@ -106,10 +124,10 @@ function runOverride(store: Store, wf: Workflow, flags: Flags, clock: () => Date
   return 0
 }
 
-function runWorkflow(slug: string | undefined, flags: Flags): number {
+async function runWorkflow(slug: string | undefined, flags: Flags): Promise<number> {
   if (!slug) throw new Error(`usage: ${USAGE_RUN}`)
   const store = getStore(flags)
-  const root = path.resolve(str(flags, 'root') ?? process.cwd())
+  const root = path.resolve(packagesRoot(flags))
   const wf = loadWorkflow(store, slug, root, flags)
   const clock = clockFrom(flags)
   if (bool(flags, 'override')) return runOverride(store, wf, flags, clock)
@@ -117,21 +135,32 @@ function runWorkflow(slug: string | undefined, flags: Flags): number {
   const agent = str(flags, 'agent')
   const dryRun = bool(flags, 'dry-run')
   const stageFlag = str(flags, 'stage')
-  // Stage commands run as child processes: hand them this run's store and profile through the environment.
-  const env: NodeJS.ProcessEnv = { ...process.env, BOOSTER_DATA: path.resolve(store.root), BOOSTER_PROFILE: resolveProfilePath(str(flags, 'path')) }
-  // ...and this run's fixed clock, so a time-sensitive stage reads the same instant its gate is stamped with.
-  if (str(flags, 'now')) env.BOOSTER_NOW = clock().toISOString()
-  const options = { cwd: root, agent, dryRun, now: clock, env }
+  const options: RunStageOptions = {
+    cwd: root,
+    agent,
+    dryRun,
+    now: clock,
+    runBooster,
+    isolate: isolated(flags),
+    // Every stage shares this run's store, profile and workspace, and its fixed clock when --now pinned it,
+    // so a time-sensitive stage reads the same instant its gate is stamped with.
+    locations: {
+      data: path.resolve(store.root),
+      profile: profilePath(flags),
+      workspace: activeWorkspace(flags)?.root,
+      now: str(flags, 'now') ? clock().toISOString() : undefined,
+    },
+  }
 
   let result: StageResult | undefined
   let status: WorkflowStatusDoc
   let done = false
   if (stageFlag) {
     status = startWorkflow(store, wf, clock())
-    result = runStage(wf, stageFlag, options)
+    result = await runStage(wf, stageFlag, options)
     if (result.status !== 'dry-run') status = applyStageResult(store, slug, stageFlag, result, clock())
   } else {
-    ;({ result, status, done } = runNext(store, wf, options))
+    ;({ result, status, done } = await runNext(store, wf, options))
   }
   const value = { slug, root, stageId: result?.stageId, dryRun, result, status, done }
   out(value, flags, () => [
@@ -145,7 +174,7 @@ export const workflowModule: CommandModule = {
   verbs: ['workflow', 'cadence', 'week', 'calendar'],
   help: [
     'workflow "<idea>" [--promise ".."] [--format talking-head] [--days 14] [--kickoff YYYY-MM-DD] [--out dir]   the runbook + status document; the promise feeds the packaging stage',
-    'workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--root dir] [--workflow packages/<slug>.json]',
+    'workflow run <slug> [--next | --stage <id>] [--agent <name>] [--dry-run] [--isolate] [--root dir] [--workflow packages/<slug>.json]   runs the stage in this process; --isolate (or BOOSTER_STAGE_ISOLATION=process) spawns it',
     'workflow run <slug> --override --reason ".." --yes [--stage <id>]   a person overrides a gate; recorded, shown in the retro',
     'workflow status <slug>                                             stage status of one workflow',
     'cadence | week [--publish thu] [--per-week 1] [--solo | --team]    the weekly operating rhythm (defaults from channel.json)',
@@ -158,7 +187,7 @@ export const workflowModule: CommandModule = {
         const slug = rest[0]
         if (!slug) throw new Error('usage: booster workflow status <slug>')
         const doc = getStore(flags).get('workflows', slug)
-        if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: booster workflow "<idea>" --out packages`)
+        if (!doc) throw new Error(`no workflow status for "${slug}". Create it first: ${cliName()} workflow "<idea>" --out packages`)
         out(doc, flags, () => renderWorkflowStatus(doc))
         return 0
       }
@@ -183,8 +212,8 @@ export const workflowModule: CommandModule = {
       // The promise the package must keep travels with the workflow so `package build <slug>` (the packaging stage) has it: --promise, else the banked idea's.
       const promise = str(flags, 'promise') ?? store.get('ideas', ideaId(idea))?.promise ?? doc.promise
       if (promise && doc.promise !== promise) store.upsert('workflows', { ...doc, promise })
-      if (!promise) warn(`no promise for ${wf.slug}: the packaging stage needs one (booster workflow "<idea>" --promise ".." or bank the idea with --promise)`)
-      warn(existed ? `status document for ${wf.slug} already exists; progress kept (booster workflow status ${wf.slug})` : `status document created: booster workflow run ${wf.slug} --next --agent <name>`)
+      if (!promise) warn(`no promise for ${wf.slug}: the packaging stage needs one (${cliName()} workflow "<idea>" --promise ".." or bank the idea with --promise)`)
+      warn(existed ? `status document for ${wf.slug} already exists; progress kept (${cliName()} workflow status ${wf.slug})` : `status document created: ${cliName()} workflow run ${wf.slug} --next --agent <name>`)
       out({ ...wf, promise: promise ?? null }, flags, () => md)
       return 0
     }

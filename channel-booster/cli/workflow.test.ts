@@ -3,15 +3,30 @@
  * (dry-run, --stage, --override gate, human stages with evidence files),
  * `workflow status`, `cadence` / `week` with channel.json defaults and WIP
  * warnings, and `calendar` with the governor. Every run uses temp dirs for
- * --data, --path, --out and --root; command stages are only ever dry-run.
+ * --data, --path, --out and --root. Command stages run in this process:
+ * node:child_process is mocked so any spawn fails the test, except where a
+ * test isolates a stage on purpose.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { main } from '../cli/booster.js'
 import { openStore } from '../src/store.js'
 import { slugify } from '../src/workflow.js'
+import { WORKSPACE_MARKER } from '../src/workspace.js'
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...actual,
+    spawnSync: vi.fn(() => {
+      throw new Error('spawnSync was called: a booster stage runs in-process unless it is isolated')
+    }),
+  }
+})
+const spawned = vi.mocked(spawnSync)
 
 const NOW = '2026-09-14T09:00:00Z'
 const IDEA = 'Empty Sprinter to camper in 90 days'
@@ -24,9 +39,13 @@ beforeEach(() => {
   tmp = mkdtempSync(path.join(os.tmpdir(), 'booster-workflow-'))
   data = path.join(tmp, 'data')
   noProfile = path.join(tmp, 'missing-channel.json')
+  // Back to the throwing spawnSync, with no calls recorded, whatever the shell asked for.
+  spawned.mockReset()
+  vi.stubEnv('BOOSTER_STAGE_ISOLATION', '')
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   rmSync(tmp, { recursive: true, force: true })
 })
 
@@ -90,6 +109,7 @@ describe('booster help', () => {
   it('lists the runner, status, week alias and governor flags', async () => {
     const { out } = await run(['help'])
     expect(out).toMatch(/workflow run <slug> \[--next \| --stage <id>\]/)
+    expect(out).toMatch(/workflow run <slug> .*\[--isolate\].*BOOSTER_STAGE_ISOLATION=process/)
     expect(out).toMatch(/--override --reason ".." --yes/)
     expect(out).toMatch(/workflow status <slug>/)
     expect(out).toMatch(/cadence \| week/)
@@ -159,12 +179,13 @@ describe('booster workflow run', () => {
     const { parsed } = await json(runFlags(['--next', '--dry-run', '--agent', 'bot']))
     expect(parsed).toMatchObject({ slug: SLUG, root: tmp, stageId: 'demand', dryRun: true, done: false })
     expect(parsed.result.status).toBe('dry-run')
-    expect(parsed.result.command.slice(0, 4)).toEqual(['npm', 'run', 'booster', '--'])
+    // Stored and recorded version-neutral; printed above as this build types it.
+    expect(parsed.result.command.slice(0, 3)).toEqual(['booster', 'idea', 'score'])
     expect(parsed.result.agent).toBe('bot')
     expect(parsed.status.stages[0].status).toBe('pending')
   })
 
-  it('really runs the demand stage: it spawns booster, and only a person\'s approval opens the gate', async () => {
+  it('really runs the demand stage in this process, spawning nothing, and only a person\'s approval opens the gate', async () => {
     const score = 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4'
     await run(['bank', 'add', IDEA, '--score', score, '--promise', 'a road-ready camper in 90 days, every cost shown', ...base()])
     await createWorkflow()
@@ -179,13 +200,111 @@ describe('booster workflow run', () => {
     expect(scorecard).toMatchObject({ idea: IDEA, verdict: 'green', status: 'banked' })
 
     await run(['bank', 'approve', IDEA, '--yes', ...base()])
-    const approved = await run(runFlags(['--next', '--agent', 'tester']))
+    const approved = await json(runFlags(['--next', '--agent', 'tester']))
     expect(approved.code).toBe(0)
-    expect(approved.out).toMatch(/Stage demand PASSED \(by tester\)/)
-    expect(approved.out).toMatch(/ok: demand.json: verdict is "green"; ok: demand.json: status is "green"/)
-    expect(approved.out).toMatch(/Next: packaging/)
+    // The stage's own output is its record, as a child process's stdout was; the runner's JSON stays one document.
+    expect(approved.parsed.result).toMatchObject({ stageId: 'demand', status: 'passed', exitCode: 0, command: ['booster', 'idea', 'score', SLUG, '--out', `packages/${SLUG}/demand.json`] })
+    expect(approved.parsed.result.stdout).toMatch(/^Idea: Empty Sprinter to camper in 90 days\nTotal \d+\/100 · verdict GREEN/)
+    expect(approved.parsed.result.stdout).toContain(`Wrote ${path.join(tmp, 'packages', SLUG, 'demand.json')}`)
+    expect(approved.parsed.result.gate.detail).toBe('ok: demand.json: verdict is "green"; ok: demand.json: status is "green"')
     expect(openStore(data).get('workflows', SLUG)!.stages[0].status).toBe('passed')
+    const text = await run(['workflow', 'status', SLUG, ...base()])
+    expect(text.out).toMatch(/Next: packaging/)
+    expect(spawned).not.toHaveBeenCalled()
+  })
+
+  it('records a stage that throws in this process as exit 1 with the line the command line prints', async () => {
+    // Nothing is banked, so `idea score <slug>` throws: the stage fails and says why, and the runner itself does not.
+    await createWorkflow()
+    const { code, parsed } = await json(runFlags(['--next', '--agent', 'tester']))
+    expect(code).toBe(1)
+    expect(parsed.result).toMatchObject({ stageId: 'demand', status: 'failed', exitCode: 1, stdout: '' })
+    expect(parsed.result.stderr).toMatch(/^booster: usage: booster idea score .*Nothing in the bank matches "empty-sprinter-to-camper-in-90-days"/)
+    expect(parsed.result.stderr.endsWith('\n')).toBe(true)
+    expect(parsed.result.gate.detail).toMatch(/^FAIL: command exited 1; FAIL: missing demand.json/)
+    expect(parsed.status.stages[0]).toMatchObject({ status: 'failed', agent: 'tester' })
+    const text = await run(runFlags(['--next', '--agent', 'tester']))
+    expect(text.out).toMatch(/Exit code 1\n/)
+    expect(text.out).toMatch(/ {2}\| booster: usage: booster idea score/)
+    expect(spawned).not.toHaveBeenCalled()
+  })
+
+  it('runs a runbook stored with the legacy `npm run booster --` prefix in this process, recorded and printed as before', async () => {
+    await run(['bank', 'add', IDEA, '--score', 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4', ...base()])
+    await run(['bank', 'approve', IDEA, '--yes', ...base()])
+    await createWorkflow()
+    const file = path.join(tmp, 'packages', `${SLUG}.json`)
+    const wf = JSON.parse(readFileSync(file, 'utf8'))
+    for (const s of wf.stages) if (s.run?.kind === 'command') s.run.command = ['npm', 'run', 'booster', '--', ...s.run.command.slice(1)]
+    writeFileSync(file, JSON.stringify(wf, null, 2))
+    expect(wf.stages[0].run.command.slice(0, 4)).toEqual(['npm', 'run', 'booster', '--'])
+
+    const text = await run(runFlags(['--stage', 'demand', '--agent', 'tester']))
+    expect(text.code).toBe(0)
+    expect(text.out).toMatch(/Stage demand PASSED \(by tester\): `npm run booster -- idea score empty-sprinter-to-camper-in-90-days --out packages\/empty-sprinter-to-camper-in-90-days\/demand.json`/)
+    const { parsed } = await json(runFlags(['--stage', 'demand', '--agent', 'tester']))
+    expect(parsed.result.command).toEqual(['booster', 'idea', 'score', SLUG, '--out', `packages/${SLUG}/demand.json`])
+    expect(parsed.result.status).toBe('passed')
+    expect(spawned).not.toHaveBeenCalled()
+  })
+
+  it('--isolate spawns the stage as the command line from the root, and hands it the store, profile and clock through the environment', async () => {
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
+    spawned.mockImplementationOnce(actual.spawnSync as typeof spawnSync)
+    await run(['bank', 'add', IDEA, '--score', 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4', ...base()])
+    await run(['bank', 'approve', IDEA, '--yes', ...base()])
+    await createWorkflow()
+
+    const { code, parsed } = await json(runFlags(['--next', '--agent', 'tester', '--isolate']))
+    expect(spawned).toHaveBeenCalledTimes(1)
+    const [file, args, options] = spawned.mock.calls[0] as unknown as [string, string[], { cwd: string; env: NodeJS.ProcessEnv }]
+    expect(file).toBe(process.execPath)
+    expect(args[0].replace(/\\/g, '/')).toMatch(/\/tsx\/dist\/cli\.mjs$/)
+    expect(args[1].replace(/\\/g, '/')).toMatch(/channel-booster\/cli\/booster\.ts$/)
+    expect(args.slice(2)).toEqual(['idea', 'score', SLUG, '--out', `packages/${SLUG}/demand.json`, '--root', tmp])
+    expect(options.cwd).toBe(tmp)
+    expect(options.env).toMatchObject({ BOOSTER_DATA: data, BOOSTER_PROFILE: noProfile, BOOSTER_NOW: '2026-09-14T09:00:00.000Z' })
+    expect(options.env.BOOSTER_HOME).toBeUndefined()
+    // The child really ran: it wrote the scorecard under the root and the gate read it.
+    expect(parsed.result).toMatchObject({ stageId: 'demand', status: 'passed', exitCode: 0 })
+    expect(parsed.result.stdout).toMatch(/^Idea: Empty Sprinter to camper in 90 days/)
+    expect(code).toBe(0)
   }, 60_000)
+
+  it('BOOSTER_STAGE_ISOLATION=process isolates every stage without the flag', async () => {
+    vi.stubEnv('BOOSTER_STAGE_ISOLATION', 'process')
+    spawned.mockImplementationOnce((() => ({ status: 3, stdout: 'from the child\n', stderr: '', pid: 1, output: [], signal: null })) as unknown as typeof spawnSync)
+    await createWorkflow()
+    const { code, parsed } = await json(runFlags(['--next']))
+    expect(spawned).toHaveBeenCalledTimes(1)
+    expect(parsed.result).toMatchObject({ exitCode: 3, stdout: 'from the child\n', status: 'failed' })
+    expect(code).toBe(1)
+  })
+
+  it('in a workspace, runs the stage against the workspace\'s store, profile and packages with no location flags', async () => {
+    const ws = path.join(tmp, 'channel')
+    mkdirSync(ws, { recursive: true })
+    writeFileSync(path.join(ws, WORKSPACE_MARKER), JSON.stringify({ schemaVersion: 1, kind: 'channel-booster-workspace', channel: 'Vans', createdAt: NOW }))
+    const inWs = ['--workspace', ws, '--now', NOW]
+    await run(['bank', 'add', IDEA, '--score', 'demand=5,packaging=4,fit=4,angle=4,payoff=5,feasibility=4', ...inWs])
+    await run(['bank', 'approve', IDEA, '--yes', ...inWs])
+    expect((await run(['workflow', IDEA, '--out', path.join(ws, 'packages'), ...inWs])).code).toBe(0)
+    // Run from outside the workspace, so only --workspace can put the packages root there.
+    const cwd = process.cwd()
+    process.chdir(tmp)
+    try {
+      const { code, parsed } = await json(['workflow', 'run', SLUG, '--next', '--agent', 'tester', ...inWs])
+      expect(parsed.root).toBe(ws)
+      expect(parsed.result).toMatchObject({ stageId: 'demand', status: 'passed', exitCode: 0 })
+      expect(code).toBe(0)
+    } finally {
+      process.chdir(cwd)
+    }
+    expect(JSON.parse(readFileSync(path.join(ws, 'packages', SLUG, 'demand.json'), 'utf8'))).toMatchObject({ idea: IDEA, status: 'green' })
+    expect(openStore(path.join(ws, 'data')).get('workflows', SLUG)!.stages[0].status).toBe('passed')
+    expect(existsSync(path.join(tmp, 'packages'))).toBe(false)
+    expect(spawned).not.toHaveBeenCalled()
+  })
 
   it('defaults to --next when neither --next nor --stage is given', async () => {
     await createWorkflow()
@@ -277,7 +396,7 @@ describe('booster workflow run', () => {
     await override('story', 'c')
     const dry = await json(runFlags(['--next', '--dry-run']))
     expect(dry.parsed.result).toMatchObject({ stageId: 'plan', kind: 'command', status: 'dry-run' })
-    expect(dry.parsed.result.command).toEqual(['npm', 'run', 'booster', '--', 'plan', 'shots', SLUG, '--format', 'talking-head'])
+    expect(dry.parsed.result.command).toEqual(['booster', 'plan', 'shots', SLUG, '--format', 'talking-head'])
     expect(dry.parsed.result.gate.detail).toMatch(/shots.md is missing/)
   })
 

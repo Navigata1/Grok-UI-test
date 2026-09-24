@@ -208,7 +208,7 @@ describe('booster plan shots', () => {
     writePkg(slug)
     const wf = JSON.parse(readFileSync(path.join(tmp, 'packages', `${slug}.json`), 'utf8'))
     const plan = wf.stages.find((s: any) => s.id === 'plan')
-    expect(plan.run.command.slice(4)).toEqual(['plan', 'shots', '<slug>', '--format', 'talking-head'])
+    expect(plan.run.command).toEqual(['booster', 'plan', 'shots', '<slug>', '--format', 'talking-head'])
     expect(plan.check).toEqual({
       kind: 'all-of',
       checks: [
