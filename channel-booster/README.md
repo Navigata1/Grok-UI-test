@@ -134,7 +134,9 @@ In Claude Code, the same engines are skills: `/booster` routes, and `/booster-id
 
 [`dashboard/index.html`](dashboard/index.html) is a single file: open it locally or publish it as an artifact. It runs the same engines in the browser (bundled from `src/` by `node channel-booster/dashboard/build.mjs`), keeps an idea bank and a packaging ledger, and, when published with the `db` and `sample` capabilities, shares those with your team and can ask Claude for titles and thumbnail concepts in place. Without those capabilities it falls back to the browser's local storage and says so in the header.
 
-Rebuild after changing an engine or the template:
+The page itself makes no network request (the shared db and Claude calls, when granted, go through the artifact host). Its fonts (Syne, IBM Plex Sans, IBM Plex Mono, each under the SIL Open Font License 1.1, in [`dashboard/fonts/`](dashboard/fonts/)) are inlined, and the two thumbnail exports you pick in Publish are read in the browser for their size and dimensions, never uploaded. Every human gate (approving a green idea, confirming the publish, approving a decision, accepting a rule, deleting an idea or a ledger row) asks inside the page, because a published artifact answers the browser's own confirm dialog with no. Its example scan is `examples/competitors.csv`, read as of 2026-07-10 as the CLI reads it. Offline, its title lab shows the formula shapes with a blank to write your own title from, not scored fills.
+
+Rebuild after changing an engine, the template or a font:
 
 ```bash
 node channel-booster/dashboard/build.mjs
@@ -163,7 +165,7 @@ channel-booster/
   src/                      engines + tests (thresholds.ts holds every gate with its evidence tag)
   src/ai/                   Claude-powered engines: prompt assembly, schemas, the one file that calls the API
   cli/                      booster.ts routes; commands/*.ts per group
-  dashboard/                template.html + build.mjs -> index.html
+  dashboard/                template.html + fonts/ + build.mjs -> index.html (one file, no network requests)
   examples/                 sample exports
   data/                     the store: ideas, ledger, decisions, experiments, rules, workflows (JSONL, git-ignored); last-scan.json and last-audit.json land here too
   inbox/                    drop Studio exports here for booster review run (git-ignored)
