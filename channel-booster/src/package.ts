@@ -31,8 +31,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import { shippedDoctrine } from './ai/doctrine.js'
 import { checkPromise, type PromiseReport } from './promise.js'
 import { stableId, type Signature } from './schema.js'
 import { describeSignature } from './signature.js'
@@ -866,15 +866,13 @@ export function readPackage(dir: string): PackageDoc | undefined {
   return parsed.data
 }
 
-/** Path of the fix-round prompt template shipped with the module. */
-export const PACKAGE_FIX_PROMPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts', 'package-fix.md')
-
 /**
  * Fill the fix-round prompt: `{{fixes}}` becomes one line per fix,
  * `{{previous}}` the last round's output as JSON. Any other placeholder is
- * left in place. Reads prompts/package-fix.md unless a template is given.
+ * left in place. Uses the shipped doctrine's prompts/package-fix.md (embedded
+ * in the packaged bin) unless a template is given.
  */
-export function renderFixPrompt(fixes: string[], previous: unknown, template: string = readFileSync(PACKAGE_FIX_PROMPT_PATH, 'utf8')): string {
+export function renderFixPrompt(fixes: string[], previous: unknown, template: string = shippedDoctrine().packageFixTemplate): string {
   const fixText = fixes.length ? fixes.map((f) => `- ${f}`).join('\n') : '- (none)'
   const prevText = typeof previous === 'string' ? previous : JSON.stringify(previous ?? null, null, 2)
   return template.replace(/\{\{fixes\}\}/g, fixText).replace(/\{\{previous\}\}/g, prevText)

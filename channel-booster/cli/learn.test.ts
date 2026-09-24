@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { main } from '../cli/booster.js'
+import { DOCTRINE_FILE, shippedDoctrine } from '../src/ai/doctrine.js'
+import { captureIo } from '../src/io.js'
 import { addRow, recordRead } from '../src/ledger.js'
 import { openStore } from '../src/store.js'
 import { resetThresholds } from '../src/thresholds.js'
+import { CODE_ROOT, WORKSPACE_MARKER } from '../src/workspace.js'
 import type { Baselines } from '../src/schema.js'
 
 const NOW = '2026-09-14T12:00:00Z'
@@ -320,9 +323,16 @@ describe('booster rules', () => {
     expect(out).toContain("Compiled rules are hypotheses under observation from this channel's own small sample, not doctrine. Only a person moves a rule into the playbook: booster retro --accept-rule")
     expect(out).toContain(`  under observation, winning so far: "${HYPOTHESIS}" (10 tests, `)
     expect(out).toContain('No status changes since the last compile.')
-    // --playbook wrote outside the folder the ai engines read, and the line says so rather than claiming they load it.
-    expect(out).toContain('does not reach their prompts')
+    // The ai engines read the channel playbook folder from the same flags, and the line says where.
+    expect(out).toContain(`Wrote ${file} (${content.length} chars). The booster ai engines load it when they run with --playbook ${playbook}, right after docs/02, as observations under test, not doctrine.`)
+    expect(out).not.toContain('does not reach their prompts')
     expect(out).not.toMatch(/prefer|\bpromoted\b/i)
+    // ...and it is true: an engine run with the same flags carries the compiled file right after docs/02.
+    const dry = await json(['ai', 'title-lab', '--idea', 'Van build', '--dry-run'])
+    expect(dry.overlayDir).toBe(playbook)
+    expect(dry.overlay).toEqual(['playbook/00-learned-rules.md', 'playbook/ideation.md'])
+    expect(dry.playbookFiles.slice(0, 2)).toEqual(['docs/02-strategist-playbook.md', 'channel playbook/00-learned-rules.md'])
+    expect(dry.system[1].text).toContain(`<!-- channel playbook/00-learned-rules.md -->\n${content.trim()}`)
 
     await json(['retro', '--accept-rule', 'Never shout in the title', '--into', 'ideation.md', '--yes'])
     const again = await json(['rules', 'compile', '--half-life', '30', '--promote-tests', '5'])
@@ -354,6 +364,82 @@ describe('booster rules', () => {
   it('show says what to do on an empty store', async () => {
     const { out } = await run(['rules', 'show'])
     expect(out).toContain('No rules yet')
+  })
+})
+
+describe('a channel workspace', () => {
+  const shippedPlaybook = path.join(CODE_ROOT, 'playbook')
+  const shippedFile = path.join(shippedPlaybook, 'title-formulas.md')
+  const rule = 'Numbers in the title beat adjectives on this channel'
+  let ws: string
+  let own: string
+
+  beforeEach(() => {
+    // Only the workspace decides here: no location variable from the environment running the tests.
+    vi.stubEnv('BOOSTER_DATA', '')
+    vi.stubEnv('BOOSTER_PROFILE', '')
+    vi.stubEnv('BOOSTER_HOME', '')
+    ws = path.join(tmp, 'my-channel')
+    own = path.join(ws, 'playbook', 'title-formulas.md')
+    mkdirSync(path.join(ws, 'playbook'), { recursive: true })
+    writeFileSync(path.join(ws, WORKSPACE_MARKER), JSON.stringify({ schemaVersion: 1, kind: 'channel-booster-workspace', channel: 'Vans', createdAt: NOW }))
+    writeFileSync(path.join(ws, 'channel.json'), JSON.stringify({ positioning: 'Van builds for first-timers' }))
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  /** Run a command in the workspace, output captured through src/io.ts; a thrown error rethrows. */
+  async function inWorkspace(argv: string[]): Promise<string> {
+    const r = await captureIo(() => main([...argv, '--workspace', ws, '--now', NOW]))
+    if (r.threw) throw r.error
+    expect(r.value).toBe(0)
+    return r.stdout
+  }
+
+  it('retro --accept-rule starts the channel\'s copy of a shipped file and never touches the shipped playbook', async () => {
+    const shippedBefore = readFileSync(shippedFile, 'utf8')
+    const namesBefore = readdirSync(shippedPlaybook).sort()
+
+    const preview = await captureIo(() => main(['retro', '--accept-rule', rule, '--into', 'playbook/title-formulas.md', '--workspace', ws, '--now', NOW]))
+    expect(preview.threw).toBe(true)
+    expect(preview.stdout).toContain(`About to start ${own}, this channel's additions to the shipped playbook/title-formulas.md, and append:`)
+    expect(existsSync(own)).toBe(false)
+
+    const accepted = JSON.parse(await inWorkspace(['retro', '--accept-rule', rule, '--into', 'playbook/title-formulas.md', '--yes', '--json']))
+    expect(accepted.written).toBe(own)
+    expect(accepted.extends).toBe('playbook/title-formulas.md')
+    expect(readFileSync(own, 'utf8')).toBe(`# Accepted rules for this channel, extending the shipped playbook/title-formulas.md\n\n## Learned rules\n\n- 2026-09-14: ${rule}\n`)
+    // A path naming the shipped folder still means this channel's copy; the rule docs land in the workspace's store.
+    const again = await inWorkspace(['retro', '--accept-rule', 'Face left on every how-to', '--into', 'channel-booster/playbook/title-formulas.md', '--yes'])
+    expect(again).toContain(`Accepted into ${own}:`)
+    expect(readFileSync(own, 'utf8')).toContain(`- 2026-09-14: ${rule}\n- 2026-09-14: Face left on every how-to\n`)
+    expect(openStore(path.join(ws, 'data')).read('rules').map((d) => d.rule).sort()).toEqual(['Face left on every how-to', rule])
+
+    await expect(inWorkspace(['retro', '--accept-rule', rule, '--into', 'playbook/brand-new.md', '--yes'])).rejects.toThrow(/no such playbook file: .*brand-new\.md\. Accept the rule into a file this channel's playbook already has, or into a shipped playbook file/)
+    await expect(inWorkspace(['retro', '--accept-rule', rule, '--into', shippedFile, '--yes'])).rejects.toThrow(/refusing to write outside the playbook folder/)
+    expect(readFileSync(shippedFile, 'utf8')).toBe(shippedBefore)
+    expect(readdirSync(shippedPlaybook).sort()).toEqual(namesBefore)
+  })
+
+  it('the ai engines load the workspace\'s channel.json and playbook folder on top of the shipped doctrine', async () => {
+    const namesBefore = readdirSync(shippedPlaybook).sort()
+    const compiled = await inWorkspace(['rules', 'compile'])
+    expect(compiled).toContain(`The booster ai engines load it from this workspace's playbook folder, ${path.join(ws, 'playbook')}, right after docs/02`)
+    await inWorkspace(['retro', '--accept-rule', rule, '--into', 'title-formulas.md', '--yes'])
+
+    const shipped = shippedDoctrine()
+    const dry = JSON.parse(await inWorkspace(['ai', 'title-lab', '--idea', 'Van build', '--dry-run', '--json']))
+    expect(dry.doctrine).toEqual({ hash: shipped.hash, files: shipped.files.map((f) => f.name) })
+    expect(dry.overlay).toEqual(['playbook/00-learned-rules.md', 'playbook/title-formulas.md'])
+    expect(dry.overlayDir).toBe(path.join(ws, 'playbook'))
+    expect(dry.playbookFiles).toEqual([DOCTRINE_FILE, 'channel playbook/00-learned-rules.md', ...shipped.files.slice(1).map((f) => f.name), 'channel playbook/title-formulas.md'])
+    expect(dry.system[1].text).toContain(`<!-- channel playbook/title-formulas.md -->\n# Accepted rules for this channel, extending the shipped playbook/title-formulas.md`)
+    expect(dry.user).toContain('Channel: Positioning: Van builds for first-timers.')
+    const text = await inWorkspace(['ai', 'title-lab', '--idea', 'Van build', '--dry-run'])
+    expect(text).toContain(`doctrine ${shipped.hash} (${shipped.files.length} files)\noverlay ${path.join(ws, 'playbook')}: playbook/00-learned-rules.md, playbook/title-formulas.md`)
+    // Compiling and accepting in the workspace wrote nothing into the shipped playbook.
+    expect(readdirSync(shippedPlaybook).sort()).toEqual(namesBefore)
   })
 })
 

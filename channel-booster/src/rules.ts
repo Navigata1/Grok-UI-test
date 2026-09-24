@@ -8,8 +8,10 @@
  * around one trend. Pinned rules and rules a person accepted are never
  * rewritten by the compiler.
  *
- * The output lands in `playbook/00-learned-rules.md`, which the alphabetical
- * loader in src/ai reads first, and in the `rules` collection of the store.
+ * The output lands in `00-learned-rules.md` in the channel playbook folder
+ * (a workspace's playbook/, --playbook, or channel-booster/playbook from
+ * source), which the loader in src/ai reads right after docs/02, and in the
+ * `rules` collection of the store.
  *
  * A compiled rule is a hypothesis under observation, never doctrine: the gates
  * below are not a significance test, and a small channel's sample cannot tell
@@ -24,11 +26,26 @@ import { baselineFrom, readLedger } from './ledger.js'
 import { isProtected, noEffectPromoteChance, ruleEvidence, ruleSentence, ruleText, smoothedWinRate } from './rules-core.js'
 import { RuleDoc, stableId, type DecisionDoc, type LedgerRow } from './schema.js'
 import type { Store } from './store.js'
+import { CODE_ROOT } from './workspace.js'
 
 export * from './rules-core.js'
 
-/** File name of the compiled rules; sorted first by the playbook loader. */
+/** File name of the compiled rules; the playbook loader puts it right after docs/02. */
 export const LEARNED_RULES_FILE = '00-learned-rules.md'
+
+/**
+ * The playbook folder a source checkout ships (channel-booster/playbook). A
+ * channel playbook folder that resolves to it is the legacy layout, where the
+ * compiled and accepted rules sit beside the shipped files; any other folder
+ * (a workspace's playbook/, or --playbook) holds only the channel's own rules
+ * and is loaded on top of the shipped doctrine.
+ */
+export const SHIPPED_PLAYBOOK_DIR = path.join(CODE_ROOT, 'playbook')
+
+/** True when dir is the shipped playbook folder itself: the legacy source layout. */
+export function isShippedPlaybookDir(dir: string, shippedDir: string = SHIPPED_PLAYBOOK_DIR): boolean {
+  return path.resolve(dir) === path.resolve(shippedDir)
+}
 
 /** Hard cap on the compiled file so it never crowds the doctrine out of the system prompt. */
 export const LEARNED_RULES_MAX_CHARS = 8_000

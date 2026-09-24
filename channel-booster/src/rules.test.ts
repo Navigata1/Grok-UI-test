@@ -6,11 +6,13 @@ import { addRow, recordRead } from './ledger.js'
 import {
   LEARNED_RULES_FILE,
   LEARNED_RULES_MAX_CHARS,
+  SHIPPED_PLAYBOOK_DIR,
   compileRuleDocs,
   compileRules,
   decay,
   describeRule,
   isProtected,
+  isShippedPlaybookDir,
   leverKey,
   noEffectPromoteChance,
   renderLearnedRules,
@@ -27,6 +29,18 @@ import {
 } from './rules.js'
 import { RuleDoc, DecisionDoc, type LedgerRow } from './schema.js'
 import { openStore, type Store } from './store.js'
+import { CODE_ROOT } from './workspace.js'
+
+describe('the shipped playbook folder', () => {
+  it('is channel-booster/playbook, and only that folder itself is the legacy layout', () => {
+    expect(SHIPPED_PLAYBOOK_DIR).toBe(path.join(CODE_ROOT, 'playbook'))
+    expect(isShippedPlaybookDir(SHIPPED_PLAYBOOK_DIR)).toBe(true)
+    expect(isShippedPlaybookDir(`${path.join(CODE_ROOT, 'data', '..', 'playbook')}${path.sep}`)).toBe(true)
+    expect(isShippedPlaybookDir(path.join(CODE_ROOT, 'playbook', 'sub'))).toBe(false)
+    expect(isShippedPlaybookDir('/ws/playbook')).toBe(false)
+    expect(isShippedPlaybookDir('/ws/playbook', '/ws/playbook/')).toBe(true)
+  })
+})
 
 let root: string
 let store: Store
